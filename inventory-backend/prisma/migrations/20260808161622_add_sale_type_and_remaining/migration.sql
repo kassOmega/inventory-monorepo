@@ -1,0 +1,6 @@
+-- CreateEnum
+CREATE TYPE "SaleType" AS ENUM ('FULLY_PAID', 'PARTIALLY_PAID', 'CREDITED');
+
+-- AlterTable
+ALTER TABLE "Sale" ADD COLUMN     "remainingAmount" DOUBLE PRECISION NOT NULL DEFAULT 0,
+ADD COLUMN     "saleType" "SaleType" NOT NULL DEFAULT 'FULLY_PAID';

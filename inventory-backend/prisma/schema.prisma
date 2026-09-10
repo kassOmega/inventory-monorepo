@@ -1,0 +1,2809 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- Enums ---
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum LocationType {
+  SHOP
+  STORE
+}
+
+enum RequestType {
+  SHOP_TO_STORE
+  STORE_TO_OWNER
+  STORE_TO_STORE
+}
+
+enum RequestStatus {
+  PENDING
+  PARTIALLY_APPROVED
+  APPROVED
+  REJECTED
+  PARTIALLY_DISPATCHED
+  PARTIALLY_RECEIVED
+  PARTIALLY_FULFILLED
+  COMPLETED
+  AWAITING_CONFIRMATION
+  CLOSED
+}
+
+enum RequestItemStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  DISPATCHED
+  STORED
+  RECEIVED
+  PARTIALLY_RECEIVED
+  PARTIALLY_FULFILLED
+  COMPLETED
+  CANCELLED
+  SOLD
+}
+
+enum SaleType {
+  FULLY_PAID
+  PARTIALLY_PAID
+  CREDITED
+}
+
+enum PurchaseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum OrgStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum BusinessType {
+  RETAIL
+  HOSPITALITY
+  MANUFACTURING
+  SERVICE
+}
+
+enum ProductKind {
+  GOODS
+  BEVERAGE
+  INGREDIENT
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  INCOME
+  EXPENSE
+}
+
+enum TaxDirection {
+  OUTPUT // tax collected on sales (output VAT / sales tax)
+  INPUT // tax paid on purchases & expenses (input VAT, reclaimable)
+}
+
+enum FiscalStatus {
+  NOT_PRINTED
+  PRINT_PENDING
+  PRINTED
+  PRINT_FAILED
+}
+
+enum OrderStatus {
+  OPEN
+  DISPATCHED
+  PREPARING
+  READY
+  SERVED
+  PAID
+  CANCELLED
+}
+
+enum OrderItemStatus {
+  QUEUED
+  PREPARING
+  READY
+  SERVED
+}
+
+// How a menu item COGS is tracked at settlement:
+//  - SIMPLE    -> revenue only, no COGS entry, no stock deduction.
+//  - BENCHMARK -> estimated COGS entry (estimatedCogs), no stock deduction.
+//  - PERPETUAL -> exact recipe-based COGS + raw-ingredient stock deduction.
+enum MenuItemTrackingMode {
+  SIMPLE
+  BENCHMARK
+  PERPETUAL
+}
+
+enum Station {
+  KITCHEN
+  BAR
+  BARISTA
+}
+
+// Owner-managed preparation stations (Kitchen, Bar, Barista, Butcher, Bakery,
+// ...). Orders route through an ordered list of stations per menu item.
+model RestaurantStation {
+  id           Int      @id @default(autoincrement())
+  tenantId     Int?
+  name         String // e.g. "Butcher"
+  key          String // stable slug used for routes + URLs, e.g. "butcher"
+  roleName     String? // staff role notified when items arrive here, e.g. "Chef"
+  // Localized display content: { en, am } (optional per language). Resolution
+  // happens server-side via the localized-response interceptor.
+  nameI18n     Json?
+  roleNameI18n Json?
+  roleId       Int? // auto-created role whose members view/update this station's board
+  role         Role?    @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  sortOrder    Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  menuCategories MenuCategory[]
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+}
+
+enum TableStatus {
+  FREE
+  OCCUPIED
+  RESERVED
+  CLEANING
+}
+
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  DIRTY
+  MAINTENANCE
+}
+
+enum HotelReservationStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+}
+
+enum CashEntryType {
+  INFLOW
+  OUTFLOW
+}
+
+// --- Account verification (user + business KYC) ---
+enum VerificationStatus {
+  PENDING // No documents submitted yet
+  SUBMITTED // Documents uploaded, awaiting review
+  APPROVED // Verified and allowed to operate
+  REJECTED // Rejected with a note; the user can re-upload a legitimate document
+  FLAGGED // Suspicious / requires manual review by the platform admin
+  BLOCKED // Permanently blocked for repeated fraudulent verification attempts
+}
+
+enum VerificationAccountType {
+  USER
+  BUSINESS
+}
+
+enum VerificationDocumentType {
+  NATIONAL_ID
+  TRADE_LICENSE
+  TIN_CERTIFICATE
+}
+
+// --- Organizations (Tenants) ---
+model Organization {
+  id              Int          @id @default(autoincrement())
+  name            String
+  slug            String       @unique
+  businessType    BusinessType @default(RETAIL)
+  standalone      Boolean      @default(false) // Single-location business run by the owner alone (no staff)
+  currency        String       @default("ETB")
+  timezone        String       @default("Africa/Addis_Ababa")
+  // Primary UI language for this tenant ("en" | "am"). Used as the fallback
+  // when localized entity content has no translation in the requester's
+  // language, and as the default language for notifications/push/receipts.
+  defaultLanguage String       @default("en")
+  // Per-company tax configuration. taxEnabled is the master switch; when it is
+  // turned on the VAT payable/receivable accounts are auto-created for the org.
+  taxEnabled      Boolean      @default(false)
+  taxInclusive    Boolean      @default(true) // true = entered prices already include tax
+  taxId           String? // VAT / TIN registration number (receipts & reports)
+  status          OrgStatus    @default(ACTIVE)
+  settings        Json?
+  aiEnabled       Boolean      @default(true) // AI feature enabled (on-demand, admin-controlled)
+  aiTrialEndsAt   DateTime? // null = unlimited (paid); otherwise the 15-day trial / granted window
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  // Business account verification (trade license required, TIN optional).
+  verificationStatus   VerificationStatus @default(PENDING)
+  verificationNote     String?
+  verificationAttempts Int                @default(0)
+
+  memberships      Membership[]
+  roles            Role[]
+  customers        Customer[]
+  agentConfig      OrganizationAgentConfig?
+  agentActions     AgentActionLog[]
+  verificationDocs VerificationDocument[]   @relation("OrgVerificationDocs")
+  taxRates         TaxRate[]
+  fiscalConfig     TenantFiscalConfig?
+
+  // MANUFACTURING vertical
+  boms                   BillOfMaterials[]
+  workOrders             WorkOrder[]
+  scrapLogs              ProductionScrapLog[]
+  mfgServices            MfgService[]
+  mfgServiceIncomes      MfgServiceIncome[]
+  manufacturingOrders    ManufacturingOrder[]
+  manufacturingOrderLogs ManufacturingOrderHistory[]
+  materialIssues         MaterialIssue[]
+  materialReturns        MaterialReturn[]
+  consumableIssues       ConsumableIssue[]
+  consumableUsageLogs    ConsumableUsageLog[]
+  machines               Machine[]
+  machineComponents      MachineComponent[]
+  machineStatusLogs      MachineStatusLog[]
+  componentStatusLogs    ComponentStatusLog[]
+  shiftTemplates         ShiftTemplate[]
+  shiftSessions          ShiftSession[]
+  shiftAssignments       ShiftAssignment[]
+
+  // Per-vertical settings (1:1 — only the row for the org's businessType is used).
+  retailProfile        RetailProfile?
+  hospitalityProfile   HospitalityProfile?
+  manufacturingProfile ManufacturingProfile?
+  serviceProfile       ServiceProfile?
+}
+
+// --- Per-vertical profile/settings (1:1 with Organization) ---
+// Each vertical has its own typed settings table so configuration stays isolated
+// per industry. Only the profile matching the org's businessType is created/used.
+
+model RetailProfile {
+  id             Int          @id @default(autoincrement())
+  organizationId Int          @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  allowBarcodes  Boolean      @default(true)
+  enableLayaway  Boolean      @default(false)
+  updatedAt      DateTime     @updatedAt
+}
+
+model HospitalityProfile {
+  id             Int          @id @default(autoincrement())
+  organizationId Int          @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  kitchenPrint   Boolean      @default(true)
+  autoServiceTax Float        @default(10.0)
+  enableTableMap Boolean      @default(true)
+  updatedAt      DateTime     @updatedAt
+}
+
+model ManufacturingProfile {
+  id              Int          @id @default(autoincrement())
+  organizationId  Int          @unique
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  trackBOM        Boolean      @default(true)
+  trackWorkOrders Boolean      @default(true)
+  updatedAt       DateTime     @updatedAt
+}
+
+model ServiceProfile {
+  id              Int          @id @default(autoincrement())
+  organizationId  Int          @unique
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  hourlyBilling   Boolean      @default(false)
+  appointmentSlot Int          @default(30) // in minutes
+  updatedAt       DateTime     @updatedAt
+}
+
+// Uploaded verification documents (national ID for user accounts; trade
+// license / TIN certificate for business accounts). Each submission creates a
+// new row so the full history is retained.
+model VerificationDocument {
+  id             String                   @id @default(uuid())
+  accountType    VerificationAccountType
+  documentType   VerificationDocumentType
+  userId         Int // who uploaded the document
+  user           User                     @relation("UserVerificationDocs", fields: [userId], references: [id], onDelete: Cascade)
+  organizationId Int? // set when accountType = BUSINESS
+  organization   Organization?            @relation("OrgVerificationDocs", fields: [organizationId], references: [id], onDelete: Cascade)
+  fileName       String
+  mimeType       String
+  size           Int
+  filePath       String
+  aiResult       Json? // AI review output (decision, confidence, reasons)
+  status         VerificationStatus       @default(SUBMITTED)
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  @@index([accountType, status])
+  @@index([organizationId])
+}
+
+model Membership {
+  id             Int        @id @default(autoincrement())
+  /// Non-guessable public identifier (DB-generated UUID).
+  publicId       String     @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Per-business member number (USR-001...), assigned by DB trigger.
+  number         Int?
+  userId         Int
+  organizationId Int
+  roleId         Int?
+  status         UserStatus @default(ACTIVE)
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role         Role?        @relation(fields: [roleId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, organizationId])
+  @@unique([organizationId, number])
+  @@index([organizationId])
+  @@index([userId])
+}
+
+/// Per-business counters backing the human-friendly sequential numbers
+/// (customers / credits / requests / members). Each business starts at 1 and
+/// numbers may repeat across businesses.
+model TenantCounter {
+  tenantId Int
+  key      String
+  value    Int    @default(0)
+
+  @@id([tenantId, key])
+}
+
+// --- Roles & Permissions (RBAC) ---
+model Role {
+  id             Int              @id @default(autoincrement())
+  name           String
+  description    String?
+  isSystem       Boolean          @default(false)
+  organizationId Int?
+  organization   Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions    RolePermission[]
+  users          User[]
+  memberships    Membership[]
+  notifications  Notification[]
+  createdAt      DateTime         @default(now())
+
+  restaurantStations RestaurantStation[]
+  productionFlows    MfgFlow[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model Permission {
+  id    Int              @id @default(autoincrement())
+  key   String           @unique
+  label String
+  group String
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       Int
+  permissionId Int
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+// --- Users & Locations ---
+model User {
+  id                Int        @id @default(autoincrement())
+  /// Non-guessable public identifier (DB-generated UUID).
+  publicId          String     @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email             String     @unique
+  password          String
+  name              String
+  phone             String?
+  preferredLanguage String? // User UI language preference ("en" | "am"), persisted across devices
+  isPlatformAdmin   Boolean    @default(false)
+  isOwnerAccount    Boolean    @default(false)
+  aiTrialEndsAt     DateTime? // AI free-trial end date, set manually when the user is created
+  dailyAiQuota      Int? // per-user daily AI query cap (null = global AI_DAILY_QUOTA default)
+  roleId            Int?
+  role              Role?      @relation(fields: [roleId], references: [id])
+  status            UserStatus @default(ACTIVE)
+  locationId        Int?
+  location          Location?  @relation(fields: [locationId], references: [id])
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  // User account verification (renewed national ID required for owner accounts).
+  verificationStatus   VerificationStatus @default(PENDING)
+  verificationNote     String?
+  verificationAttempts Int                @default(0)
+
+  auditLogs        AuditLog[]
+  memberships      Membership[]
+  aiChatSessions   AiChatSession[]
+  dailyAiUsage     UserDailyAiUsage[]
+  sales            Sale[]
+  verificationDocs VerificationDocument[] @relation("UserVerificationDocs")
+  servicePayments  ServicePayment[]
+}
+
+model LocationCategory {
+  id        Int        @id @default(autoincrement())
+  tenantId  Int?
+  name      String
+  locations Location[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model Location {
+  id             Int               @id @default(autoincrement())
+  tenantId       Int?
+  name           String // e.g., "Shop 1", "Main Cable Store"
+  nameI18n       Json?
+  type           LocationType
+  categoryId     Int?
+  category       LocationCategory? @relation(fields: [categoryId], references: [id])
+  inventory      Inventory[]
+  requestsFrom   StockRequest[]    @relation("ShopRequests")
+  requestsTo     StockRequest[]    @relation("StoreRequests")
+  sourceRequests StockRequest[]    @relation("SourceStore")
+  sales          Sale[]
+  users          User[]
+  notifications  Notification[]
+  customers      Customer[]
+  creditSales    CreditSale[]
+  purchases      Purchase[]
+  returns        Return[]
+  cashEntries    CashEntry[]
+  wastages       WastageEntry[]
+  workOrders     WorkOrder[]
+
+  @@index([tenantId])
+}
+
+// --- Products & Categories ---
+model Category {
+  id              Int        @id @default(autoincrement())
+  tenantId        Int?
+  name            String // e.g., "Electrical Wire", "Bulb"
+  description     String?
+  // Localized display content: { en, am } (optional per language).
+  nameI18n        Json?
+  descriptionI18n Json?
+  parentId        Int? // Supports nested categories (e.g., Clothing -> Mens -> Shoes)
+  parent          Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children        Category[] @relation("CategoryHierarchy")
+  products        Product[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([tenantId, parentId])
+}
+
+model Product {
+  id                  Int                  @id @default(autoincrement())
+  tenantId            Int?
+  sku                 String // Auto-generated unique code
+  barcode             String? // EAN/UPC barcode scanner support
+  brand               String
+  baseName            String
+  // Localized display content (optional per language): { en, am }.
+  brandI18n           Json?
+  baseNameI18n        Json?
+  attributes          Json                 @default("{}")
+  hasVariants         Boolean              @default(false) // For clothing/shoes (size/color matrix)
+  isPerishable        Boolean              @default(false) // For pharmacy/groceries (expiry/batch tracking)
+  currentBuyPrice     Float
+  currentSellPrice    Float
+  categoryId          Int
+  category            Category             @relation(fields: [categoryId], references: [id])
+  inventory           Inventory[]
+  requestItems        RequestItem[]
+  saleItems           SaleItem[]
+  priceHistory        PriceHistory[]
+  menuItemIngredients MenuItemIngredient[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  notifications       Notification[]
+  bomFinishedProducts BillOfMaterials[]    @relation("BomFinishedProduct")
+  bomRawMaterialItems BomItem[]            @relation("BomRawMaterial")
+  producedWorkOrders  WorkOrder[]          @relation("WorkOrderFinishedProduct")
+  scrapLogs           ProductionScrapLog[] @relation("ProductionScrapProduct")
+  creditSaleItems     CreditSaleItem[]
+  returnItems         ReturnItem[]
+  unitId              Int?
+  unit                Unit?                @relation(fields: [unitId], references: [id])
+  kind                ProductKind          @default(GOODS)
+  reorderLevel        Int                  @default(0) // per-item low-stock alert threshold
+  reorderQty          Int? // suggested quantity to reorder when below reorderLevel
+  variants            ProductVariant[]
+  batches             ProductBatch[]
+  wastages            WastageEntry[]
+  otherIncomes        OtherIncome[]
+  cogsEntries         CogsEntry[]
+
+  @@unique([tenantId, sku])
+  @@unique([tenantId, barcode])
+  @@index([tenantId])
+}
+
+// --- Measuring Units ---
+model Unit {
+  id       Int       @id @default(autoincrement())
+  tenantId Int?
+  name     String // e.g., "Pcs", "Pair", "Kg", "Meter", "Box", "Strip"
+  symbol   String? // e.g., "pcs", "pr", "kg", "m", "bx"
+  nameI18n Json?
+  products Product[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+// --- Product Variants (Shoes, Apparel, Multi-Pack Options) ---
+model ProductVariant {
+  id         Int      @id @default(autoincrement())
+  tenantId   Int?
+  productId  Int
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku        String // e.g., SHOE-NIKE-42-BLK
+  barcode    String?
+  attributes Json     @default("{}") // e.g., {"size": "42", "color": "Black"}
+  buyPrice   Float?
+  sellPrice  Float?
+  quantity   Int      @default(0) // reserved for per-variant stock (Phase 2)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  inventory    Inventory[]
+  saleItems    SaleItem[]
+  requestItems RequestItem[]
+  otherIncomes OtherIncome[]
+  cogsEntries  CogsEntry[]
+
+  @@unique([tenantId, sku])
+  @@unique([tenantId, barcode])
+  @@index([tenantId])
+}
+
+// --- Batches & Expiry Tracking (Pharmacies, Mini-Markets, Cosmetics) ---
+model ProductBatch {
+  id              Int       @id @default(autoincrement())
+  tenantId        Int?
+  productId       Int
+  product         Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId       Int?
+  locationId      Int?
+  batchNumber     String
+  manufactureDate DateTime?
+  expiryDate      DateTime?
+  quantity        Float     @default(0)
+  unitCost        Float?
+  vendorId        Int?
+  grnId           Int?
+  grnItemId       Int?
+  createdAt       DateTime  @default(now())
+
+  saleItems    SaleItem[]
+  requestItems RequestItem[]
+
+  @@unique([tenantId, productId, batchNumber])
+  @@index([tenantId])
+  @@index([productId, locationId, quantity])
+}
+
+model PriceHistory {
+  id           Int      @id @default(autoincrement())
+  tenantId     Int?
+  productId    Int
+  product      Product  @relation(fields: [productId], references: [id])
+  oldBuyPrice  Float
+  newBuyPrice  Float
+  oldSellPrice Float
+  newSellPrice Float
+  updatedById  Int
+  updatedAt    DateTime @default(now())
+
+  @@index([tenantId])
+}
+
+// --- Inventory Tracking (Location Specific) ---
+model Inventory {
+  id         Int             @id @default(autoincrement())
+  tenantId   Int?
+  productId  Int
+  product    Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId  Int? // set for variant-level stock; null for plain products
+  variant    ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  locationId Int
+  location   Location        @relation(fields: [locationId], references: [id])
+  quantity   Float           @default(0)
+  // Moving weighted-average unit cost per (product, variant, location).
+  // Reweighted on stock inflows (purchases/returns); unchanged on outflows
+  // (sales/consumption), which are valued at this average for COGS.
+  avgCost    Float           @default(0)
+
+  // One row per product/location for plain items; per variant/location for variants
+  @@unique([productId, variantId, locationId])
+  @@index([tenantId])
+  @@index([variantId])
+}
+
+// --- Inventory Spoilage & Wastage ---
+// Raw ingredients / stock written off (spoiled, damaged, expired). Each entry
+// reduces physical stock and posts a "Spoilage & Wastage" expense to the
+// ledger so the loss shows on the P&L without skewing standard COGS.
+model WastageEntry {
+  id          Int       @id @default(autoincrement())
+  tenantId    Int?
+  productId   Int
+  product     Product   @relation(fields: [productId], references: [id])
+  locationId  Int?
+  location    Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  quantity    Float     @default(0)
+  unitCost    Float     @default(0) // product.currentBuyPrice at the time of the write-off
+  totalValue  Float     @default(0) // quantity × unitCost
+  reason      String?
+  createdById Int?
+  createdAt   DateTime  @default(now())
+
+  @@index([tenantId])
+  @@index([productId])
+  @@index([locationId])
+  @@index([createdAt])
+}
+
+// --- Stock Request Workflow ---
+model StockRequest {
+  id           Int               @id @default(autoincrement())
+  /// Non-guessable public identifier (DB-generated UUID).
+  publicId     String            @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Per-business request number (REQ-001...), assigned by DB trigger.
+  number       Int?
+  tenantId     Int?
+  shopId       Int?
+  shop         Location?         @relation("ShopRequests", fields: [shopId], references: [id])
+  storeId      Int
+  store        Location          @relation("StoreRequests", fields: [storeId], references: [id])
+  fromStoreId  Int?
+  fromStore    Location?         @relation("SourceStore", fields: [fromStoreId], references: [id])
+  requestType  RequestType       @default(SHOP_TO_STORE)
+  status       RequestStatus     @default(PENDING)
+  createdById  Int
+  approvedById Int?
+  items        RequestItem[]
+  activities   RequestActivity[]
+  sales        Sale[]
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@index([storeId])
+  @@index([shopId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([requestType])
+  @@index([createdById])
+  @@index([tenantId])
+  @@unique([tenantId, number])
+}
+
+model RequestItem {
+  id                 Int               @id @default(autoincrement())
+  tenantId           Int?
+  requestId          Int
+  request            StockRequest      @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  productId          Int
+  product            Product           @relation(fields: [productId], references: [id])
+  variantId          Int? // specific size/color variant requested (null for plain)
+  variant            ProductVariant?   @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  batchId            Int? // batch allocated on dispatch (FIFO for perishables)
+  batch              ProductBatch?     @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  quantityRequested  Int?
+  quantityDispatched Int               @default(0)
+  quantityStored     Int               @default(0)
+  quantityReceived   Int               @default(0)
+  status             RequestItemStatus @default(PENDING)
+  confirmedById      Int?
+  confirmedAt        DateTime?
+
+  @@index([requestId])
+  @@index([productId])
+  @@index([variantId])
+  @@index([batchId])
+  @@index([tenantId])
+}
+
+// Timeline of status changes for a stock request (who changed it, when).
+model RequestActivity {
+  id        Int          @id @default(autoincrement())
+  requestId Int
+  request   StockRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  action    String // e.g. CREATED, APPROVED, STORED, REJECTED, DISPATCHED, CONFIRMED, SENT_BACK
+  actorId   Int
+  details   String?
+  createdAt DateTime     @default(now())
+
+  @@index([requestId])
+  @@index([createdAt])
+}
+
+// --- Sales & Profit Tracking ---
+model Sale {
+  id              Int             @id @default(autoincrement())
+  tenantId        Int?
+  invoiceNumber   String
+  shopId          Int
+  shop            Location        @relation(fields: [shopId], references: [id])
+  totalAmount     Float
+  totalCost       Float
+  profit          Float
+  // Output VAT snapshot from the company's configured default rate at sale
+  // time. totalAmount is the gross the customer pays; revenue = total - tax.
+  taxAmount       Float           @default(0)
+  taxRateId       Int?
+  soldById        Int
+  soldBy          User            @relation(fields: [soldById], references: [id])
+  paidAmount      Float           @default(0)
+  remainingAmount Float           @default(0)
+  saleType        SaleType        @default(FULLY_PAID)
+  paymentMethodId Int?
+  paymentMethod   PaymentMethod?  @relation(fields: [paymentMethodId], references: [id])
+  customerId      Int?
+  customer        Customer?       @relation(fields: [customerId], references: [id])
+  notes           String?
+  saleDate        DateTime        @default(now())
+  items           SaleItem[]
+  creditSale      CreditSale?
+  creditPayments  CreditPayment[]
+  returns         Return[]
+  fiscalReceipt   FiscalReceipt?
+  fiscalStatus    FiscalStatus    @default(NOT_PRINTED)
+  fiscalError     String?
+  purchaseId      Int?            @unique
+  purchase        Purchase?       @relation(fields: [purchaseId], references: [id])
+  requestId       Int?
+  request         StockRequest?   @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  clientRef       String? // client-generated idempotency key (double-submit protection)
+
+  @@unique([tenantId, invoiceNumber])
+  @@unique([tenantId, clientRef])
+  @@index([tenantId])
+}
+
+model SaleItem {
+  id            Int             @id @default(autoincrement())
+  tenantId      Int?
+  saleId        Int
+  sale          Sale            @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId     Int
+  product       Product         @relation(fields: [productId], references: [id])
+  variantId     Int? // specific size/color variant sold (null for plain products)
+  variant       ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  batchId       Int? // batch the units were allocated from (FIFO for perishables)
+  batch         ProductBatch?   @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  quantity      Int
+  unitSellPrice Float
+  unitBuyPrice  Float
+
+  @@index([tenantId])
+  @@index([variantId])
+  @@index([batchId])
+}
+
+// --- Returns & Refunds ---
+model Return {
+  id             Int            @id @default(autoincrement())
+  tenantId       Int?
+  saleId         Int
+  sale           Sale           @relation(fields: [saleId], references: [id])
+  shopId         Int
+  shop           Location       @relation(fields: [shopId], references: [id])
+  totalRefund    Float
+  reason         String?
+  refundMethodId Int?
+  refundMethod   PaymentMethod? @relation(fields: [refundMethodId], references: [id])
+  createdById    Int
+  createdAt      DateTime       @default(now())
+  items          ReturnItem[]
+
+  @@index([tenantId])
+}
+
+model ReturnItem {
+  id           Int     @id @default(autoincrement())
+  tenantId     Int?
+  returnId     Int
+  return       Return  @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  productId    Int
+  product      Product @relation(fields: [productId], references: [id])
+  quantity     Int
+  unitPrice    Float
+  unitBuyPrice Float   @default(0)
+
+  @@index([tenantId])
+}
+
+// --- Payment Methods (dynamic, any role can add) ---
+model PaymentMethod {
+  id              Int              @id @default(autoincrement())
+  tenantId        Int?
+  name            String
+  nameI18n        Json?
+  isDigital       Boolean          @default(false)
+  account         String?
+  sales           Sale[]
+  creditPayments  CreditPayment[]
+  purchases       Purchase[]
+  returns         Return[]
+  expenses        Expense[]
+  orders          Order[]
+  orderPayments   OrderPayment[]
+  cashCollections CashCollection[]
+  servicePayments ServicePayment[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+// --- Credit Customers ---
+model Customer {
+  id               Int               @id @default(autoincrement())
+  /// Non-guessable public identifier (DB-generated UUID).
+  publicId         String            @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Per-business customer number (CUST-001...), assigned by DB trigger.
+  number           Int?
+  organizationId   Int
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name             String
+  phone            String?
+  shopId           Int?
+  shop             Location?         @relation(fields: [shopId], references: [id])
+  createdAt        DateTime          @default(now())
+  sales            Sale[]
+  creditSales      CreditSale[]
+  creditPayments   CreditPayment[]
+  serviceBookings  ServiceBooking[]
+  serviceTickets   ServiceTicket[]
+  businessInsights BusinessInsight[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId])
+}
+
+// --- Credit Sales (item taken on credit) ---
+model CreditSale {
+  id          Int              @id @default(autoincrement())
+  /// Non-guessable public identifier (DB-generated UUID).
+  publicId    String           @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Per-business credit number (CR-001...), assigned by DB trigger.
+  number      Int?
+  tenantId    Int?
+  customerId  Int
+  customer    Customer         @relation(fields: [customerId], references: [id])
+  saleId      Int?             @unique
+  sale        Sale?            @relation(fields: [saleId], references: [id])
+  shopId      Int
+  shop        Location         @relation(fields: [shopId], references: [id])
+  totalAmount Float
+  createdAt   DateTime         @default(now())
+  items       CreditSaleItem[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId])
+}
+
+model CreditSaleItem {
+  id           Int        @id @default(autoincrement())
+  tenantId     Int?
+  creditSaleId Int
+  creditSale   CreditSale @relation(fields: [creditSaleId], references: [id], onDelete: Cascade)
+  productId    Int
+  product      Product    @relation(fields: [productId], references: [id])
+  quantity     Int
+  unitPrice    Float
+
+  @@index([tenantId])
+}
+
+// --- Credit Payments ---
+model CreditPayment {
+  id              Int            @id @default(autoincrement())
+  publicId        String         @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        Int?
+  customerId      Int
+  customer        Customer       @relation(fields: [customerId], references: [id])
+  amount          Float
+  paymentMethodId Int?
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  // Optional link to the specific sale the payment settles, so reports can
+  // attribute collections to the sale type (FULLY_PAID / PARTIALLY_PAID /
+  // CREDITED). NULL = legacy/customer-level payment.
+  saleId          Int?
+  sale            Sale?          @relation(fields: [saleId], references: [id])
+  paidAt          DateTime       @default(now())
+  notes           String?
+
+  @@index([tenantId])
+}
+
+model PushSubscription {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  tenantId  Int?
+  userId    Int
+  action    String // e.g., "RESTOCK", "SALE", "DISPATCH", "APPROVE"
+  details   String // e.g., "Added 50x Bulbs to Main Store"
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+}
+
+// --- Quick Purchases (Shopkeepers buy from external shops) ---
+model Purchase {
+  id              Int            @id @default(autoincrement())
+  tenantId        Int?
+  shopId          Int
+  shop            Location       @relation(fields: [shopId], references: [id])
+  productName     String
+  quantity        Int
+  unitPrice       Float // buying price per unit
+  sellPrice       Float // expected sell price per unit
+  totalCost       Float // unitPrice * quantity
+  revenue         Float // sellPrice * quantity
+  profit          Float // revenue - totalCost
+  status          PurchaseStatus @default(PENDING)
+  createdById     Int
+  approvedById    Int?
+  paymentMethodId Int?
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  sale            Sale?
+  notes           String?
+  clientRef       String? // client-generated idempotency key (double-submit protection)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@unique([tenantId, clientRef])
+  @@index([tenantId])
+}
+
+// --- Cash Ledger (daily cash movements) ---
+model CashEntry {
+  id          Int           @id @default(autoincrement())
+  shopId      Int
+  shop        Location      @relation(fields: [shopId], references: [id])
+  type        CashEntryType
+  amount      Float
+  source      String // 'SALE' | 'PURCHASE' | 'RETURN' | 'OPENING' | 'CREDIT_PAYMENT'
+  refId       Int?
+  description String?
+  createdById Int
+  createdAt   DateTime      @default(now())
+}
+
+// --- Notifications ---
+model Notification {
+  id               Int       @id @default(autoincrement())
+  tenantId         Int?
+  type             String // e.g., "LOW_STOCK", "REQUEST_STATUS"
+  title            String
+  message          String
+  productId        Int?
+  product          Product?  @relation(fields: [productId], references: [id])
+  locationId       Int?
+  location         Location? @relation(fields: [locationId], references: [id])
+  targetRoleId     Int?
+  targetRole       Role?     @relation(fields: [targetRoleId], references: [id])
+  targetLocationId Int?
+  targetUserId     Int?
+  isRead           Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+
+  @@index([tenantId])
+}
+
+// --- Finance: Chart of Accounts & Journal ---
+model Account {
+  id        Int         @id @default(autoincrement())
+  tenantId  Int?
+  name      String
+  code      String?
+  type      AccountType
+  parentId  Int?
+  parent    Account?    @relation("AccountChildren", fields: [parentId], references: [id])
+  children  Account[]   @relation("AccountChildren")
+  isSystem  Boolean     @default(false)
+  createdAt DateTime    @default(now())
+
+  journalLines JournalLine[]
+  expenses     Expense[]
+  otherIncomes OtherIncome[]
+  folioEntries FolioEntry[]
+  cogsEntries  CogsEntry[]
+
+  mappingDebit  AccountMapping[] @relation("MappingDebit")
+  mappingCredit AccountMapping[] @relation("MappingCredit")
+
+  @@unique([tenantId, name, type])
+  @@index([tenantId])
+  @@index([type])
+}
+
+enum JournalPostingStatus {
+  POSTED
+  REVERSED
+  VOIDED
+}
+
+model AccountMapping {
+  id               Int      @id @default(autoincrement())
+  tenantId         Int?
+  transactionType  String
+  debitAccountId   Int?
+  creditAccountId  Int?
+  debitAccount     Account? @relation("MappingDebit", fields: [debitAccountId], references: [id], onDelete: SetNull)
+  creditAccount    Account? @relation("MappingCredit", fields: [creditAccountId], references: [id], onDelete: SetNull)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([tenantId, transactionType])
+  @@index([tenantId])
+}
+
+model JournalEntry {
+  id          Int      @id @default(autoincrement())
+  tenantId    Int?
+  reference   String?
+  description String?
+  entryDate   DateTime @default(now())
+  locationId  Int?
+  sourceModule String?
+  postingStatus JournalPostingStatus @default(POSTED)
+  createdById Int?
+  createdAt   DateTime @default(now())
+
+  lines JournalLine[]
+
+  @@index([tenantId])
+  @@index([tenantId, locationId])
+  @@index([entryDate])
+}
+
+model JournalLine {
+  id             Int          @id @default(autoincrement())
+  tenantId       Int?
+  journalEntryId Int
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  accountId      Int
+  account        Account      @relation(fields: [accountId], references: [id])
+  debit          Float        @default(0)
+  credit         Float        @default(0)
+
+  @@index([tenantId])
+  @@index([journalEntryId])
+  @@index([accountId])
+}
+
+model Expense {
+  id              Int            @id @default(autoincrement())
+  tenantId        Int?
+  accountId       Int
+  account         Account        @relation(fields: [accountId], references: [id])
+  category        String?
+  vendor          String?
+  amount          Float
+  paymentMethodId Int?
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  notes           String?
+  expenseDate     DateTime       @default(now())
+  createdById     Int?
+  createdAt       DateTime       @default(now())
+  // Input VAT snapshot from the company's configured default rate. `amount`
+  // stays the net (tax-free) expense; taxAmount is the reclaimable input VAT.
+  taxAmount       Float          @default(0)
+  taxRateId       Int?
+
+  @@index([tenantId])
+  @@index([expenseDate])
+}
+
+model OtherIncome {
+  id             Int             @id @default(autoincrement())
+  tenantId       Int?
+  accountId      Int
+  account        Account         @relation(fields: [accountId], references: [id])
+  menuCategoryId Int? // income category (e.g. Beer, Coffee) for auto-generated entries
+  menuCategory   MenuCategory?   @relation(fields: [menuCategoryId], references: [id])
+  // Exact line-item tagging: the specific Product / Variant / MenuItem this
+  // income row was posted for. Null for manual income, folio charges and the
+  // wholesale / quick-purchase fallback bucket.
+  productId      Int?
+  product        Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variantId      Int?
+  variant        ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  menuItemId     Int?
+  menuItem       MenuItem?       @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+  source         String? // e.g. "ORDER", "SALE", "FOLIO", "MANUAL"
+  sourceId       Int? // idempotency key for auto-posted entries (order/sale/folio id)
+  description    String?
+  amount         Float
+  incomeDate     DateTime        @default(now())
+  createdById    Int?
+  createdAt      DateTime        @default(now())
+
+  @@index([tenantId])
+  @@index([incomeDate])
+  @@index([source, sourceId])
+  @@index([menuCategoryId])
+  @@index([productId])
+  @@index([variantId])
+  @@index([menuItemId])
+}
+
+// --- Auto-posted Cost of Goods Sold ledger ---
+// One row per sale/order/folio settlement so COGS is recorded at the exact
+// moment items are sold. Idempotent via (source, sourceId): the posting
+// helpers skip rows that already exist for the source transaction.
+model CogsEntry {
+  id          Int             @id @default(autoincrement())
+  tenantId    Int?
+  accountId   Int // Cost of Goods Sold account
+  account     Account         @relation(fields: [accountId], references: [id])
+  source      String? // 'SALE' | 'ORDER' | 'FOLIO' | 'SALE_REVERSAL'
+  sourceId    Int? // sale / order / folio id (idempotency key)
+  saleId      Int? // direct link to the originating sale when applicable
+  // Exact line-item tagging: the specific Product / Variant / MenuItem this
+  // COGS row was posted for (null for folio / legacy entries).
+  productId   Int?
+  product     Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variantId   Int?
+  variant     ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  menuItemId  Int?
+  menuItem    MenuItem?       @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+  description String?
+  amount      Float
+  quantity    Int             @default(0)
+  entryDate   DateTime        @default(now())
+  createdById Int?
+
+  @@index([tenantId])
+  @@index([source, sourceId])
+  @@index([entryDate])
+  @@index([productId])
+  @@index([variantId])
+  @@index([menuItemId])
+}
+
+// --- Tax configuration ---
+// Per-company tax rates (VAT / sales tax). Each rate belongs to exactly one
+// business via a real FK to Organization (cascade delete) and is auto-scoped
+// by the tenant middleware through `organizationId` (see TENANT_FIELD_BY_MODEL).
+model TaxRate {
+  id             Int          @id @default(autoincrement())
+  organizationId Int
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String // e.g. "VAT 15%", "Zero-rated"
+  code           String? // short tax code, e.g. "VAT15", "EXEMPT"
+  rate           Float // percent, 0–100 (e.g. 15.0)
+  direction      TaxDirection @default(OUTPUT)
+  isDefault      Boolean      @default(false) // one default per organization+direction
+  enabled        Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+// --- Fiscal printing ---
+// 1:1 fiscal receipt record for a hospitality Order OR a retail Sale (exactly
+// one of orderId/saleId is set). Created when the local fiscal agent confirms a
+// print; the financial snapshot mirrors the settled totals at print time.
+model FiscalReceipt {
+  id            Int          @id @default(autoincrement())
+  tenantId      Int?
+  orderId       Int?         @unique
+  order         Order?       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  saleId        Int?         @unique
+  sale          Sale?        @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  fsNumber      String // fiscal serial number returned by the agent
+  ejNumber      String // electronic journal number returned by the agent
+  machineSerial String? // fiscal printer machine serial
+  batchId       Int? // parent consolidated batch (multi-order/sale printing)
+  batch         FiscalBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  subtotal      Float        @default(0)
+  serviceCharge Float        @default(0)
+  vatAmount     Float        @default(0)
+  grandTotal    Float        @default(0)
+  printedAt     DateTime     @default(now())
+  createdById   Int?
+  createdAt     DateTime     @default(now())
+
+  @@index([tenantId])
+}
+
+// --- Fiscal batch (multi-order/sale consolidation) ---
+// Consolidated fiscal invoice for several orders/sales (e.g. one table bill).
+// The batch header holds the aggregated totals + agent fs/ej numbers; each
+// document keeps its own 1:1 FiscalReceipt linked back to this batch.
+model FiscalBatch {
+  id            Int             @id @default(autoincrement())
+  tenantId      Int?
+  batchRef      String
+  fsNumber      String
+  ejNumber      String
+  machineSerial String?
+  subtotal      Float           @default(0)
+  serviceCharge Float           @default(0)
+  vatAmount     Float           @default(0)
+  grandTotal    Float           @default(0)
+  createdById   Int?
+  createdAt     DateTime        @default(now())
+  receipts      FiscalReceipt[]
+
+  @@index([tenantId])
+}
+
+// --- Tenant fiscal hardware & MoR registration (1:1 with Organization) ---
+// Lazy-created on first read. agentUrl points at the local printer bridge;
+// tin/taxName/address/phone are the merchant-of-record details on the receipt.
+model TenantFiscalConfig {
+  id            Int          @id @default(autoincrement())
+  tenantId      Int          @unique
+  organization  Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tin           String
+  taxName       String
+  address       String?
+  phone         String?
+  agentUrl      String       @default("http://localhost:5000")
+  agentApiKey   String?
+  printerVendor String       @default("GENERIC")
+  comPort       String?      @default("COM1")
+  baudRate      Int?         @default(9600)
+  enableFiscal  Boolean      @default(true)
+
+  // MoR E-Invoicing & Security — real-time clearance, cryptographic signing
+  // and terminal tracking per EIRS guidelines. Secrets are stored as provided
+  // (same as agentApiKey); an encryption-at-rest pass is a recommended follow-up.
+  morLiveUrl      String? // Official MoR production clearance endpoint
+  morClientId     String? // Issued system client / username
+  morClientSecret String? // Secure private security key / passphrase
+  morCertificate  String? // Path or text blob (.p12 / .pfx)
+  terminalId      String? // Unique MoR-assigned ID for this POS station
+  branchCode      String? // Assigned branch code identifier
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// --- Restaurant: Menu, Tables, Orders, Reservations ---
+model MenuCategory {
+  id           Int                @id @default(autoincrement())
+  tenantId     Int?
+  name         String
+  nameI18n     Json?
+  sortOrder    Int                @default(0)
+  stationId    Int?
+  station      RestaurantStation? @relation(fields: [stationId], references: [id], onDelete: SetNull)
+  // Ordered list of [{ id, name, key }] hops items in this category route
+  // through (defaults to the primary station above).
+  stationRoute Json               @default("[]")
+  // Optional parent for sub-categories (e.g. Beverages -> Beer / Wine / Spirits).
+  parentId     Int?
+  parent       MenuCategory?      @relation("MenuCategoryHierarchy", fields: [parentId], references: [id])
+  children     MenuCategory[]     @relation("MenuCategoryHierarchy")
+  items        MenuItem[]
+  otherIncomes OtherIncome[]
+
+  @@index([tenantId])
+  @@index([stationId])
+  @@index([parentId])
+}
+
+model MenuItem {
+  id              Int                  @id @default(autoincrement())
+  tenantId        Int?
+  menuCategoryId  Int
+  menuCategory    MenuCategory         @relation(fields: [menuCategoryId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  nameI18n        Json?
+  descriptionI18n Json?
+  price           Float
+  cost            Float                @default(0)
+  isAvailable     Boolean              @default(true)
+  // COGS tracking strategy: SIMPLE (revenue only), BENCHMARK (estimated COGS)
+  // or PERPETUAL (recipe-based COGS + live stock deduction).
+  trackingMode    MenuItemTrackingMode @default(SIMPLE)
+  // Estimated cost per portion — required (and used) when trackingMode is
+  // BENCHMARK; ignored otherwise.
+  estimatedCogs   Float?
+  imageUrl        String?
+  sortOrder       Int                  @default(0)
+  // Optional per-item station route override (ordered [{ id, name, key }]);
+  // null = inherit the menu category's route.
+  stationRoute    Json?
+  options         MenuItemOption[]
+  orderItems      OrderItem[]
+  ingredients     MenuItemIngredient[]
+  otherIncomes    OtherIncome[]
+  cogsEntries     CogsEntry[]
+
+  @@index([tenantId])
+  @@index([menuCategoryId])
+}
+
+model MenuItemOption {
+  id         Int      @id @default(autoincrement())
+  tenantId   Int?
+  menuItemId Int
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  name       String
+  extraPrice Float    @default(0)
+
+  @@index([tenantId])
+  @@index([menuItemId])
+}
+
+model DiningTable {
+  id           Int           @id @default(autoincrement())
+  tenantId     Int?
+  name         String
+  zone         String?
+  capacity     Int           @default(4)
+  status       TableStatus   @default(FREE)
+  orders       Order[]
+  reservations Reservation[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model Order {
+  id              Int                  @id @default(autoincrement())
+  tenantId        Int?
+  orderNumber     String
+  tableId         Int?
+  table           DiningTable?         @relation(fields: [tableId], references: [id])
+  customerName    String?
+  status          OrderStatus          @default(OPEN)
+  totalAmount     Float                @default(0)
+  discount        Float                @default(0)
+  serviceCharge   Float                @default(0)
+  tax             Float                @default(0)
+  taxRateId       Int? // default OUTPUT rate applied when tax was computed
+  taxInclusive    Boolean              @default(true) // how `tax` was computed at settle
+  paidAmount      Float                @default(0)
+  paymentMethodId Int?
+  paymentMethod   PaymentMethod?       @relation(fields: [paymentMethodId], references: [id])
+  notes           String?
+  createdById     Int?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  items           OrderItem[]
+  payments        OrderPayment[]
+  history         OrderStatusHistory[]
+  fiscalReceipt   FiscalReceipt?
+  fiscalStatus    FiscalStatus         @default(NOT_PRINTED)
+  fiscalError     String?
+  clientRef       String? // client-generated idempotency key (double-submit protection)
+
+  @@unique([tenantId, orderNumber])
+  @@unique([tenantId, clientRef])
+  @@index([tenantId])
+  @@index([status])
+  @@index([tableId])
+}
+
+// Audit trail of order lifecycle transitions. One row is written for each
+// milestone (DISPATCHED, PREPARING, READY, SERVED, PAID, CANCELLED) with the
+// acting user + role and exact timestamp, so every role can see the same
+// timeline and the activity report can reconstruct the full staff chain.
+model OrderStatusHistory {
+  id        Int         @id @default(autoincrement())
+  tenantId  Int?
+  orderId   Int
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    OrderStatus
+  actorId   Int?
+  actorName String?
+  actorRole String?
+  createdAt DateTime    @default(now())
+
+  @@index([tenantId])
+  @@index([orderId])
+  @@index([status])
+}
+
+model OrderItem {
+  id           Int             @id @default(autoincrement())
+  tenantId     Int?
+  orderId      Int
+  order        Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId   Int?
+  menuItem     MenuItem?       @relation(fields: [menuItemId], references: [id])
+  name         String
+  quantity     Int
+  unitPrice    Float
+  cost         Float           @default(0)
+  status       OrderItemStatus @default(QUEUED)
+  // Snapshot of the station route at order time (ordered [{ id, name, key }]).
+  stationRoute Json            @default("[]")
+  stationIndex Int             @default(0)
+  stationKey   String? // current hop's key (fast board queries)
+  stationName  String? // current hop's display name (board + history)
+  notes        String?
+
+  @@index([tenantId])
+  @@index([orderId])
+}
+
+model Reservation {
+  id           Int          @id @default(autoincrement())
+  tenantId     Int?
+  tableId      Int?
+  table        DiningTable? @relation(fields: [tableId], references: [id])
+  customerName String
+  phone        String?
+  partySize    Int          @default(1)
+  reservedAt   DateTime
+  status       String       @default("PENDING")
+  notes        String?
+
+  @@index([tenantId])
+  @@index([reservedAt])
+}
+
+// --- Hotel: Rooms, Reservations, Folio Billing ---
+model RoomType {
+  id          Int     @id @default(autoincrement())
+  tenantId    Int?
+  name        String
+  description String?
+  basePrice   Float
+  rooms       Room[]
+
+  @@index([tenantId])
+}
+
+model Room {
+  id           Int                @id @default(autoincrement())
+  tenantId     Int?
+  roomTypeId   Int
+  roomType     RoomType           @relation(fields: [roomTypeId], references: [id])
+  number       String
+  floor        String?
+  status       RoomStatus         @default(AVAILABLE)
+  reservations HotelReservation[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId])
+  @@index([roomTypeId])
+}
+
+model HotelReservation {
+  id          Int                    @id @default(autoincrement())
+  tenantId    Int?
+  roomId      Int
+  room        Room                   @relation(fields: [roomId], references: [id])
+  guestName   String
+  phone       String?
+  checkIn     DateTime
+  checkOut    DateTime
+  status      HotelReservationStatus @default(CONFIRMED)
+  totalAmount Float                  @default(0)
+  notes       String?
+  createdAt   DateTime               @default(now())
+  folios      Folio[]
+
+  @@index([tenantId])
+  @@index([checkIn])
+  @@index([checkOut])
+  @@index([roomId])
+}
+
+model Folio {
+  id            Int              @id @default(autoincrement())
+  tenantId      Int?
+  reservationId Int
+  reservation   HotelReservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  guestName     String
+  status        String           @default("OPEN")
+  // Output VAT snapshot from the configured default rate at settlement time.
+  taxAmount     Float            @default(0)
+  taxRateId     Int?
+  taxInclusive  Boolean          @default(true) // how taxAmount was computed
+  createdAt     DateTime         @default(now())
+  entries       FolioEntry[]
+
+  @@index([tenantId])
+  @@index([reservationId])
+}
+
+model FolioEntry {
+  id          Int      @id @default(autoincrement())
+  tenantId    Int?
+  folioId     Int
+  folio       Folio    @relation(fields: [folioId], references: [id], onDelete: Cascade)
+  accountId   Int?
+  account     Account? @relation(fields: [accountId], references: [id])
+  description String
+  amount      Float
+  type        String   @default("CHARGE")
+  createdAt   DateTime @default(now())
+  createdById Int?
+
+  @@index([tenantId])
+  @@index([folioId])
+}
+
+// --- Hospitality cash management ---
+model OrderPayment {
+  id                   Int            @id @default(autoincrement())
+  tenantId             Int?
+  orderId              Int
+  order                Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount               Float
+  paymentMethodId      Int?
+  paymentMethod        PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  transactionReference String?
+  status               String         @default("PENDING_CONFIRMATION") // PENDING_CONFIRMATION | CONFIRMED | VOIDED
+  collectedById        Int?
+  confirmedById        Int?
+  confirmedAt          DateTime?
+  notes                String?
+  createdAt            DateTime       @default(now())
+
+  @@index([tenantId])
+  @@index([orderId])
+  @@index([status])
+}
+
+model CashFloat {
+  id          Int      @id @default(autoincrement())
+  tenantId    Int?
+  recipientId Int
+  amount      Float
+  notes       String?
+  createdById Int?
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([recipientId])
+}
+
+model CashCollection {
+  id              Int            @id @default(autoincrement())
+  tenantId        Int?
+  fromUserId      Int
+  amount          Float
+  paymentMethodId Int?
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  notes           String?
+  collectedById   Int?
+  createdAt       DateTime       @default(now())
+
+  @@index([tenantId])
+  @@index([fromUserId])
+}
+
+// --- AI Business Advisor ---
+enum InsightType {
+  WEEKLY_SUMMARY
+  DEAD_STOCK_ALERT
+  DEMAND_FORECAST
+  STAFF_EFFICIENCY
+  CASH_FLOW_FORECAST
+  PRICING_RECOMMENDATIONS
+  CUSTOMER_CHURN
+  PO_DRAFT
+}
+
+enum MessageSender {
+  USER
+  ASSISTANT
+}
+
+// Historical AI-generated insights (weekly summaries, dead stock alerts,
+// demand forecasts, staff efficiency notes). Scoped per tenant (organization).
+model BusinessInsight {
+  id              String      @id @default(uuid())
+  tenantId        Int?
+  type            InsightType
+  summary         String      @db.Text
+  recommendations Json // Array of structured action items / the full report payload
+  targetPeriod    String? // e.g., "NEXT_7_DAYS", "NEXT_30_DAYS", "NEXT_QUARTER"
+  customerId      Int? // linked customer (e.g. CUSTOMER_CHURN insights)
+  customer        Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  createdByUserId Int?
+  createdAt       DateTime    @default(now())
+
+  @@index([tenantId, createdAt])
+}
+
+// Auto-generated purchase order drafts (AI or reorder-threshold based).
+enum PoDraftStatus {
+  DRAFT
+  SUBMITTED
+}
+
+model PurchaseOrderDraft {
+  id             Int           @id @default(autoincrement())
+  tenantId       Int?
+  supplier       String?
+  status         PoDraftStatus @default(DRAFT)
+  items          Json // [{ productId, name, currentStock, suggestedQty, unitPrice, estimatedCost, urgency }]
+  estimatedTotal Float         @default(0)
+  autoGenerated  Boolean       @default(false)
+  notes          String?
+  createdById    Int?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([tenantId, status])
+}
+
+// Persistent AI coach chat sessions, scoped per tenant (organization).
+model AiChatSession {
+  id        String          @id @default(uuid())
+  tenantId  Int?
+  userId    Int
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String?
+  messages  AiChatMessage[]
+  createdAt DateTime        @default(now())
+
+  @@index([tenantId, userId])
+  @@index([tenantId, createdAt])
+}
+
+model AiChatMessage {
+  id        String        @id @default(uuid())
+  tenantId  Int?
+  sessionId String
+  session   AiChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sender    MessageSender
+  content   String        @db.Text
+  createdAt DateTime      @default(now())
+
+  @@index([tenantId, sessionId])
+}
+
+// Daily AI usage quota per user (shared across /ai/chat and /ai/forecast).
+model UserDailyAiUsage {
+  id        String   @id @default(uuid())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      String // ISO date "YYYY-MM-DD" (server local time)
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date])
+  @@index([userId])
+}
+
+// Public AI onboarding assistant — anonymous per-device/guest daily quota
+// (5 free chats per device per UTC day). Public routes only; no User relation.
+model AiAssistGuest {
+  id        Int      @id @default(autoincrement())
+  guestId   String // stable per-device browser id (uuid persisted in localStorage)
+  date      String // ISO date "YYYY-MM-DD" (UTC)
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([guestId, date])
+  @@index([guestId])
+}
+
+// --- Autonomous Owner Agent ---
+
+enum AgentMode {
+  ADVISORY // Normal mode: AI gives advice only
+  AUTONOMOUS // Owner mode: AI executes approved-range actions on demand
+}
+
+// --- SERVICE vertical (catalog, bookings, tickets) ---
+
+// --- MANUFACTURING vertical (bill of materials, work orders, scrap) ---
+// A manufacturing org transforms raw-material Products into finished-good
+// Products at a production Location. Completing a WorkOrder backflushes the
+// component stock (scrap-adjusted) and creates a valued finished ProductBatch.
+
+enum WorkOrderStatus {
+  DRAFT
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ScrapKind {
+  RAW
+  FINISHED
+}
+
+// --- MANUFACTURING design catalog (customer-facing products/designs) ---
+model DesignCategory {
+  id             Int               @id @default(autoincrement())
+  organizationId Int
+  name           String
+  parentId       Int?
+  parent         DesignCategory?   @relation("DesignCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children       DesignCategory[]  @relation("DesignCategoryTree")
+  description    String?
+  sortOrder      Int               @default(0)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  items DesignCatalog[]
+
+  @@unique([organizationId, parentId, name])
+  @@index([organizationId])
+}
+
+model DesignCatalog {
+  id             Int             @id @default(autoincrement())
+  organizationId Int
+  categoryId     Int?
+  category       DesignCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  sku            String?
+  name           String
+  description    String?
+  // Flexible engineering/design data: dimensions, materials, finish options, ...
+  specifications Json?
+  // Blueprints / renders / photos (URLs).
+  mediaUrls      String[]        @default([])
+  // Optional default production recipe: auto-applied to job orders that pick
+  // this design when the user hasn't chosen a BOM explicitly.
+  defaultBomId   Int?
+  // Optional link to the finished inventory Product this design produces.
+  productId      Int?
+  createdById    Int?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  manufacturingOrders ManufacturingOrder[]
+  workOrders           WorkOrder[]
+
+  @@unique([organizationId, sku])
+  @@index([organizationId])
+  @@index([categoryId])
+}
+
+model BillOfMaterials {
+  id                Int          @id @default(autoincrement())
+  organizationId    Int
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  finishedProductId Int
+  finishedProduct   Product      @relation("BomFinishedProduct", fields: [finishedProductId], references: [id], onDelete: Restrict)
+  quantityProduced  Float        @default(1)
+  scrapPercentage   Float        @default(0)
+  notes             String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  items               BomItem[]
+  workOrders          WorkOrder[]
+  manufacturingOrders ManufacturingOrder[]
+
+  @@index([organizationId])
+  @@index([finishedProductId])
+}
+
+model BomItem {
+  id                   Int             @id @default(autoincrement())
+  bomId                Int
+  bom                  BillOfMaterials @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  rawMaterialProductId Int
+  rawMaterial          Product         @relation("BomRawMaterial", fields: [rawMaterialProductId], references: [id], onDelete: Restrict)
+  quantityRequired     Float
+  unitId               Int?
+
+  @@unique([bomId, rawMaterialProductId])
+  @@index([rawMaterialProductId])
+}
+
+model WorkOrder {
+  id                Int             @id @default(autoincrement())
+  organizationId    Int
+  organization      Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  bomId             Int
+  bom               BillOfMaterials @relation(fields: [bomId], references: [id], onDelete: Restrict)
+  finishedProductId Int
+  finishedProduct   Product         @relation("WorkOrderFinishedProduct", fields: [finishedProductId], references: [id], onDelete: Restrict)
+  finishedVariantId Int?
+  targetQuantity    Float
+  producedQuantity  Float           @default(0)
+  locationId        Int
+  location          Location        @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  // Target inventory store where finished goods are deposited at completion
+  // (defaults to locationId when not set).
+  finishedLocationId Int?
+  batchNumber       String?
+  expiryDate        DateTime?
+  notes             String?
+  // Optional design-catalog item this work order produces (specs/blueprints).
+  designCatalogId   Int?
+  designCatalog     DesignCatalog? @relation(fields: [designCatalogId], references: [id], onDelete: SetNull)
+  status            WorkOrderStatus @default(DRAFT)
+  totalCogmCost     Float           @default(0)
+  cogmUnitCost      Float           @default(0)
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdById       Int?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  scrapLogs           ProductionScrapLog[]
+  manufacturingOrders ManufacturingOrder[]
+
+  @@index([organizationId, status])
+  @@index([locationId])
+  @@index([finishedProductId])
+}
+
+model ProductionScrapLog {
+  id             Int          @id @default(autoincrement())
+  organizationId Int
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workOrderId    Int
+  workOrder      WorkOrder    @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  productId      Int
+  product        Product      @relation("ProductionScrapProduct", fields: [productId], references: [id], onDelete: Restrict)
+  kind           ScrapKind    @default(RAW)
+  quantity       Float
+  unitCost       Float        @default(0)
+  totalValue     Float        @default(0)
+  reason         String?
+  createdById    Int?
+  createdAt      DateTime     @default(now())
+
+  @@index([workOrderId])
+  @@index([organizationId, createdAt])
+}
+
+enum MfgOrderStage {
+  DESIGN
+  PURCHASING_MATERIALS
+  MATERIAL_READY
+  QUEUED
+  PRODUCTION
+  COMPLETED
+  CANCELLED
+}
+
+enum MfgPricingModel {
+  ONE_TIME
+  PER_UNIT
+  PER_PERIOD
+}
+
+model MfgService {
+  id             Int             @id @default(autoincrement())
+  organizationId Int
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  pricingModel   MfgPricingModel @default(ONE_TIME)
+  price          Float           @default(0)
+  periodUnit     String?
+  active         Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  incomes MfgServiceIncome[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model MfgServiceIncome {
+  id             Int          @id @default(autoincrement())
+  organizationId Int
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  serviceId      Int
+  service        MfgService   @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  quantity       Float        @default(1)
+  periodStart    DateTime?
+  periodEnd      DateTime?
+  amount         Float
+  incomeDate     DateTime     @default(now())
+  notes          String?
+  recordedById   Int?
+  otherIncomeId  Int?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+  @@index([serviceId])
+  @@index([incomeDate])
+}
+
+model ManufacturingOrder {
+  id             Int              @id @default(autoincrement())
+  organizationId Int
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  jobNumber      String
+  title          String
+  customerName   String?
+  bomId          Int?
+  bom            BillOfMaterials? @relation(fields: [bomId], references: [id], onDelete: SetNull)
+  targetQuantity Float?
+  dueDate        DateTime?
+  stage          MfgOrderStage    @default(DESIGN)
+  workOrderId    Int?
+  workOrder      WorkOrder?       @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+  // COGM snapshot carried over when the linked work order completes (so job
+  // orders, variance and reports expose what was actually produced and at what
+  // cost without re-reading the work order).
+  producedQuantity Float?
+  totalCogmCost     Float          @default(0)
+  cogmUnitCost      Float          @default(0)
+  flowId            Int? // MfgFlow the order is routed through
+  currentStepIndex Int @default(-1) // -1 = not yet on a flow
+  currentTeamId  Int? // team that currently owns the order
+  currentOperationId Int? // active operation inside the current flow step
+  flow           MfgFlow?          @relation(fields: [flowId], references: [id], onDelete: SetNull)
+  // Customer design the job produces (picked from the Design Catalog).
+  designCatalogId Int?
+  designCatalog   DesignCatalog?   @relation(fields: [designCatalogId], references: [id], onDelete: SetNull)
+  completedAt    DateTime?
+  notes          String?
+  createdById    Int?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  history    ManufacturingOrderHistory[]
+  handovers  MfgOrderHandover[]
+
+  @@unique([organizationId, jobNumber])
+  @@index([organizationId, stage])
+  @@index([organizationId, currentTeamId])
+  @@index([organizationId, flowId])
+}
+
+model MfgOrderHandover {
+  id             Int       @id @default(autoincrement())
+  organizationId Int
+  orderId        Int
+  order          ManufacturingOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fromTeamId     Int?
+  toTeamId       Int?
+  stepIndex      Int       @default(0)
+  note           String?
+  changedById    Int?
+  createdAt      DateTime  @default(now())
+
+  @@index([organizationId])
+  @@index([orderId])
+}
+
+model ManufacturingOrderHistory {
+  id             Int                @id @default(autoincrement())
+  organizationId Int
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  orderId        Int
+  order          ManufacturingOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fromStage      MfgOrderStage?
+  toStage        MfgOrderStage
+  note           String?
+  changedById    Int?
+  createdAt      DateTime           @default(now())
+
+  @@index([orderId])
+}
+
+enum MfgIssueStatus {
+  OPEN
+  PARTIAL
+  RETURNED
+  CLOSED
+}
+
+enum MachineKind {
+  STATIONARY
+  ISSUABLE
+}
+
+enum MachineStatus {
+  AVAILABLE
+  ISSUED
+  UNDER_MAINTENANCE
+  DECOMMISSIONED
+}
+
+enum MachineComponentStatus {
+  OK
+  WORN
+  FAULTY
+  REPLACED
+}
+
+enum ShiftSessionStatus {
+  SCHEDULED
+  ACTIVE
+  ENDED
+}
+
+model MaterialIssue {
+  id             Int            @id @default(autoincrement())
+  organizationId Int
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workOrderId    Int?
+  jobId          Int?
+  productId      Int
+  batchId        Int?
+  locationId     Int
+  issuedToId     Int? // worker user id
+  issuedById     Int? // storekeeper/owner
+  quantity       Float
+  unitCost       Float          @default(0)
+  status         MfgIssueStatus @default(OPEN)
+  issuedAt       DateTime       @default(now())
+  notes          String?
+  createdAt      DateTime       @default(now())
+
+  returns MaterialReturn[]
+
+  @@index([organizationId, issuedToId])
+  @@index([workOrderId])
+  @@index([jobId])
+}
+
+model MaterialReturn {
+  id             Int            @id @default(autoincrement())
+  organizationId Int
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  issueId        Int?
+  issue          MaterialIssue? @relation(fields: [issueId], references: [id], onDelete: SetNull)
+  productId      Int
+  quantity       Float
+  returnedById   Int?
+  note           String?
+  returnedAt     DateTime       @default(now())
+
+  @@index([organizationId])
+  @@index([issueId])
+}
+
+model ConsumableIssue {
+  id             Int          @id @default(autoincrement())
+  organizationId Int
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  shiftSessionId Int?
+  productId      Int
+  quantity       Float
+  groupLabel     String?
+  issuedAt       DateTime     @default(now())
+
+  @@index([organizationId])
+}
+
+model ConsumableUsageLog {
+  id             Int          @id @default(autoincrement())
+  organizationId Int
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  shiftSessionId Int?
+  productId      Int
+  usedQty        Float
+  leftQty        Float
+  recordedAt     DateTime     @default(now())
+  note           String?
+
+  @@index([organizationId])
+}
+
+model Machine {
+  id             Int           @id @default(autoincrement())
+  organizationId Int
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  code           String
+  name           String
+  type           String?
+  locationId     Int?
+  kind           MachineKind   @default(STATIONARY)
+  status         MachineStatus @default(AVAILABLE)
+  notes          String?
+  hourlyRate     Float? // per-hour overhead rate used for stationary-machine costing
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  components    MachineComponent[]
+  statusLogs    MachineStatusLog[]
+  issuances     MachineIssuance[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
+model MachineComponent {
+  id             Int                    @id @default(autoincrement())
+  organizationId Int
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  machineId      Int
+  machine        Machine                @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  name           String
+  quantity       Int                    @default(1)
+  status         MachineComponentStatus @default(OK)
+  partProductId  Int? // consumable product used to replace it
+  lastReplacedAt DateTime?
+  createdAt      DateTime               @default(now())
+
+  statusLogs ComponentStatusLog[]
+
+  @@index([organizationId])
+  @@index([machineId])
+}
+
+model MachineStatusLog {
+  id             Int            @id @default(autoincrement())
+  organizationId Int
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  machineId      Int
+  machine        Machine        @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  fromStatus     MachineStatus?
+  toStatus       MachineStatus
+  note           String?
+  changedById    Int?
+  createdAt      DateTime       @default(now())
+
+  @@index([organizationId])
+  @@index([machineId])
+}
+
+model ComponentStatusLog {
+  id             Int                     @id @default(autoincrement())
+  organizationId Int
+  organization   Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  componentId    Int
+  component      MachineComponent        @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  fromStatus     MachineComponentStatus?
+  toStatus       MachineComponentStatus
+  note           String?
+  changedById    Int?
+  createdAt      DateTime                @default(now())
+
+  @@index([organizationId])
+  @@index([componentId])
+}
+
+model ShiftTemplate {
+  id             Int          @id @default(autoincrement())
+  organizationId Int
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  startTime      String
+  endTime        String
+  repeatDays     Int[]
+  date           DateTime? // set for one-time shift patterns (repeatDays empty + date = one-time)
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  sessions ShiftSession[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model ShiftSession {
+  id             Int                @id @default(autoincrement())
+  organizationId Int
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  templateId     Int?
+  name           String
+  date           DateTime
+  startTime      String
+  endTime        String
+  status         ShiftSessionStatus @default(SCHEDULED)
+  triggeredBy    String?
+  startedAt      DateTime?
+  endedAt        DateTime?
+  handoverClean  Boolean            @default(false)
+  notes          String?
+  createdAt      DateTime           @default(now())
+
+  assignments     ShiftAssignment[]
+  ShiftTemplate   ShiftTemplate?    @relation(fields: [shiftTemplateId], references: [id])
+  shiftTemplateId Int?
+
+  @@index([organizationId, date])
+  @@index([status])
+}
+
+model ShiftAssignment {
+  id             Int          @id @default(autoincrement())
+  organizationId Int
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sessionId      Int
+  session        ShiftSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  workerId       Int? // worker user id
+  roleLabel      String?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+  @@index([sessionId])
+}
+
+enum ServiceBookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum ServiceTicketStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  PAID
+  CANCELLED
+}
+
+model ServiceCategory {
+  id        Int           @id @default(autoincrement())
+  tenantId  Int?
+  name      String
+  items     ServiceItem[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([tenantId])
+}
+
+model ServiceItem {
+  id           Int              @id @default(autoincrement())
+  tenantId     Int?
+  categoryId   Int?
+  category     ServiceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  name         String
+  description  String?
+  price        Float            @default(0)
+  durationMins Int              @default(30)
+  active       Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  tickets  ServiceTicketItem[]
+  bookings ServiceBooking[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, active])
+}
+
+model ServiceBooking {
+  id            Int                  @id @default(autoincrement())
+  tenantId      Int?
+  clientId      Int?
+  client        Customer?            @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  serviceItemId Int?
+  serviceItem   ServiceItem?         @relation(fields: [serviceItemId], references: [id], onDelete: SetNull)
+  startsAt      DateTime
+  endsAt        DateTime?
+  status        ServiceBookingStatus @default(PENDING)
+  notes         String?
+  ticket        ServiceTicket?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@index([tenantId, startsAt])
+  @@index([tenantId, status])
+}
+
+model ServiceTicket {
+  id          Int                 @id @default(autoincrement())
+  tenantId    Int?
+  clientId    Int?
+  client      Customer?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  bookingId   Int?                @unique
+  booking     ServiceBooking?     @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  totalAmount Float               @default(0)
+  status      ServiceTicketStatus @default(OPEN)
+  notes       String?
+  items       ServiceTicketItem[]
+  payments    ServicePayment[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([tenantId, status])
+}
+
+model ServiceTicketItem {
+  id            Int           @id @default(autoincrement())
+  tenantId      Int?
+  ticketId      Int
+  ticket        ServiceTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  serviceItemId Int
+  serviceItem   ServiceItem   @relation(fields: [serviceItemId], references: [id])
+  quantity      Int           @default(1)
+  unitPrice     Float         @default(0)
+
+  @@index([tenantId])
+}
+
+model ServicePayment {
+  id              Int            @id @default(autoincrement())
+  tenantId        Int?
+  ticketId        Int
+  ticket          ServiceTicket  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  amount          Float
+  paymentMethodId Int?
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  paidById        Int?
+  paidBy          User?          @relation(fields: [paidById], references: [id], onDelete: SetNull)
+  paidAt          DateTime       @default(now())
+  clientRef       String? // client-generated idempotency key (double-submit protection)
+
+  @@unique([tenantId, clientRef])
+  @@index([tenantId])
+}
+
+enum ActionStatus {
+  EXECUTED
+  PENDING_APPROVAL
+  REJECTED
+  FAILED
+}
+
+// Per-organization agent configuration (1:1 with Organization).
+model OrganizationAgentConfig {
+  id             String       @id @default(uuid())
+  organizationId Int          @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  mode           AgentMode    @default(ADVISORY)
+  maxAutoSpend   Float        @default(0) // Max cash the agent may auto-spend on restocks (0 = nothing auto)
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId])
+}
+
+// Audit trail of every action the agent took or staged.
+model AgentActionLog {
+  id             String       @id @default(uuid())
+  organizationId Int
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actionType     String // e.g. APPROVE_RESTOCK, FLAG_DISCREPANCY, STAGE_HIGH_RISK, AGENT_SUMMARY
+  targetEntity   String? // e.g. "Product:456", "User:123"
+  description    String       @db.Text
+  status         ActionStatus @default(EXECUTED)
+  payload        Json? // Full parameters used for the action / the staged action to execute on approval
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, createdAt])
+}
+
+// --- Recipe / bill-of-materials for menu items (ingredient costing) ---
+// An ingredient is a Product of kind INGREDIENT. A menu item's standard cost is
+// the sum of (ingredient quantity × ingredient currentBuyPrice) across its
+// recipe — so shared ingredients (sugar → every hot drink) are allocated
+// proportionally by usage, and item-specific costs are exact.
+model MenuItemIngredient {
+  id              Int      @id @default(autoincrement())
+  tenantId        Int?
+  menuItemId      Int
+  menuItem        MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  productId       Int
+  product         Product  @relation(fields: [productId], references: [id])
+  quantityPerUnit Float    @default(0) // amount of the ingredient used per one unit of the item
+  createdAt       DateTime @default(now())
+
+  @@unique([menuItemId, productId])
+  @@index([tenantId])
+}
+
+// --- Employees / staff roster (people who work in the business). ---
+// A Worker is any person employed in the organization, regardless of whether
+// they have a platform User account. Users are provisioned as Workers on
+// registration (userId is set) so "users are workers by default".
+model Worker {
+  id             Int       @id @default(autoincrement())
+  organizationId Int
+  userId         Int?      @unique // set when this worker also has a login
+  name           String
+  title          String?
+  phone          String?
+  locationId     Int?
+  status         String    @default("ACTIVE")
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([organizationId])
+  @@index([locationId])
+}
+
+// --- Issuable machine / tool check-out (set-based, per-part return). ---
+// The whole set (machine + attached components) goes out together; each component
+// is a snapshot line-item that must come back (RETURNED / DAMAGED / MISSING).
+model MachineIssuance {
+  id             Int       @id @default(autoincrement())
+  organizationId Int
+  machineId      Int
+  machine        Machine   @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  workerId       Int? // staff user id the machine was issued to
+  workOrderId    Int?
+  shiftId        Int?
+  issuedById     Int?
+  locationId     Int?
+  status         String    @default("OUT") // OUT | PARTIAL | RETURNED
+  issuedAt       DateTime  @default(now())
+  dueReturnAt    DateTime?
+  returnedAt     DateTime?
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  items MachineIssuanceItem[]
+
+  @@index([organizationId])
+  @@index([machineId])
+  @@index([workerId])
+  @@index([shiftId])
+}
+
+model MachineIssuanceItem {
+  id               Int                 @id @default(autoincrement())
+  organizationId   Int
+  issuanceId       Int
+  issuance         MachineIssuance     @relation(fields: [issuanceId], references: [id], onDelete: Cascade)
+  componentName    String // snapshot label, e.g. "1/2-inch Chuck Key"
+  expectedQuantity Int                 @default(1)
+  returnedQuantity Int                 @default(0)
+  status           String              @default("RETURNED") // RETURNED | DAMAGED | MISSING
+  replacementCost  Float?              @default(0)
+  notes            String?
+  createdAt        DateTime            @default(now())
+
+  @@index([organizationId])
+  @@index([issuanceId])
+}
+
+model MachineLossCharge {
+  id             Int      @id @default(autoincrement())
+  organizationId Int
+  issuanceItemId Int?
+  category       String // LOSS | DAMAGE
+  amount         Float    @default(0)
+  workOrderId    Int?
+  shiftId        Int?
+  workerId       Int?
+  notes          String?
+  recordedById   Int?
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId])
+}
+
+
+// --- Manufacturing V2: owner-defined teams and ordered flow passes. ----------
+model MfgTeam {
+  id             Int           @id @default(autoincrement())
+  organizationId Int
+  name           String
+  description    String?
+  sortOrder      Int           @default(0)
+  active         Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  steps MfgFlowStep[]
+
+  @@index([organizationId])
+  @@unique([organizationId, name])
+}
+
+model MfgFlow {
+  id             Int           @id @default(autoincrement())
+  organizationId Int
+  name           String
+  description    String?
+  isDefault      Boolean       @default(false)
+  active         Boolean       @default(true)
+  // Auto-created role whose members view/update this flow's production board.
+  roleId         Int?
+  role           Role?         @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  steps MfgFlowStep[]
+  orders ManufacturingOrder[]
+
+  @@index([organizationId])
+  @@unique([organizationId, name])
+}
+
+model MfgFlowStep {
+  id             Int       @id @default(autoincrement())
+  organizationId Int
+  flowId         Int
+  flow           MfgFlow   @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  teamId         Int?
+  team           MfgTeam?  @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  // True when this team performs the build — auto-links the order's Work Order.
+  isProductionStep Boolean   @default(false)
+  name           String?
+  sortOrder      Int       @default(0)
+  createdAt      DateTime  @default(now())
+
+  operations MfgFlowStepOperation[]
+
+  @@index([organizationId])
+  @@index([flowId])
+}
+
+// Ordered operations inside a team step (e.g. Production: Sectioning & Cutting
+// → Assembly → Painting). Orders walk these before the step hands off to the
+// next team. A step without operations behaves as a single hop.
+model MfgFlowStepOperation {
+  id             Int         @id @default(autoincrement())
+  organizationId Int
+  stepId         Int
+  step           MfgFlowStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  name           String
+  sortOrder      Int         @default(0)
+  createdAt      DateTime    @default(now())
+
+  @@index([organizationId])
+  @@index([stepId])
+}
+
+// --- Raw-material purchasing: vendors, purchase orders & goods receipts ------
+// Manufacturing procurement loop: owner sends a PO to a vendor; receiving a
+// goods receipt deposits raw material into the target store at PO unit cost.
+
+enum MfgPoStatus {
+  DRAFT
+  SENT
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+enum MfgBillStatus {
+  DRAFT
+  OPEN
+  PARTIALLY_PAID
+  PAID
+  VOIDED
+}
+
+enum MfgCreditNoteStatus {
+  DRAFT
+  ISSUED
+  APPLIED
+  VOIDED
+}
+
+enum MfgRejectDisposition {
+  QUARANTINE
+  RETURNED_TO_VENDOR
+  SCRAPPED
+  CREDIT_NOTE_ISSUED
+}
+
+model MfgVendor {
+  id             Int              @id @default(autoincrement())
+  organizationId Int
+  name           String
+  contactPerson  String?
+  email          String?
+  phone          String?
+  address        String?
+  taxId          String?
+  paymentTermsDays Int?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  purchaseOrders MfgPurchaseOrder[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model MfgPurchaseOrder {
+  id                   Int                @id @default(autoincrement())
+  organizationId       Int
+  poNumber             String
+  vendorId             Int
+  vendor               MfgVendor          @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  status               MfgPoStatus        @default(DRAFT)
+  expectedDeliveryDate DateTime?
+  notes                String?
+  totalAmount          Float              @default(0)
+  createdById          Int?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  items    MfgPurchaseOrderItem[]
+  receipts MfgGoodsReceipt[]
+
+  @@unique([organizationId, poNumber])
+  @@index([organizationId, status])
+}
+
+model MfgPurchaseOrderItem {
+  id               Int              @id @default(autoincrement())
+  organizationId   Int
+  poId             Int
+  po               MfgPurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  productId        Int // raw-material Product (no FK — mirrors MaterialIssue.productId)
+  quantity         Float
+  unitCost         Float
+  quantityReceived Float            @default(0)
+  quantityRejected Float            @default(0)
+  quantityInvoiced Float            @default(0)
+  expectedDeliveryDate DateTime?
+
+  @@index([poId])
+  @@index([organizationId])
+}
+
+model MfgGoodsReceipt {
+  id             Int                 @id @default(autoincrement())
+  organizationId Int
+  grnNumber      String
+  poId           Int?
+  po             MfgPurchaseOrder?   @relation(fields: [poId], references: [id], onDelete: Restrict)
+  vendorId       Int?
+  isDirect       Boolean             @default(false)
+  totalAmount    Float               @default(0)
+  locationId     Int // receiving store
+  receivedById   Int?
+  receivedAt     DateTime            @default(now())
+  notes          String?
+  createdAt      DateTime            @default(now())
+
+  items MfgGoodsReceiptItem[]
+
+  @@unique([organizationId, grnNumber])
+  @@index([organizationId])
+  @@index([poId])
+}
+
+model MfgGoodsReceiptItem {
+  id                 Int              @id @default(autoincrement())
+  organizationId     Int
+  receiptId          Int
+  receipt            MfgGoodsReceipt  @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  poItemId           Int?
+  productId          Int
+  orderedQty         Float
+  previouslyReceived Float            @default(0)
+  receivedQty        Float
+  rejectedQty        Float            @default(0)
+  unitCost           Float            @default(0)
+  quantityBilled     Float            @default(0)
+  batchNumber        String?
+  expiryDate         DateTime?
+  manufactureDate    DateTime?
+  rejectReason       String?
+
+  @@index([receiptId])
+}
+
+
+model MfgVendorBill {
+  id             Int          @id @default(autoincrement())
+  organizationId Int
+  billNumber     String
+  vendorId       Int?
+  poId           Int?
+  grnId          Int?
+  status         MfgBillStatus        @default(DRAFT)
+  totalAmount    Float        @default(0)
+  taxAmount      Float        @default(0)
+  dueDate        DateTime?
+  notes          String?
+  createdById    Int?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  items MfgVendorBillItem[]
+
+  @@unique([organizationId, billNumber])
+  @@index([organizationId])
+  @@index([vendorId])
+  @@index([poId])
+  @@index([grnId])
+}
+model MfgVendorBillItem {
+  id             Int            @id @default(autoincrement())
+  organizationId Int
+  billId         Int
+  bill           MfgVendorBill  @relation(fields: [billId], references: [id], onDelete: Cascade)
+  poItemId       Int?
+  grnItemId      Int?
+  productId      Int
+  quantity       Float          @default(0)
+  unitCost       Float          @default(0)
+  amount         Float          @default(0)
+
+  @@index([billId])
+}
+model MfgVendorCreditNote {
+  id               Int                 @id @default(autoincrement())
+  organizationId   Int
+  creditNoteNumber String
+  vendorId         Int?
+  grnId            Int?
+  billId           Int?
+  status           MfgCreditNoteStatus @default(DRAFT)
+  totalAmount      Float               @default(0)
+  reason           String?
+  createdById      Int?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  items MfgVendorCreditNoteItem[]
+
+  @@unique([organizationId, creditNoteNumber])
+  @@index([organizationId])
+  @@index([vendorId])
+  @@index([grnId])
+  @@index([billId])
+}
+model MfgVendorCreditNoteItem {
+  id             Int                   @id @default(autoincrement())
+  organizationId Int
+  creditNoteId   Int
+  creditNote     MfgVendorCreditNote   @relation(fields: [creditNoteId], references: [id], onDelete: Cascade)
+  rejectionId    Int?
+  grnItemId      Int?
+  productId      Int
+  quantity       Float                 @default(0)
+  unitCost       Float                 @default(0)
+  amount         Float                 @default(0)
+
+  @@index([creditNoteId])
+}
+model MfgRejectedStock {
+  id             Int                  @id @default(autoincrement())
+  organizationId Int
+  grnItemId      Int?
+  grnId          Int?
+  poId           Int?
+  vendorId       Int?
+  productId      Int
+  quantity       Float                @default(0)
+  unitCost       Float                @default(0)
+  reason         String               @default("OTHER")
+  disposition    MfgRejectDisposition @default(QUARANTINE)
+  locationId     Int?
+  notes          String?
+  createdById    Int?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([organizationId])
+  @@index([grnId])
+  @@index([vendorId])
+  @@index([disposition])
+}
