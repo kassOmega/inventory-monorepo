@@ -3,6 +3,7 @@
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 // Public VAPID key (must match the backend's VAPID_PUBLIC_KEY — a mismatch
 // makes the push service reject every send with a 401).
@@ -14,6 +15,14 @@ const VAPID_PUBLIC =
 const VAPID_FINGERPRINT_STORAGE = "push-vapid-fingerprint";
 const currentVapidFingerprint = VAPID_PUBLIC.slice(-32);
 
+// System-alert permission is requested exactly once per device. Browsers only
+// honour the request from inside a real user gesture and a denial can never be
+// undone from JavaScript, so there is deliberately no "enable notifications"
+// button: the first tap/key press anywhere in the dashboard triggers it.
+const PROMPT_ATTEMPTED_STORAGE = "push-prompt-attempted-at";
+// The "system alerts are blocked" hint is shown once per device.
+const BLOCKED_HINT_STORAGE = "push-blocked-hint-seen";
+
 function urlBase64ToUint8Array(base64String: string) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const raw = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -21,11 +30,18 @@ function urlBase64ToUint8Array(base64String: string) {
   return new Uint8Array([...rawData].map((c) => c.charCodeAt(0)));
 }
 
+/** Human-readable message for an unknown thrown value. */
+function errorMessage(e: unknown, fallback: string): string {
+  return e instanceof Error && e.message ? e.message : fallback;
+}
+
 export default function PwaRegistry() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [pushIssue, setPushIssue] = useState<string | null>(null);
-  const [enableVisible, setEnableVisible] = useState(false);
+  const [blockedHint, setBlockedHint] = useState(false);
   const subscribedOnce = useRef(false);
+  const prompting = useRef(false);
 
   // Register the service worker once (production only, unless explicitly enabled).
   useEffect(() => {
@@ -100,99 +116,148 @@ export default function PwaRegistry() {
     console.info(`[push] Subscription active for user ${user?.id}.`);
   }, [user]);
 
+  /** The browser will not ask again — explain how to allow system alerts. */
+  const showBlockedHintOnce = useCallback(() => {
+    if (localStorage.getItem(BLOCKED_HINT_STORAGE)) return;
+    setBlockedHint(true);
+  }, []);
+
   /**
-   * Evaluate the permission state and act accordingly. It never prompts by
-   * itself — browsers require a user gesture for the permission dialog. When
-   * permission is already granted we (re)subscribe quietly on load/focus.
+   * Ask the browser for notification permission. This MUST run synchronously
+   * from inside a user-gesture handler (pointerdown / keydown / touchstart):
+   * Chrome quietly drops requests made outside one, and Firefox/Safari ignore
+   * them completely. Runs at most once per device.
    */
-  const refreshPushState = useCallback(
-    async (opts?: { prompt?: boolean }) => {
-      if (!user || !pushSupported || typeof Notification === "undefined") return;
-
-      const permission = Notification.permission;
-      if (permission === "granted") {
-        setEnableVisible(false);
-        try {
-          await persistSubscription();
-        } catch (e: any) {
-          console.error("[push] Push subscription failed:", e);
-          setPushIssue(
-            e?.message || "Push setup failed — check the browser console.",
-          );
-        }
-        return;
+  const promptOnce = useCallback(async () => {
+    if (!user || !pushSupported || typeof Notification === "undefined") return;
+    if (Notification.permission !== "default") return;
+    if (prompting.current) return;
+    prompting.current = true;
+    try {
+      const next = await Notification.requestPermission();
+      localStorage.setItem(PROMPT_ATTEMPTED_STORAGE, String(Date.now()));
+      if (next === "granted") {
+        await persistSubscription();
+      } else {
+        // "default" here means the prompt was dismissed, "denied"/"blocked"
+        // means it was refused — either way we never ask again.
+        showBlockedHintOnce();
       }
+    } catch (e) {
+      console.error("[push] Notification permission request failed:", e);
+      setPushIssue(
+        errorMessage(e, "Push setup failed — check the browser console."),
+      );
+    } finally {
+      prompting.current = false;
+    }
+  }, [persistSubscription, pushSupported, showBlockedHintOnce, user]);
 
-      if (permission === "denied") {
-        // Do not nag automatically — only explain if the user explicitly tries
-        // to enable notifications again.
-        setEnableVisible(false);
-        return;
-      }
+  /**
+   * Never prompts: (re)subscribes quietly when permission is already granted and
+   * surfaces the blocked hint when the browser refuses to ask again.
+   */
+  const evaluatePushState = useCallback(async () => {
+    if (!user || !pushSupported || typeof Notification === "undefined") return;
 
-      // "default" (never asked / prompt suppressed): show an enable button so
-      // the permission request happens inside a real click handler.
-      if (opts?.prompt) {
-        try {
-          const next = await Notification.requestPermission();
-          if (next === "granted") {
-            setEnableVisible(false);
-            await persistSubscription();
-          } else {
-            setPushIssue(
-              "Notification permission was not granted. Enable it in the site's notification settings to receive push notifications.",
-            );
-          }
-        } catch (e: any) {
-          console.error("[push] Notification permission request failed:", e);
-          setPushIssue(
-            e?.message || "Push setup failed — check the browser console.",
-          );
-        }
-        return;
+    const permission = Notification.permission as string;
+    if (permission === "granted") {
+      try {
+        await persistSubscription();
+      } catch (e) {
+        console.error("[push] Push subscription failed:", e);
+        setPushIssue(
+          errorMessage(e, "Push setup failed — check the browser console."),
+        );
       }
-      setEnableVisible(true);
-    },
-    [persistSubscription, pushSupported, user],
-  );
+      return;
+    }
+
+    if (permission === "denied" || permission === "blocked") {
+      showBlockedHintOnce();
+    }
+  }, [persistSubscription, pushSupported, showBlockedHintOnce, user]);
+
+  // Request permission on the user's very first interaction with the app.
+  useEffect(() => {
+    if (!user || !pushSupported || typeof Notification === "undefined") return;
+    if (Notification.permission !== "default") return;
+    if (localStorage.getItem(PROMPT_ATTEMPTED_STORAGE)) return;
+
+    const events: Array<keyof DocumentEventMap> = [
+      "pointerdown",
+      "keydown",
+      "touchstart",
+    ];
+    const opts: AddEventListenerOptions = { capture: true, passive: true };
+    let armed = true;
+    function onFirstInteraction() {
+      detach();
+      void promptOnce();
+    }
+    function detach() {
+      if (!armed) return;
+      armed = false;
+      for (const name of events) {
+        document.removeEventListener(name, onFirstInteraction, opts);
+      }
+    }
+
+    for (const name of events) {
+      document.addEventListener(name, onFirstInteraction, opts);
+    }
+    return detach;
+  }, [promptOnce, pushSupported, user]);
 
   useEffect(() => {
     if (!user) return;
-    refreshPushState();
+    // Deferred one tick so the effect never sets state during the commit.
+    const initial = setTimeout(() => void evaluatePushState(), 0);
 
     // Retry silently (no prompt) whenever the user returns to the app or the
     // page regains focus — never re-nag after a previous success/denial.
     const retry = () => {
-      if (!subscribedOnce.current) refreshPushState();
+      if (!subscribedOnce.current) evaluatePushState();
     };
     window.addEventListener("focus", retry);
     document.addEventListener("visibilitychange", retry);
 
     return () => {
+      clearTimeout(initial);
       window.removeEventListener("focus", retry);
       document.removeEventListener("visibilitychange", retry);
     };
-  }, [refreshPushState, user]);
+  }, [evaluatePushState, user]);
 
   // Auto-dismiss the diagnostic banner after a short while.
   useEffect(() => {
     if (!pushIssue) return;
-    const t = setTimeout(() => setPushIssue(null), 10000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setPushIssue(null), 10000);
+    return () => clearTimeout(timer);
   }, [pushIssue]);
 
-  if (!pushIssue && !enableVisible) return null;
+  const dismissBlockedHint = () => {
+    localStorage.setItem(BLOCKED_HINT_STORAGE, String(Date.now()));
+    setBlockedHint(false);
+  };
+
+  if (!pushIssue && !blockedHint) return null;
 
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9999] flex flex-col items-center gap-2">
-      {enableVisible && (
-        <button
-          type="button"
-          onClick={() => refreshPushState({ prompt: true })}
-          className="bg-blue-600 text-white text-xs sm:text-sm px-4 py-2 rounded-lg shadow-lg font-medium hover:bg-blue-700"
-        >
-          🔔 Enable notifications
-        </button>
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9999] flex flex-col items-center gap-2 px-3 w-[calc(100%-1.5rem)] sm:w-auto">
+      {blockedHint && (
+        <div className="bg-slate-800 text-white text-xs sm:text-sm px-4 py-3 rounded-lg shadow-lg max-w-md flex items-start gap-3">
+          <span aria-hidden>🔕</span>
+          <p className="flex-1">{t("notifications.blockedHint")}</p>
+          <button
+            type="button"
+            onClick={dismissBlockedHint}
+            aria-label={t("notifications.dismiss")}
+            className="flex-shrink-0 text-slate-300 hover:text-white text-lg leading-none"
+          >
+            ×
+          </button>
+        </div>
       )}
       {pushIssue && (
         <div className="bg-red-600 text-white text-xs sm:text-sm px-4 py-2 rounded-lg shadow-lg max-w-sm text-center">

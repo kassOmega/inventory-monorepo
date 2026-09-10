@@ -619,7 +619,11 @@
     "title": "Notifications",
     "markAllAsRead": "Mark all as read",
     "noNotifications": "No notifications yet",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "alertBanner": "Action needed",
+    "blockedHint": "System alerts are blocked for this browser. Alerts still appear inside the app — to also get pop-up alerts, allow notifications for this site in your browser settings.",
+    "soundOn": "Alert sound on",
+    "soundOff": "Alert sound off"
   },
   "auth": {
     "language": "Language",

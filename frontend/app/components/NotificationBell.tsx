@@ -1,10 +1,15 @@
 "use client";
 
 import { useAuth } from "@/context/AuthContext";
+import {
+  isAlertSoundOn,
+  setAlertSoundOn,
+  subscribeAlertSound,
+} from "@/lib/alertSound";
 import api from "@/lib/api";
 import { timeAgo } from "@/lib/datetime";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 
 interface Notification {
@@ -33,6 +38,12 @@ export default function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
+  // Alert-sound preference lives in localStorage; mirror it without an effect.
+  const soundOn = useSyncExternalStore(
+    subscribeAlertSound,
+    isAlertSoundOn,
+    () => true,
+  );
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const fetchUnreadCount = useCallback(async () => {
@@ -183,14 +194,32 @@ export default function NotificationBell() {
         <div className="absolute right-0 mt-2 w-72 sm:w-80 bg-white rounded-xl shadow-lg border border-gray-200 z-50 max-h-96 overflow-hidden flex flex-col">
           <div className="flex items-center justify-between p-3 border-b">
             <h3 className="font-semibold text-gray-800">{t("notifications.title")}</h3>
-            {unreadCount > 0 && (
+            <div className="flex items-center gap-3">
               <button
-                onClick={handleMarkAllAsRead}
-                className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                onClick={() => setAlertSoundOn(!soundOn)}
+                title={
+                  soundOn
+                    ? t("notifications.soundOn")
+                    : t("notifications.soundOff")
+                }
+                aria-label={
+                  soundOn
+                    ? t("notifications.soundOn")
+                    : t("notifications.soundOff")
+                }
+                className="text-sm leading-none"
               >
-                {t("notifications.markAllAsRead")}
+                {soundOn ? "🔔" : "🔕"}
               </button>
-            )}
+              {unreadCount > 0 && (
+                <button
+                  onClick={handleMarkAllAsRead}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  {t("notifications.markAllAsRead")}
+                </button>
+              )}
+            </div>
           </div>
           <div className="overflow-y-auto flex-1">
             {notifications.length === 0 ? (
