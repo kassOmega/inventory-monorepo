@@ -57,6 +57,28 @@ export function nextScanGuard(
 }
 
 /**
+ * Camera constraint passed to html5-qrcode's `start()`.
+ *
+ * IMPORTANT: that argument accepts a camera-id string or an object with EXACTLY
+ * ONE key (`facingMode` or `deviceId`), and a `facingMode` value that is either
+ * the string "user"/"environment" or an object with an `exact` key. Anything
+ * else makes the library throw ("'cameraIdOrConfig' object should have exactly
+ * 1 key…" / "'facingMode' should be string or object with exact as key"), so
+ * resolution belongs in `videoConstraints` below, never here.
+ */
+export const SCANNER_CAMERA = { facingMode: "environment" } as const;
+
+/**
+ * Preferred capture settings, passed as `config.videoConstraints` (an `ideal`
+ * value is only a preference, so it can never over-constrain the device).
+ */
+export const SCANNER_VIDEO_CONSTRAINTS = {
+  facingMode: "environment",
+  width: { ideal: 1280 },
+  height: { ideal: 720 },
+} as const;
+
+/**
  * Soft plausibility check for retail EAN/UPC codes (check digit).
  * Returns null when the value is not a candidate at all (e.g. the alphanumeric
  * payload of a Code 128 label), so callers can warn rather than reject.

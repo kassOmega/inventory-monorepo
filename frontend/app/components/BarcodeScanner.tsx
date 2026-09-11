@@ -8,6 +8,8 @@ import type {
 } from "html5-qrcode";
 import Modal from "./Modal";
 import {
+  SCANNER_CAMERA,
+  SCANNER_VIDEO_CONSTRAINTS,
   formatSymbologyLabel,
   nextScanGuard,
   normalizeScannedCode,
@@ -282,17 +284,17 @@ export default function BarcodeScanner({
             ),
           }),
           formatsToSupport,
+          // Preferred capture resolution lives here: the start() camera argument
+          // only accepts a single key (see SCANNER_CAMERA).
+          videoConstraints: SCANNER_VIDEO_CONSTRAINTS,
           experimentalFeatures: {
             useBarCodeDetectorIfSupported: nativeSupported,
           },
         };
 
-        // Ask for the rear camera at a resolution that keeps thin bars crisp.
-        const camera: MediaTrackConstraints = {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        };
+        // html5-qrcode takes a camera-id string or a ONE-key object here — extra
+        // keys make it throw before the camera ever opens.
+        const camera = SCANNER_CAMERA;
 
         const onSuccess = (decodedText: string, decodedResult: Html5QrcodeResult) => {
           if (cancelled) return;
@@ -331,6 +333,9 @@ export default function BarcodeScanner({
           scannerRef.current = scanner;
           const jsOnlyConfig: ScanConfig = {
             ...config,
+            // Minimal constraints: if the preferred resolution request was the
+            // problem, this retry still gets a camera.
+            videoConstraints: SCANNER_CAMERA,
             experimentalFeatures: { useBarCodeDetectorIfSupported: false },
           };
           await scanner.start(camera, jsOnlyConfig, onSuccess, onFrameMiss);
