@@ -3,7 +3,7 @@
 // Scanning is a stream: the same code can arrive several times in a row (the
 // shopkeeper scans a second unit, or the camera re-reads the same label), so a
 // scan must either increment the line that is already in the cart or create a
-// new one — never duplicate it.
+// new one — never duplicate it, and never leave an empty row behind.
 
 export interface ScanCartLine {
   variantId: string;
@@ -92,8 +92,12 @@ function scanTargetIndex<T extends ScanCartRow>(rows: T[]): number {
 }
 
 /**
- * Put a product on the given blank row (or append a fresh row) and make sure the
- * cart still ends with exactly one empty row for manual entry.
+ * Put a product on the given blank row, or append a fresh row for it.
+ *
+ * A scan never leaves an empty row behind: the cart shows exactly the items on
+ * the sale. Empty rows appear only when the user asks for one ("+ Add item") or
+ * on a freshly opened form — otherwise an empty row with `required` inputs would
+ * block "Complete Sale" for no reason.
  */
 function fillRow<T extends ScanCartRow>(
   rows: T[],
@@ -109,19 +113,11 @@ function fillRow<T extends ScanCartRow>(
     variantLines: variantLines.length ? variantLines : undefined,
   });
 
-  const template: T = rows.length
-    ? rows[rows.length - 1]
-    : (blankRow() as unknown as T);
-  const next: T[] =
-    target >= 0
-      ? rows.map((row, i) => (i === target ? fill(row) : row))
-      : [...rows, fill(template)];
-
-  const last = next[next.length - 1];
-  if (last && !isBlank(last)) {
-    next.push({ ...last, ...blankRow() } as T);
+  if (target >= 0) {
+    return rows.map((row, i) => (i === target ? fill(row) : row));
   }
-  return next;
+  // A brand-new row starts clean — no price, search text or filter carried over.
+  return [...rows, fill(blankRow() as unknown as T)];
 }
 
 /**
@@ -190,7 +186,8 @@ export function addScannedToCart<T extends ScanCartRow>(
       return {
         cart: next,
         action: "NEEDS_VARIANT",
-        rowIndex: target >= 0 ? target : next.length - 2,
+        // Without a trailing blank row the new row is simply the last one.
+        rowIndex: target >= 0 ? target : next.length - 1,
         quantity: 0,
       };
     }
@@ -205,7 +202,7 @@ export function addScannedToCart<T extends ScanCartRow>(
     variantLine ? [variantLine] : [],
     keepQuantity,
   );
-  const rowIndex = target >= 0 ? target : next.length - 2;
+  const rowIndex = target >= 0 ? target : next.length - 1;
   return {
     cart: next,
     action: "ADDED",

@@ -33,7 +33,42 @@ export interface ScanGuard {
 }
 
 /** Same code re-read inside this window is treated as a double read. */
-export const SCAN_RESCAN_WINDOW_MS = 1500;
+export const SCAN_RESCAN_WINDOW_MS = 3000;
+
+/** How long a code must stay out of the viewfinder before a re-scan counts. */
+export const SCAN_LEAVE_FRAME_MS = 800;
+
+/**
+ * State of the viewfinder for the code that was last seen. `missSince` is the
+ * moment the current run of undecoded frames started, 0 while the code is seen.
+ */
+export interface ScanPresence {
+  missSince: number;
+}
+
+/** A frame decoded: the code is (still) in the viewfinder, so clear any absence. */
+export function noteFrameHit(presence: ScanPresence): ScanPresence {
+  return presence.missSince === 0 ? presence : { missSince: 0 };
+}
+
+/** A frame decoded nothing: start (or keep) the current absence run. */
+export function noteFrameMiss(presence: ScanPresence, now: number): ScanPresence {
+  return presence.missSince ? presence : { missSince: now };
+}
+
+/**
+ * True while the code is still considered to be inside the viewfinder.
+ *
+ * A single undecoded frame is normal — motion blur, glare, a hand crossing the
+ * lens — and must not re-arm scanning, or a label parked under the camera ticks
+ * the quantity up on its own. Only a sustained absence counts as "left the
+ * frame", and even then SCAN_RESCAN_WINDOW_MS still has to pass.
+ */
+export function codeInFrame(presence: ScanPresence, now: number): boolean {
+  return (
+    presence.missSince === 0 || now - presence.missSince < SCAN_LEAVE_FRAME_MS
+  );
+}
 
 /**
  * Decide whether a successful decode starts a new scan or is a repeat of the one
@@ -105,6 +140,56 @@ export function retailCheckDigitOk(code: string): boolean | null {
     // EAN-8: weights 3,1,3,1,… over the first 7 digits.
     const weights = digits.slice(0, 7).map((_, i) => (i % 2 === 0 ? 3 : 1));
     return checkWith(digits.slice(0, 7), weights) === digits[7];
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Catalogue lookup for a scanned code
+// ---------------------------------------------------------------------------
+
+/** Minimal product shape the lookup needs; richer product types satisfy it. */
+export interface ScannableProduct {
+  id: number;
+  sku?: string | null;
+  barcode?: string | null;
+  variants?: ReadonlyArray<{
+    sku?: string | null;
+    barcode?: string | null;
+  }> | null;
+}
+
+/** A scanned code resolved to a product, plus its variant when one matched. */
+export interface ScannedProductHit<P extends ScannableProduct> {
+  product: P;
+  /** Null when the product-level SKU/barcode was scanned. */
+  variant: NonNullable<P["variants"]>[number] | null;
+}
+
+/**
+ * Resolve a scanned/typed code against the loaded catalogue: a product SKU or
+ * barcode first, then a variant SKU/barcode (which carries its parent product).
+ * Used as the fallback when the exact `/products/by-code` lookup is unavailable.
+ */
+export function resolveScannedCode<P extends ScannableProduct>(
+  code: string,
+  products: readonly P[],
+): ScannedProductHit<P> | null {
+  const value = code.trim().toLowerCase();
+  const product = products.find(
+    (p) =>
+      (p.sku || "").toLowerCase() === value ||
+      (p.barcode || "").toLowerCase() === value,
+  );
+  if (product) return { product, variant: null };
+
+  for (const p of products) {
+    const variant = (p.variants ?? []).find(
+      (v) =>
+        (v.sku || "").toLowerCase() === value ||
+        (v.barcode || "").toLowerCase() === value,
+    );
+    if (variant) return { product: p, variant };
   }
   return null;
 }

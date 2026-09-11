@@ -10,10 +10,14 @@ import Modal from "./Modal";
 import {
   SCANNER_CAMERA,
   SCANNER_VIDEO_CONSTRAINTS,
+  codeInFrame,
   formatSymbologyLabel,
   nextScanGuard,
   normalizeScannedCode,
+  noteFrameHit,
+  noteFrameMiss,
   type ScanGuard,
+  type ScanPresence,
 } from "@/lib/scan";
 
 type ScanErrorCode = "blocked" | "nocamera" | "busy" | "engine";
@@ -172,7 +176,9 @@ export default function BarcodeScanner({
   // Scan-acceptance guard: a code is refused while it is still in view, so
   // holding a barcode steady cannot add the same item twice.
   const guardRef = useRef<ScanGuard>({ code: "", at: 0 });
-  const codeInFrameRef = useRef(false);
+  // Viewfinder state for the code just seen: a single undecoded frame is normal
+  // and must not re-arm scanning (see noteFrameMiss / codeInFrame).
+  const presenceRef = useRef<ScanPresence>({ missSince: 0 });
 
   // Keep the latest callback/props in refs (updated after render, not during).
   useEffect(() => {
@@ -205,7 +211,7 @@ export default function BarcodeScanner({
     setResult(null);
     setTorchOn(false);
     setTorchAvailable(false);
-    codeInFrameRef.current = false;
+    presenceRef.current = { missSince: 0 };
   };
 
   /** Normalize, guard against repeats, then hand the value to the caller. */
@@ -213,15 +219,20 @@ export default function BarcodeScanner({
     const code = normalizeScannedCode(raw);
     if (!code) return;
 
+    const now = Date.now();
+    // A decode means the label is still there — clear any absence run before
+    // deciding, so an intermittent frame can never look like a fresh scan.
+    const presence = noteFrameHit(presenceRef.current);
+    presenceRef.current = presence;
+
     const decision = nextScanGuard(
       guardRef.current,
       code,
-      Date.now(),
-      codeInFrameRef.current,
+      now,
+      codeInFrame(presence, now),
     );
     if (!decision.accept) return;
     guardRef.current = decision.guard;
-    codeInFrameRef.current = true;
 
     setResult({ code, format: formatName });
     onScanRef.current(code);
@@ -277,10 +288,10 @@ export default function BarcodeScanner({
           // square still fits comfortably inside it. Clamped to the viewfinder so
           // the library can never reject the box while the modal animates in.
           qrbox: (viewfinderWidth: number, viewfinderHeight: number) => ({
-            width: Math.round(viewfinderWidth * 0.85),
+            width: Math.round(viewfinderWidth * 0.92),
             height: Math.max(
-              80,
-              Math.min(140, Math.round(viewfinderHeight * 0.5)),
+              110,
+              Math.min(190, Math.round(viewfinderHeight * 0.7)),
             ),
           }),
           formatsToSupport,
@@ -301,10 +312,11 @@ export default function BarcodeScanner({
           handleScan(decodedText, decodedResult?.result?.format?.formatName ?? null);
         };
 
-        // Called for every frame in which nothing decodes: the code that was just
-        // accepted has left the frame, so it may be scanned again (next unit).
+        // Called for every frame in which nothing decodes. A single missed frame
+        // is normal (blur, glare), so this only *starts* the absence run — the
+        // code counts as gone once it has stayed gone for SCAN_LEAVE_FRAME_MS.
         const onFrameMiss = () => {
-          codeInFrameRef.current = false;
+          presenceRef.current = noteFrameMiss(presenceRef.current, Date.now());
         };
 
         try {
@@ -403,7 +415,7 @@ export default function BarcodeScanner({
         onClick={() => {
           bufferRef.current = "";
           guardRef.current = { code: "", at: 0 };
-          codeInFrameRef.current = false;
+          presenceRef.current = { missSince: 0 };
           setResult(null);
           setErrorCode(null);
           setErrorDetailText(null);
@@ -419,10 +431,12 @@ export default function BarcodeScanner({
 
       <Modal isOpen={open} onClose={close} title={t("scan.title")}>
         <div className="space-y-3">
+          {/* Viewfinder: kept small and centred — the camera fills the width of
+              the modal otherwise, and the preview would dominate the screen. */}
           <div
             id={scannerId}
-            className="w-full overflow-hidden rounded-lg bg-black"
-            style={{ minHeight: 280 }}
+            className="mx-auto w-full max-w-[240px] sm:max-w-[280px] overflow-hidden rounded-lg bg-black"
+            style={{ minHeight: 200 }}
           />
 
           {errorText ? (

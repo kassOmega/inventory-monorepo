@@ -27,6 +27,7 @@ import api, { markHandled } from "@/lib/api";
 import { newClientRef } from "@/lib/clientRef";
 import { formatDateTime } from "@/lib/datetime";
 import { addScannedToCart } from "@/lib/cart";
+import { lookupScannedProduct } from "@/lib/scanLookup";
 import { batchLabel, variantLabel } from "@/lib/variantLabel";
 import VariantLinesEditor, {
   defaultVariantLine,
@@ -75,35 +76,6 @@ interface CartItem {
 }
 
 type DatePreset = "today" | "week" | "month" | "year";
-
-/**
- * Resolve a scanned/typed code against the loaded catalogue: a product SKU or
- * barcode first, then a variant SKU/barcode (which carries its parent product).
- */
-type ScannedHit = { product: Product; variant: any };
-
-function resolveScannedCode(
-  code: string,
-  products: Product[],
-): ScannedHit | null {
-  const value = code.trim().toLowerCase();
-  const product = products.find(
-    (p) =>
-      (p.sku || "").toLowerCase() === value ||
-      (p.barcode && p.barcode.toLowerCase() === value),
-  );
-  if (product) return { product, variant: null };
-
-  for (const p of products) {
-    const variant = (p.variants ?? []).find(
-      (v) =>
-        (v.sku || "").toLowerCase() === value ||
-        (v.barcode && v.barcode.toLowerCase() === value),
-    );
-    if (variant) return { product: p, variant };
-  }
-  return null;
-}
 
 export default function SalesPage() {
   const { t } = useTranslation();
@@ -698,31 +670,24 @@ export default function SalesPage() {
     const code = raw.trim();
     if (!code) return;
 
-    let hit: ScannedHit | null = null;
-
-    try {
-      const locParam =
-        isOwner && ownerShopId ? `&locationId=${ownerShopId}` : "";
-      const res = await api.get(
-        `/products/by-code?code=${encodeURIComponent(code)}${locParam}`,
-      );
-      const { product, variant } = res.data ?? {};
-      if (product) {
-        hit = { product, variant: variant ?? null };
-        // Merge so the row's select and the stock helpers can see the product.
-        setProducts((prev) =>
-          prev.some((p) => p.id === product.id) ? prev : [...prev, product],
-        );
-      }
-    } catch {
-      // Lookup unavailable — fall back to the catalogue already in memory.
-      hit = resolveScannedCode(code, products);
-    }
+    // Exact backend lookup first (it also resolves a variant code and the
+    // shop's stock); the shared helper falls back to the catalogue in memory.
+    const hit = await lookupScannedProduct(
+      code,
+      products,
+      isOwner && ownerShopId ? ownerShopId : null,
+    );
 
     if (!hit) {
       toast.error(t("restock.noProductForSku", { sku: code }));
       return;
     }
+
+    const { product } = hit;
+    // Merge so the row's select and the stock helpers can see the product.
+    setProducts((prev) =>
+      prev.some((p) => p.id === product.id) ? prev : [...prev, product],
+    );
 
     const line = hit.variant
       ? defaultVariantLine(hit.product, hit.variant)

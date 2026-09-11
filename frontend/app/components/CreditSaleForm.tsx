@@ -7,13 +7,14 @@ import CustomerForm from "./CustomerForm";
 import Modal from "./Modal";
 import Loading from "./Loading";
 import VariantLinesEditor, {
-  addOrBumpVariantLine,
   defaultVariantLine,
   VariantSaleLine,
   variantUnitPrice,
 } from "./VariantLinesEditor";
+import { addScannedToCart } from "@/lib/cart";
+import { lookupScannedProduct } from "@/lib/scanLookup";
 import { useTranslation } from "react-i18next";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "./ToastProvider";
 import { useSingleLocationAutofill } from "@/lib/singleLocation";
@@ -68,6 +69,17 @@ export default function CreditSaleForm({
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
   const [scanBusyIndex, setScanBusyIndex] = useState<number | null>(null);
+  // Row touched by the last cart-level scan: highlighted briefly, qty focused.
+  const [scannedRowIndex, setScannedRowIndex] = useState<number | null>(null);
+
+  // Latest cart for the "scan to cart" flow: scans arrive back-to-back, so each
+  // one must build on the previous result rather than on render state.
+  const cartRef = useRef<CartItem[]>(cart);
+  useEffect(() => {
+    cartRef.current = cart;
+  }, [cart]);
+  // Refs to the quantity inputs so a barcode scan can focus the quantity field.
+  const qtyRefs = useRef<Array<HTMLInputElement | null>>([]);
 
   const isOwner = user?.isSuperuser === true;
   const canAiScan = user?.isSuperuser || hasPermission("ai.sales-assist");
@@ -186,63 +198,64 @@ export default function CreditSaleForm({
     }
   };
 
-  const handleScanAt = (index: number, sku: string) => {
-    const code = sku.toLowerCase();
-    let product = products.find(
-      (p) =>
-        (p.sku || "").toLowerCase() === code ||
-        (p.barcode || "").toLowerCase() === code,
+  /**
+   * Cart-level scan (the "Scan to cart" button): each scan puts the product on
+   * the sale, and scanning the same product/variant again increments the line it
+   * already occupies instead of adding a duplicate row.
+   */
+  const handleScanToCart = async (raw: string) => {
+    const code = raw.trim();
+    if (!code) return;
+
+    // Exact backend lookup first (it also resolves a variant code and the
+    // shop's stock); the shared helper falls back to the catalogue in memory.
+    const hit = await lookupScannedProduct(
+      code,
+      products,
+      isOwner && ownerShopId ? ownerShopId : null,
     );
-    let matchedVariant: any = null;
-    if (!product) {
-      for (const p of products) {
-        const v = (p.variants ?? []).find(
-          (vx: any) =>
-            (vx.sku || "").toLowerCase() === code ||
-            (vx.barcode || "").toLowerCase() === code,
-        );
-        if (v) {
-          product = p;
-          matchedVariant = v;
-          break;
-        }
-      }
-    }
-    if (!product) {
-      setErrorMsg(t("cs.noProductFor", { sku }));
+
+    if (!hit) {
+      toast.error(t("restock.noProductForSku", { sku: code }));
       return;
     }
-    const rowHas = cart[index];
-    const sameProduct = String(rowHas?.productId) === String(product.id);
-    if (
-      !sameProduct &&
-      cart.some(
-        (c, i) =>
-          i !== index &&
-          String(c.productId) === String(product.id) &&
-          (c.variantLines ?? []).length === 0,
-      )
-    ) {
-      setErrorMsg(
-        t("cs.alreadyInSale", {
-          name: `${product.brand} ${product.baseName}`,
-        }),
-      );
+
+    const { product } = hit;
+    // Merge so the row's select and the stock helpers can see the product.
+    setProducts((prev) =>
+      prev.some((p) => p.id === product.id) ? prev : [...prev, product],
+    );
+
+    const line = hit.variant
+      ? defaultVariantLine(hit.product, hit.variant)
+      : null;
+    // Read the ref (not render state) so back-to-back scans never lose a unit.
+    const outcome = addScannedToCart(cartRef.current, hit.product, line);
+    cartRef.current = outcome.cart;
+    setCart(outcome.cart);
+
+    // Show which line the scan touched and drop the cursor into its quantity so
+    // the shopkeeper can adjust the count straight away.
+    setScannedRowIndex(outcome.rowIndex);
+    setTimeout(() => qtyRefs.current[outcome.rowIndex]?.focus(), 50);
+    setTimeout(() => setScannedRowIndex(null), 1500);
+
+    const name = [hit.product.brand, hit.product.baseName]
+      .filter(Boolean)
+      .join(" ");
+
+    if (outcome.action === "NEEDS_VARIANT") {
+      toast.info(t("sales.scannedPickVariant", { name }));
       return;
     }
-    patchRow(index, {
-      productId: String(product.id),
-      variantLines: matchedVariant
-        ? sameProduct
-          ? addOrBumpVariantLine(
-              rowHas?.variantLines ?? [],
-              defaultVariantLine(product, matchedVariant),
-            )
-          : [defaultVariantLine(product, matchedVariant)]
-        : product.hasVariants
-          ? []
-          : undefined,
-    });
+    toast.success(
+      t(
+        outcome.action === "ADDED"
+          ? "sales.scannedAdded"
+          : "sales.scannedBumped",
+        { name, qty: String(outcome.quantity) },
+      ),
+    );
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -376,6 +389,14 @@ export default function CreditSaleForm({
         </span>
       </div>
 
+      {/* Cart-level scanner: scan item after item; repeating a code bumps it. */}
+      <BarcodeScanner
+        continuous
+        onScan={handleScanToCart}
+        label={`📷 ${t("sales.scanToCart")}`}
+        className="w-full px-4 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700"
+      />
+
       {cart.map((item, index) => {
         const selectedProduct = products.find(
           (p) => p.id === Number(item.productId),
@@ -389,7 +410,12 @@ export default function CreditSaleForm({
         return (
           <div
             key={index}
-            className="p-3 bg-gray-50 rounded-lg border space-y-2"
+            className={
+              "p-3 bg-gray-50 rounded-lg border space-y-2 transition-shadow " +
+              (scannedRowIndex === index
+                ? "ring-2 ring-indigo-400 border-indigo-300"
+                : "")
+            }
           >
             <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
               <div className="w-full sm:w-28">
@@ -444,10 +470,6 @@ export default function CreditSaleForm({
                     required
                     className="flex-1"
                   />
-                  <BarcodeScanner
-                    onScan={(sku) => handleScanAt(index, sku)}
-                    className="px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap bg-blue-600 text-white hover:bg-blue-700"
-                  />
                 </div>
               </div>
             </div>
@@ -467,6 +489,9 @@ export default function CreditSaleForm({
                     {t("common.qty")}
                   </label>
                   <input
+                    ref={(el) => {
+                      qtyRefs.current[index] = el;
+                    }}
                     type="number"
                     min="1"
                     max={stock || undefined}
