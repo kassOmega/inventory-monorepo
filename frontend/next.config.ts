@@ -34,8 +34,13 @@ const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "no-referrer" },
   {
+    // The app itself scans product barcodes / QR codes with the device camera,
+    // so `camera` must be allowed for our own origin (`self`). An empty
+    // allowlist (the previous `camera=()`) denies the document itself and makes
+    // every getUserMedia() call reject with NotAllowedError — which is what the
+    // scanner reports as "Unable to access the camera".
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=()",
+    value: "camera=(self), microphone=(), geolocation=()",
   },
   {
     key: "Strict-Transport-Security",

@@ -108,11 +108,30 @@ export class PushService {
   async sendToRoleId(
     payload: { title: string; body: string; url?: string },
     roleId: number,
+    organizationId?: number | null,
   ) {
     if (!this.enabled) return;
-    const users = await this.prisma.user.findMany({ where: { roleId } });
-    for (const user of users) {
-      await this.sendToUser(user.id, payload);
+
+    // Recipients come from two places: per-business Membership rows (the modern
+    // source of truth — the in-app inbox is scoped by these) and the legacy
+    // User.roleId column, so staff whose role exists only as a membership still
+    // get pushed instead of silently missing the notification.
+    const memberships = await this.prisma.membership.findMany({
+      where: { roleId, ...(organizationId != null ? { organizationId } : {}) },
+      select: { userId: true },
+    });
+    const legacy = await this.prisma.user.findMany({
+      where: { roleId },
+      select: { id: true },
+    });
+
+    const userIds = new Set<number>([
+      ...memberships.map((m) => m.userId),
+      ...legacy.map((u) => u.id),
+    ]);
+
+    for (const userId of userIds) {
+      await this.sendToUser(userId, payload);
     }
   }
 
@@ -121,6 +140,8 @@ export class PushService {
     locationId: number,
   ) {
     if (!this.enabled) return;
+    // Membership carries no location, so the user-level assignment stays the
+    // only source of truth here (same column the inbox visibility check uses).
     const users = await this.prisma.user.findMany({ where: { locationId } });
     for (const user of users) {
       await this.sendToUser(user.id, payload);

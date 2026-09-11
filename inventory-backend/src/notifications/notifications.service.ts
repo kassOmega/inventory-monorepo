@@ -6,6 +6,9 @@ import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { PrismaService } from '../prisma/prisma.service';
 import { PushService } from '../push/push.service';
 
+/** Deep link used for low-stock alerts (kept in sync with the bell/toast map). */
+const LOW_STOCK_LINK = '/dashboard/reports?tab=low-stock';
+
 @Injectable()
 export class NotificationsService {
   private readonly events = new Subject<{ data: string }>();
@@ -97,6 +100,7 @@ export class NotificationsService {
             type: 'LOW_STOCK',
             title: 'Low Stock Alert',
             message: `${productName} is running low (${qty} remaining) at ${inventory.location.name}.`,
+            link: LOW_STOCK_LINK,
             tenantId,
             productId,
             locationId,
@@ -110,6 +114,7 @@ export class NotificationsService {
         .sendToLocation({
           title: 'Low Stock Alert',
           body: `${productName} is running low (${qty} remaining)`,
+          url: LOW_STOCK_LINK,
         }, locationId)
         .catch(() => {});
     }
@@ -118,7 +123,7 @@ export class NotificationsService {
   async notifyOwner(
     title: string,
     message: string,
-    opts: { productId?: number; locationId?: number } = {},
+    opts: { productId?: number; locationId?: number; link?: string } = {},
   ): Promise<void> {
     const tenantId = getCurrentTenantId();
     const ownerRole = await this.prisma.role.findFirst({
@@ -145,6 +150,7 @@ export class NotificationsService {
           type: 'REQUEST_STATUS',
           title,
           message,
+          link: opts.link ?? null,
           targetRoleId: ownerRole?.id ?? null,
           targetLocationId: null,
           targetUserId: t.targetUserId,
@@ -158,7 +164,11 @@ export class NotificationsService {
 
     for (const userId of ownerUserIds) {
       this.push
-        .sendToUser(userId, { title, body: message })
+        .sendToUser(userId, {
+          title,
+          body: message,
+          ...(opts.link ? { url: opts.link } : {}),
+        })
         .catch(() => {});
     }
   }
@@ -167,7 +177,7 @@ export class NotificationsService {
     title: string,
     message: string,
     locationId: number,
-    opts: { productId?: number } = {},
+    opts: { productId?: number; link?: string } = {},
   ): Promise<void> {
     const location = await this.prisma.location.findUnique({
       where: { id: locationId },
@@ -180,6 +190,7 @@ export class NotificationsService {
         type: 'REQUEST_STATUS',
         title,
         message,
+        link: opts.link ?? null,
         targetRoleId: null,
         targetLocationId: locationId,
         productId: opts.productId ?? null,
@@ -190,7 +201,10 @@ export class NotificationsService {
     this.events.next({ data: 'refresh' });
 
     this.push
-      .sendToLocation({ title, body: message }, locationId)
+      .sendToLocation(
+        { title, body: message, ...(opts.link ? { url: opts.link } : {}) },
+        locationId,
+      )
       .catch(() => {});
   }
 
@@ -201,6 +215,7 @@ export class NotificationsService {
     message: string,
     type = 'ORDER_STATUS',
     tenantId?: number | null,
+    link?: string | null,
   ): Promise<void> {
     const resolvedTenantId = tenantId ?? getCurrentTenantId();
     await this.prisma.notification.create({
@@ -208,6 +223,7 @@ export class NotificationsService {
         type,
         title,
         message,
+        ...(link ? { link } : {}),
         targetUserId: userId,
         ...(resolvedTenantId != null ? { tenantId: resolvedTenantId } : {}),
       },
@@ -215,7 +231,11 @@ export class NotificationsService {
     this.events.next({ data: 'refresh' });
 
     this.push
-      .sendToUser(userId, { title, body: message })
+      .sendToUser(userId, {
+        title,
+        body: message,
+        ...(link ? { url: link } : {}),
+      })
       .catch(() => {});
   }
 
@@ -239,18 +259,35 @@ export class NotificationsService {
   }
 
   /** Notify everyone holding a given role name in the active organization. */
-  async notifyRole(roleName: string, title: string, message: string, type = 'ORDER_STATUS'): Promise<void> {
+  async notifyRole(
+    roleName: string,
+    title: string,
+    message: string,
+    type = 'ORDER_STATUS',
+    link?: string | null,
+  ): Promise<void> {
     const tenantId = getCurrentTenantId();
     const role = await this.prisma.role.findFirst({ where: { name: roleName, organizationId: tenantId } });
     if (!role) return;
 
     await this.prisma.notification.create({
-      data: { tenantId: role.organizationId, type, title, message, targetRoleId: role.id },
+      data: {
+        tenantId: role.organizationId,
+        type,
+        title,
+        message,
+        ...(link ? { link } : {}),
+        targetRoleId: role.id,
+      },
     });
     this.events.next({ data: 'refresh' });
 
     this.push
-      .sendToRoleId({ title, body: message }, role.id)
+      .sendToRoleId(
+        { title, body: message, ...(link ? { url: link } : {}) },
+        role.id,
+        role.organizationId,
+      )
       .catch(() => {});
   }
 

@@ -630,6 +630,20 @@
     "unsupported": "በአሳሽዎ ውስጥ Install አማራጭ ከሌለ Chrome፣ Edge ወይም Safari ይሞክሩ።",
     "close": "ዝጋ"
   },
+  "scan": {
+    "button": "ስካን",
+    "title": "ባርኮድ ወይም QR ኮድ ስካን ያድርጉ",
+    "hint": "ካሜራውን በሳጥኑ ውስጥ ወዳለው ባርኮድ ያኑሩ — EAN፣ UPC፣ Code 128/39/93፣ ITF እና QR ኮዶች ይደገፋሉ።",
+    "detected": "{{format}} ተገኝቷል",
+    "detectedPlain": "ተስካንቷል",
+    "errBlocked": "የካሜራ ፈቃድ ለዚህ መተግበሪያ ታግዷል።",
+    "errNoCamera": "በዚህ መሣሪያ ላይ ካሜራ አልተገኘም።",
+    "errEngine": "ስካነሩ ሊጀምር አልቻለም።",
+    "httpsHint": "ስካን ለማድረግ HTTPS (ወይም localhost) ያስፈልጋል — የዚህን ጣቢያ የካሜራ ፈቃድ አረጋግጠው እንደገና ይሞክሩ።",
+    "torchOn": "ቶርች አብራ",
+    "torchOff": "ቶርች አጥፋ",
+    "close": "ዝጋ"
+  },
   "auth": {
     "language": "ቋንቋ",
     "loginTitle": "ወደ መለያዎ ይግቡ",

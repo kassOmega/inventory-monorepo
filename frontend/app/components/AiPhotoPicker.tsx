@@ -3,9 +3,8 @@
 import { useRef } from "react";
 
 /**
- * Reusable AI photo picker. Gives the user BOTH capture paths that PWAs need:
- * - "Take Photo" -> forces the device camera (capture="environment")
- * - "Gallery / Files" -> opens the native picker (Photo Library / Files / Camera)
+ * Reusable AI photo picker: one button that opens the native OS sheet, which
+ * offers camera capture plus Photo Library / Files on every mobile browser.
  *
  * Downscales up to 2 selected images to ~1000px JPEG and returns their base64
  * data-URLs via onImages (never uploaded to storage).
@@ -21,7 +20,6 @@ export default function AiPhotoPicker({
   compact?: boolean;
   buttonLabel?: string;
 }) {
-  const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
 
   const downscaleToJpegBase64 = (file: File): Promise<string> =>
@@ -62,7 +60,6 @@ export default function AiPhotoPicker({
     } catch {
       // consumer shows the toast
     } finally {
-      if (cameraRef.current) cameraRef.current.value = "";
       if (galleryRef.current) galleryRef.current.value = "";
     }
   };
@@ -95,16 +92,7 @@ export default function AiPhotoPicker({
   }
 
   return (
-    <div className="flex flex-col sm:flex-row gap-2">
-      <input
-        ref={cameraRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        multiple
-        className="hidden"
-        onChange={(e) => handleFiles(e.target.files)}
-      />
+    <>
       <input
         ref={galleryRef}
         type="file"
@@ -115,20 +103,12 @@ export default function AiPhotoPicker({
       />
       <button
         type="button"
-        onClick={() => cameraRef.current?.click()}
-        disabled={busy}
-        className="flex-1 border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-60 py-2.5 px-4 rounded-lg text-sm font-medium"
-      >
-        {busy ? "✨ AI is reading the photo(s)…" : "📷 Take Photo"}
-      </button>
-      <button
-        type="button"
         onClick={() => galleryRef.current?.click()}
         disabled={busy}
-        className="flex-1 border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-60 py-2.5 px-4 rounded-lg text-sm font-medium"
+        className="w-full border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-60 py-2.5 px-4 rounded-lg text-sm font-medium"
       >
-        🖼 Gallery / Files (up to 2)
+        {busy ? "✨ AI is reading the photo(s)…" : buttonLabel ?? "📷 Take Photo"}
       </button>
-    </div>
+    </>
   );
 }

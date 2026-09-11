@@ -8,6 +8,10 @@ import {
 } from "@/lib/alertSound";
 import api from "@/lib/api";
 import { timeAgo } from "@/lib/datetime";
+import {
+  notificationIcon,
+  notificationLink,
+} from "@/lib/notificationLink";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,6 +21,8 @@ interface Notification {
   type: string;
   title: string;
   message: string;
+  /** Optional deep link supplied by the backend (in-app + push). */
+  link?: string | null;
   tenantId: number | null;
   productId: number | null;
   locationId: number | null;
@@ -112,12 +118,6 @@ export default function NotificationBell() {
     if (!isOpen) fetchNotifications();
   };
 
-  const getLink = (n: Notification) => {
-    if (n.type === "REQUEST_STATUS") return "/dashboard/requests";
-    if (n.type === "LOW_STOCK") return "/dashboard/reports?tab=low-stock";
-    return null;
-  };
-
   const handleMarkAsRead = async (n: Notification) => {
     try {
       await api.patch(`/notifications/${n.id}/read`);
@@ -128,7 +128,7 @@ export default function NotificationBell() {
     } catch {
       // ignore
     }
-    const link = getLink(n);
+    const link = notificationLink(n);
     if (link) router.push(link);
   };
 
@@ -143,17 +143,6 @@ export default function NotificationBell() {
   };
 
   const formatTime = (dateStr: string) => timeAgo(dateStr);
-
-  const getIcon = (type: string) => {
-    switch (type) {
-      case "LOW_STOCK":
-        return "⚠️";
-      case "REQUEST_STATUS":
-        return "📦";
-      default:
-        return "🔔";
-    }
-  };
 
   if (!user) return null;
 
@@ -236,7 +225,7 @@ export default function NotificationBell() {
                 >
                   <div className="flex items-start gap-2">
                     <span className="text-lg mt-0.5">
-                      {getIcon(notif.type)}
+                      {notificationIcon(notif.type)}
                     </span>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-800 truncate">

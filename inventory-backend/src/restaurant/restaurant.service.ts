@@ -47,6 +47,10 @@ const OPEN_ORDER_STATUSES = [
   OrderStatus.SERVED,
 ];
 
+/** Deep links attached to hospitality notifications (in-app + web push). */
+const CASHIER_LINK = '/dashboard/cashier';
+const RESTAURANT_LINK = '/dashboard/restaurant';
+
 @Injectable()
 export class RestaurantService {
   constructor(
@@ -1018,6 +1022,8 @@ export class RestaurantService {
           st.roleName,
           `New ${st.name} Order`,
           `Order ${order.orderNumber} has items to prepare at ${st.name}.`,
+          'ORDER_STATUS',
+          RESTAURANT_LINK,
         );
       }
     }
@@ -1076,6 +1082,8 @@ export class RestaurantService {
           st.roleName,
           `New ${st.name} Order`,
           `Order ${order?.orderNumber ?? ''} has an item handed off to ${st.name}.`,
+          'ORDER_STATUS',
+          RESTAURANT_LINK,
         );
       }
     }
@@ -1137,6 +1145,9 @@ export class RestaurantService {
             order.createdById,
             'Item Ready',
             `An item on order ${order.orderNumber} is ready to serve.`,
+            'ORDER_STATUS',
+            null,
+            RESTAURANT_LINK,
           );
         }
       }
@@ -1272,6 +1283,9 @@ export class RestaurantService {
         order.createdById,
         'Order Preparing',
         `Order ${order.orderNumber} is being prepared at the station.`,
+        'ORDER_STATUS',
+        null,
+        RESTAURANT_LINK,
       );
     }
 
@@ -1280,6 +1294,9 @@ export class RestaurantService {
         order.createdById,
         'Order Ready',
         `Order ${order.orderNumber} is ready to serve.`,
+        'ORDER_STATUS',
+        null,
+        RESTAURANT_LINK,
       );
     }
 
@@ -1288,11 +1305,15 @@ export class RestaurantService {
         'Cashier',
         'Order Served',
         `Order ${order.orderNumber} has been served to the customer.`,
+        'ORDER_STATUS',
+        CASHIER_LINK,
       );
       await this.notifications.notifyRole(
         'Receptionist',
         'Order Served',
         `Order ${order.orderNumber} has been served to the customer.`,
+        'ORDER_STATUS',
+        CASHIER_LINK,
       );
     }
   }
@@ -1437,6 +1458,8 @@ export class RestaurantService {
         'Cashier',
         'Payment Pending Confirmation',
         `Order ${order.orderNumber} has a payment awaiting confirmation.`,
+        'ORDER_STATUS',
+        CASHIER_LINK,
       );
     } else {
       // Post categorized income immediately (no cashier confirmation required).
@@ -1487,6 +1510,8 @@ export class RestaurantService {
         'Cashier',
         'Payment Pending Confirmation',
         `${orders.length} order(s) have payments awaiting confirmation.`,
+        'ORDER_STATUS',
+        CASHIER_LINK,
       );
     } else {
       for (const order of orders) {

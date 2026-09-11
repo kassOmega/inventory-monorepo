@@ -1016,6 +1016,9 @@ model Notification {
   type             String // e.g., "LOW_STOCK", "REQUEST_STATUS"
   title            String
   message          String
+  // Optional in-app deep link (e.g. "/dashboard/cashier"). Also forwarded to web
+  // push so tapping an OS notification opens the relevant screen.
+  link             String?
   productId        Int?
   product          Product?  @relation(fields: [productId], references: [id])
   locationId       Int?

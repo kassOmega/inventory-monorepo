@@ -525,6 +525,22 @@ await prisma.productionScrapLog.deleteMany({});
     false,
     'CASHIER',
   );
+  // Roles targeted by workflow notifications. Without a matching role row,
+  // notifyRole() finds nothing and silently skips the notification entirely.
+  await createOrgRole(
+    nejatHotelOrg.id,
+    'Receptionist',
+    'Manages reservations and front desk',
+    false,
+    'RECEPTIONIST',
+  );
+  await createOrgRole(
+    nejatHotelOrg.id,
+    'Housekeeping',
+    'Updates room cleanliness status',
+    false,
+    'HOUSEKEEPING',
+  );
 
   await prisma.membership.create({
     data: {
@@ -1861,6 +1877,15 @@ await prisma.productionScrapLog.deleteMany({});
     'Prepares meals from the kitchen board',
     false,
     'CHEF',
+  );
+  // "Order Served" notifications are sent to the Receptionist role, so the row
+  // has to exist or those notifications are dropped silently.
+  await createOrgRole(
+    dawitOrg.id,
+    'Receptionist',
+    'Manages reservations and front desk',
+    false,
+    'RECEPTIONIST',
   );
 
   await prisma.membership.create({

@@ -3,6 +3,11 @@
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import { playAlertSound } from "@/lib/alertSound";
+import {
+  STICKY_TYPES,
+  notificationIcon,
+  notificationLink,
+} from "@/lib/notificationLink";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,6 +17,8 @@ interface Notification {
   type: string;
   title: string;
   message: string;
+  /** Optional deep link supplied by the backend (in-app + push). */
+  link?: string | null;
   productId: number | null;
   locationId: number | null;
   isRead: boolean;
@@ -22,8 +29,6 @@ interface Notification {
 const POLL_INTERVAL_MS = 15000;
 // How long each transient popup stays on screen before auto-dismissing.
 const POPUP_TTL_MS = 8000;
-// Alert types that stay on screen until they are read.
-const STICKY_TYPES = ["LOW_STOCK", "REQUEST_STATUS"];
 // Favicon swap used for the unread badge.
 const FAVICON_DEFAULT = "/icon.svg";
 const FAVICON_BADGE = "/icon-badge.svg";
@@ -32,23 +37,6 @@ const FAVICON_BADGE = "/icon-badge.svg";
 // showing the unread count either way).
 const DISMISSED_STORAGE = "notifications-dismissed-alerts";
 const MAX_DISMISSED = 100;
-
-function getIcon(type: string) {
-  switch (type) {
-    case "LOW_STOCK":
-      return "⚠️";
-    case "REQUEST_STATUS":
-      return "📦";
-    default:
-      return "🔔";
-  }
-}
-
-function getLink(n: Notification) {
-  if (n.type === "REQUEST_STATUS") return "/dashboard/requests";
-  if (n.type === "LOW_STOCK") return "/dashboard/reports?tab=low-stock";
-  return null;
-}
 
 /** Alert ids closed from the sticky bar (empty on the server / when blocked). */
 function readDismissed(): Set<number> {
@@ -241,7 +229,7 @@ export default function NotificationToast() {
 
   const openAlert = async (n: Notification) => {
     await markRead(n);
-    const link = getLink(n);
+    const link = notificationLink(n);
     if (link) router.push(link);
   };
 
@@ -309,7 +297,7 @@ export default function NotificationToast() {
                   className="flex-1 min-w-0 text-left"
                 >
                   <p className="text-sm font-semibold text-rose-900 truncate">
-                    {getIcon(n.type)} {n.title}
+                    {notificationIcon(n.type)} {n.title}
                   </p>
                   <p className="text-xs text-rose-700 mt-0.5 line-clamp-2">
                     {n.message}
@@ -329,7 +317,7 @@ export default function NotificationToast() {
         </div>
       )}
       {popups.map((n) => {
-        const link = getLink(n);
+        const link = notificationLink(n);
         return (
           <div
             key={n.id}
@@ -339,7 +327,7 @@ export default function NotificationToast() {
             }}
             className="bg-amber-50 border border-amber-300 rounded-xl shadow-lg p-4 flex items-start gap-3 cursor-pointer"
           >
-            <span className="text-2xl flex-shrink-0">{getIcon(n.type)}</span>
+            <span className="text-2xl flex-shrink-0">{notificationIcon(n.type)}</span>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-amber-900">{n.title}</p>
               <p className="text-xs text-amber-700 mt-0.5 line-clamp-2">

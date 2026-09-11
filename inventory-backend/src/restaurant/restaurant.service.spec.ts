@@ -212,6 +212,8 @@ describe('RestaurantService order/item status flow', () => {
         'Chef',
         expect.any(String),
         expect.stringContaining('Kitchen'),
+        'ORDER_STATUS',
+        '/dashboard/restaurant',
       );
       expect(result).toEqual(expect.objectContaining({ status: OrderStatus.DISPATCHED }));
       // The DISPATCHED milestone is written to the audit trail with the actor.
@@ -521,6 +523,9 @@ describe('RestaurantService order/item status flow', () => {
         5, // creator
         'Order Preparing',
         expect.stringContaining('ORD-1'),
+        'ORDER_STATUS',
+        null,
+        '/dashboard/restaurant',
       );
 
       // Both items ready at their final stations → order READY + waiter notified.
@@ -538,6 +543,8 @@ describe('RestaurantService order/item status flow', () => {
         'Cashier',
         'Order Served',
         expect.stringContaining('ORD-1'),
+        'ORDER_STATUS',
+        '/dashboard/cashier',
       );
     });
   });

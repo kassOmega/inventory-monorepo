@@ -639,6 +639,20 @@
     "unsupported": "No install option in your browser? Try Chrome, Edge or Safari.",
     "close": "Close"
   },
+  "scan": {
+    "button": "Scan",
+    "title": "Scan barcode or QR code",
+    "hint": "Point the camera at the barcode inside the box — EAN, UPC, Code 128/39/93, ITF and QR codes are supported.",
+    "detected": "{{format}} detected",
+    "detectedPlain": "Scanned",
+    "errBlocked": "Camera access is blocked for this app.",
+    "errNoCamera": "No camera was found on this device.",
+    "errEngine": "The scanner could not start.",
+    "httpsHint": "Camera scanning needs HTTPS (or localhost) — check the camera permission for this site and try again.",
+    "torchOn": "Torch on",
+    "torchOff": "Torch off",
+    "close": "Close"
+  },
   "auth": {
     "language": "Language",
     "loginTitle": "Sign in to your account",
