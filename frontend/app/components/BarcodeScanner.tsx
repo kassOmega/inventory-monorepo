@@ -10,14 +10,10 @@ import Modal from "./Modal";
 import {
   SCANNER_CAMERA,
   SCANNER_VIDEO_CONSTRAINTS,
-  codeInFrame,
   formatSymbologyLabel,
   nextScanGuard,
   normalizeScannedCode,
-  noteFrameHit,
-  noteFrameMiss,
   type ScanGuard,
-  type ScanPresence,
 } from "@/lib/scan";
 
 type ScanErrorCode = "blocked" | "nocamera" | "busy" | "engine";
@@ -176,9 +172,7 @@ export default function BarcodeScanner({
   // Scan-acceptance guard: a code is refused while it is still in view, so
   // holding a barcode steady cannot add the same item twice.
   const guardRef = useRef<ScanGuard>({ code: "", at: 0 });
-  // Viewfinder state for the code just seen: a single undecoded frame is normal
-  // and must not re-arm scanning (see noteFrameMiss / codeInFrame).
-  const presenceRef = useRef<ScanPresence>({ missSince: 0 });
+  const codeInFrameRef = useRef(false);
 
   // Keep the latest callback/props in refs (updated after render, not during).
   useEffect(() => {
@@ -211,7 +205,7 @@ export default function BarcodeScanner({
     setResult(null);
     setTorchOn(false);
     setTorchAvailable(false);
-    presenceRef.current = { missSince: 0 };
+    codeInFrameRef.current = false;
   };
 
   /** Normalize, guard against repeats, then hand the value to the caller. */
@@ -219,20 +213,15 @@ export default function BarcodeScanner({
     const code = normalizeScannedCode(raw);
     if (!code) return;
 
-    const now = Date.now();
-    // A decode means the label is still there — clear any absence run before
-    // deciding, so an intermittent frame can never look like a fresh scan.
-    const presence = noteFrameHit(presenceRef.current);
-    presenceRef.current = presence;
-
     const decision = nextScanGuard(
       guardRef.current,
       code,
-      now,
-      codeInFrame(presence, now),
+      Date.now(),
+      codeInFrameRef.current,
     );
     if (!decision.accept) return;
     guardRef.current = decision.guard;
+    codeInFrameRef.current = true;
 
     setResult({ code, format: formatName });
     onScanRef.current(code);
@@ -312,11 +301,10 @@ export default function BarcodeScanner({
           handleScan(decodedText, decodedResult?.result?.format?.formatName ?? null);
         };
 
-        // Called for every frame in which nothing decodes. A single missed frame
-        // is normal (blur, glare), so this only *starts* the absence run — the
-        // code counts as gone once it has stayed gone for SCAN_LEAVE_FRAME_MS.
+        // Called for every frame in which nothing decodes: the code that was just
+        // accepted has left the frame, so it may be scanned again (next unit).
         const onFrameMiss = () => {
-          presenceRef.current = noteFrameMiss(presenceRef.current, Date.now());
+          codeInFrameRef.current = false;
         };
 
         try {
@@ -415,7 +403,7 @@ export default function BarcodeScanner({
         onClick={() => {
           bufferRef.current = "";
           guardRef.current = { code: "", at: 0 };
-          presenceRef.current = { missSince: 0 };
+          codeInFrameRef.current = false;
           setResult(null);
           setErrorCode(null);
           setErrorDetailText(null);
