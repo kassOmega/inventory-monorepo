@@ -27,6 +27,11 @@ const STICKY_TYPES = ["LOW_STOCK", "REQUEST_STATUS"];
 // Favicon swap used for the unread badge.
 const FAVICON_DEFAULT = "/icon.svg";
 const FAVICON_BADGE = "/icon-badge.svg";
+// Alert ids the user closed from the sticky bar. Persisted, otherwise the next
+// poll would bring the closed bar straight back (the bell and the tab badge keep
+// showing the unread count either way).
+const DISMISSED_STORAGE = "notifications-dismissed-alerts";
+const MAX_DISMISSED = 100;
 
 function getIcon(type: string) {
   switch (type) {
@@ -43,6 +48,34 @@ function getLink(n: Notification) {
   if (n.type === "REQUEST_STATUS") return "/dashboard/requests";
   if (n.type === "LOW_STOCK") return "/dashboard/reports?tab=low-stock";
   return null;
+}
+
+/** Alert ids closed from the sticky bar (empty on the server / when blocked). */
+function readDismissed(): Set<number> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(DISMISSED_STORAGE);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(
+      Array.isArray(parsed)
+        ? parsed.filter((id): id is number => typeof id === "number")
+        : [],
+    );
+  } catch {
+    // Corrupt or blocked storage — treat as "nothing was dismissed".
+    return new Set();
+  }
+}
+
+function writeDismissed(ids: Set<number>): void {
+  try {
+    window.localStorage.setItem(
+      DISMISSED_STORAGE,
+      JSON.stringify([...ids].slice(-MAX_DISMISSED)),
+    );
+  } catch {
+    // Storage unavailable — the dismissal still holds for this session.
+  }
 }
 
 /**
@@ -94,6 +127,7 @@ export default function NotificationToast() {
   const [unreadCount, setUnreadCount] = useState(0);
   const seenIds = useRef<Set<number>>(new Set());
   const initialized = useRef(false);
+  const dismissed = useRef<Set<number>>(readDismissed());
 
   useTabBadge(user ? unreadCount : 0);
 
@@ -105,9 +139,21 @@ export default function NotificationToast() {
 
       const unread = list.filter((n) => !n.isRead);
       setUnreadCount(unread.length);
+
+      // Forget dismissals for alerts that are gone or already read, so the
+      // stored list cannot grow forever.
+      const unreadIds = new Set(unread.map((n) => n.id));
+      if ([...dismissed.current].some((id) => !unreadIds.has(id))) {
+        dismissed.current = new Set(
+          [...dismissed.current].filter((id) => unreadIds.has(id)),
+        );
+        writeDismissed(dismissed.current);
+      }
+
       setAlerts(
         unread
           .filter((n) => STICKY_TYPES.includes(n.type))
+          .filter((n) => !dismissed.current.has(n.id))
           .sort((a, b) => b.id - a.id)
           .slice(0, 3),
       );
@@ -210,6 +256,19 @@ export default function NotificationToast() {
     setUnreadCount(0);
   };
 
+  /**
+   * Close the whole alert bar without touching the data: the alerts stay unread
+   * (bell badge, tab title and favicon keep counting them) and the bar only comes
+   * back when a genuinely new alert arrives.
+   */
+  const dismissBar = () => {
+    const next = new Set(dismissed.current);
+    alerts.forEach((n) => next.add(n.id));
+    dismissed.current = next;
+    writeDismissed(next);
+    setAlerts([]);
+  };
+
   // Everything is scoped to the signed-in user, so stale state never shows:
   // the badge is zeroed and nothing renders once the user signs out.
   if (!user || (popups.length === 0 && alerts.length === 0)) return null;
@@ -222,13 +281,24 @@ export default function NotificationToast() {
             <p className="text-sm font-semibold text-rose-900 truncate">
               🔔 {t("notifications.alertBanner")} ({alerts.length})
             </p>
-            <button
-              type="button"
-              onClick={markAllRead}
-              className="flex-shrink-0 text-xs font-medium text-rose-700 hover:text-rose-900"
-            >
-              {t("notifications.markAllAsRead")}
-            </button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                type="button"
+                onClick={markAllRead}
+                className="text-xs font-medium text-rose-700 hover:text-rose-900"
+              >
+                {t("notifications.markAllAsRead")}
+              </button>
+              <button
+                type="button"
+                onClick={dismissBar}
+                aria-label={t("notifications.dismiss")}
+                title={t("notifications.dismiss")}
+                className="-mr-1 px-1 text-xl leading-none text-rose-400 hover:text-rose-600"
+              >
+                ×
+              </button>
+            </div>
           </div>
           <div className="divide-y divide-rose-100">
             {alerts.map((n) => (
