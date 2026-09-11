@@ -7,9 +7,68 @@ import type {
   Html5QrcodeResult,
 } from "html5-qrcode";
 import Modal from "./Modal";
-import { formatSymbologyLabel, normalizeScannedCode } from "@/lib/scan";
+import {
+  formatSymbologyLabel,
+  nextScanGuard,
+  normalizeScannedCode,
+  type ScanGuard,
+} from "@/lib/scan";
 
-type ScanErrorCode = "blocked" | "nocamera" | "engine";
+type ScanErrorCode = "blocked" | "nocamera" | "busy" | "engine";
+
+/** html5-qrcode format name → the BarcodeDetector enum value it maps onto. */
+const NATIVE_FORMAT_NAMES: Record<string, string> = {
+  QR_CODE: "qr_code",
+  AZTEC: "aztec",
+  CODABAR: "codabar",
+  CODE_39: "code_39",
+  CODE_93: "code_93",
+  CODE_128: "code_128",
+  DATA_MATRIX: "data_matrix",
+  ITF: "itf",
+  EAN_13: "ean_13",
+  EAN_8: "ean_8",
+  PDF_417: "pdf417",
+  UPC_A: "upc_a",
+  UPC_E: "upc_e",
+};
+
+/**
+ * The native BarcodeDetector constructor throws when any requested format is not
+ * supported by the device, and html5-qrcode does not intersect our list with the
+ * device's. So take the native path only when it can handle everything we ask
+ * for — otherwise the pure-JS engine (ZXing) starts up instead, and it covers
+ * all of these formats anyway. Probing here is what stops the scanner from dying
+ * on start with a misleading "could not start" error.
+ */
+async function canUseNativeDetector(formatNames: string[]): Promise<boolean> {
+  const detector = (
+    window as unknown as {
+      BarcodeDetector?: { getSupportedFormats?: () => Promise<string[]> };
+    }
+  ).BarcodeDetector;
+  if (!detector?.getSupportedFormats) return false;
+  try {
+    const supported = await detector.getSupportedFormats();
+    return formatNames.every((name) => {
+      const native = NATIVE_FORMAT_NAMES[name];
+      return !!native && supported.includes(native);
+    });
+  } catch {
+    return false;
+  }
+}
+
+/** Raw text of a thrown value, shown small in the UI to aid diagnosis. */
+function errorDetail(e: unknown): string {
+  if (typeof e === "string") return e;
+  if (e instanceof Error) return e.message;
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
+}
 
 /**
  * The runtime accepts `formatsToSupport` / `experimentalFeatures` but the
@@ -33,9 +92,6 @@ interface BarcodeScannerProps {
    */
   formats?: string[];
 }
-
-/** Identical reads inside this window are ignored (re-aiming, wedge repeats). */
-const DUPLICATE_WINDOW_MS = 1500;
 
 /**
  * QR plus the barcode symbologies retail and supplier labels actually use:
@@ -66,6 +122,13 @@ function scanErrorCode(e: unknown): ScanErrorCode {
     return "blocked";
   }
   if (
+    name === "NotReadableError" ||
+    name === "AbortError" ||
+    /not\s*readable|in use|busy|aborted/i.test(text)
+  ) {
+    return "busy";
+  }
+  if (
     name === "NotFoundError" ||
     name === "OverconstrainedError" ||
     /no\s+camera|not\s*found|overconstrained/i.test(text)
@@ -91,6 +154,7 @@ export default function BarcodeScanner({
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [errorCode, setErrorCode] = useState<ScanErrorCode | null>(null);
+  const [errorDetailText, setErrorDetailText] = useState<string | null>(null);
   const [result, setResult] = useState<{ code: string; format: string | null } | null>(null);
   const [torchAvailable, setTorchAvailable] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
@@ -103,8 +167,10 @@ export default function BarcodeScanner({
   const continuousRef = useRef(continuous);
   const formatsRef = useRef(formats);
   const bufferRef = useRef("");
-  const lastCodeRef = useRef("");
-  const lastScanAtRef = useRef(0);
+  // Scan-acceptance guard: a code is refused while it is still in view, so
+  // holding a barcode steady cannot add the same item twice.
+  const guardRef = useRef<ScanGuard>({ code: "", at: 0 });
+  const codeInFrameRef = useRef(false);
 
   // Keep the latest callback/props in refs (updated after render, not during).
   useEffect(() => {
@@ -133,25 +199,27 @@ export default function BarcodeScanner({
     await stop();
     setOpen(false);
     setErrorCode(null);
+    setErrorDetailText(null);
     setResult(null);
     setTorchOn(false);
     setTorchAvailable(false);
+    codeInFrameRef.current = false;
   };
 
-  /** Normalize + de-duplicate, then hand the value to the caller. */
+  /** Normalize, guard against repeats, then hand the value to the caller. */
   const handleScan = (raw: string, formatName: string | null) => {
     const code = normalizeScannedCode(raw);
     if (!code) return;
 
-    const now = Date.now();
-    if (
-      code === lastCodeRef.current &&
-      now - lastScanAtRef.current < DUPLICATE_WINDOW_MS
-    ) {
-      return;
-    }
-    lastCodeRef.current = code;
-    lastScanAtRef.current = now;
+    const decision = nextScanGuard(
+      guardRef.current,
+      code,
+      Date.now(),
+      codeInFrameRef.current,
+    );
+    if (!decision.accept) return;
+    guardRef.current = decision.guard;
+    codeInFrameRef.current = true;
 
     setResult({ code, format: formatName });
     onScanRef.current(code);
@@ -182,7 +250,7 @@ export default function BarcodeScanner({
     const startScanner = async () => {
       try {
         const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
-        const scanner = new Html5Qrcode(scannerId);
+        let scanner = new Html5Qrcode(scannerId);
         scannerRef.current = scanner;
 
         const requested = formatsRef.current?.length
@@ -193,17 +261,30 @@ export default function BarcodeScanner({
           .map((name) => enumMap[name])
           .filter((value): value is number => typeof value === "number");
 
+        // Probe the device first: the native detector's constructor throws for a
+        // format it does not support and the library hands it our whole list, so
+        // only take the native path when it can cover everything we ask for.
+        const nativeSupported = await canUseNativeDetector(requested);
+        if (cancelled) return;
+
         const config: ScanConfig = {
           fps: 15,
           // Barcodes never need mirrored decoding — skipping it saves a pass.
           disableFlip: true,
           // Wide + short scan region: 1D codes are horizontal strips, and a QR
-          // square still fits comfortably inside it.
-          qrbox: (viewfinderWidth: number) => ({
+          // square still fits comfortably inside it. Clamped to the viewfinder so
+          // the library can never reject the box while the modal animates in.
+          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => ({
             width: Math.round(viewfinderWidth * 0.85),
-            height: 140,
+            height: Math.max(
+              80,
+              Math.min(140, Math.round(viewfinderHeight * 0.5)),
+            ),
           }),
           formatsToSupport,
+          experimentalFeatures: {
+            useBarCodeDetectorIfSupported: nativeSupported,
+          },
         };
 
         // Ask for the rear camera at a resolution that keeps thin bars crisp.
@@ -218,21 +299,41 @@ export default function BarcodeScanner({
           handleScan(decodedText, decodedResult?.result?.format?.formatName ?? null);
         };
 
+        // Called for every frame in which nothing decodes: the code that was just
+        // accepted has left the frame, so it may be scanned again (next unit).
+        const onFrameMiss = () => {
+          codeInFrameRef.current = false;
+        };
+
         try {
-          await scanner.start(camera, config, onSuccess, () => {});
+          await scanner.start(camera, config, onSuccess, onFrameMiss);
         } catch (firstError) {
-          // The library builds the native BarcodeDetector without intersecting
-          // our format list with the device's supported formats, so on some
-          // browsers that constructor throws and the whole scan aborts. Retry
-          // with the pure-JS engine (ZXing) so every symbology still decodes.
-          await stop();
+          // Something still went wrong (busy camera, engine hiccup). Clean up and
+          // retry once on a FRESH instance with the JS engine only: reusing the
+          // instance whose start() failed trips the library's state machine and
+          // surfaces as a bogus "could not start" error.
+          console.warn(
+            "[scan] start failed, retrying with the JS engine:",
+            firstError,
+          );
+          try {
+            await scanner.stop();
+          } catch {
+            // never started
+          }
+          try {
+            scanner.clear();
+          } catch {
+            // nothing attached
+          }
           if (cancelled) return;
+          scanner = new Html5Qrcode(scannerId);
+          scannerRef.current = scanner;
           const jsOnlyConfig: ScanConfig = {
             ...config,
             experimentalFeatures: { useBarCodeDetectorIfSupported: false },
           };
-          await scanner.start(camera, jsOnlyConfig, onSuccess, () => {});
-          console.warn("[scan] Retried with the JS engine after:", firstError);
+          await scanner.start(camera, jsOnlyConfig, onSuccess, onFrameMiss);
         }
 
         if (cancelled) return;
@@ -247,7 +348,11 @@ export default function BarcodeScanner({
           // Capability is optional — ignore.
         }
       } catch (e) {
-        if (!cancelled) setErrorCode(scanErrorCode(e));
+        console.error("[scan] start failed:", e);
+        if (!cancelled) {
+          setErrorCode(scanErrorCode(e));
+          setErrorDetailText(errorDetail(e));
+        }
       }
     };
 
@@ -280,9 +385,11 @@ export default function BarcodeScanner({
       ? t("scan.errBlocked")
       : errorCode === "nocamera"
         ? t("scan.errNoCamera")
-        : errorCode
-          ? t("scan.errEngine")
-          : "";
+        : errorCode === "busy"
+          ? t("scan.errBusy")
+          : errorCode
+            ? t("scan.errEngine")
+            : "";
 
   return (
     <>
@@ -290,10 +397,11 @@ export default function BarcodeScanner({
         type="button"
         onClick={() => {
           bufferRef.current = "";
-          lastCodeRef.current = "";
-          lastScanAtRef.current = 0;
+          guardRef.current = { code: "", at: 0 };
+          codeInFrameRef.current = false;
           setResult(null);
           setErrorCode(null);
+          setErrorDetailText(null);
           setOpen(true);
         }}
         className={
@@ -313,9 +421,17 @@ export default function BarcodeScanner({
           />
 
           {errorText ? (
-            <p className="text-sm text-red-500">
-              {errorText} {t("scan.httpsHint")}
-            </p>
+            <div className="space-y-1">
+              <p className="text-sm text-red-500">{errorText}</p>
+              {(errorCode === "blocked" || errorCode === "nocamera") && (
+                <p className="text-xs text-gray-500">{t("scan.httpsHint")}</p>
+              )}
+              {errorDetailText && (
+                <p className="text-[11px] text-gray-400 break-words">
+                  {errorDetailText}
+                </p>
+              )}
+            </div>
           ) : (
             <p className="text-sm text-gray-500">{t("scan.hint")}</p>
           )}

@@ -29,6 +29,7 @@ const makePrisma = (overrides: Record<string, any> = {}) => {
         })),
       ),
       update: jest.fn(async (args: any) => args.data),
+      findFirst: jest.fn(async () => null),
     },
     organization: {
       findUnique: jest.fn(async () => ({ standalone: false })),
@@ -161,5 +162,102 @@ describe('ProductsService price + store validation', () => {
       'Please select a target Store/Location to assign initial stock.',
     );
     expect(prisma.product.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProductsService.findByCode (POS scan to cart)', () => {
+  const productRow = {
+    id: 7,
+    sku: 'SAMBUSA-1',
+    barcode: '4006381333931',
+    brand: 'Nejat',
+    baseName: 'Sambusa',
+    hasVariants: false,
+    inventory: [{ locationId: 3, quantity: 12 }],
+  };
+
+  it('matches a product barcode exactly, trimming and ignoring case', async () => {
+    const prisma = makePrisma();
+    prisma.product.findFirst = jest.fn(async () => productRow);
+    const { service } = makeService(prisma);
+
+    const res = await service.findByCode(' 4006381333931 ', 3);
+
+    expect(res.matchType).toBe('PRODUCT');
+    expect(res.product).toBe(productRow);
+    expect(res.variant).toBeNull();
+    expect(prisma.product.findFirst).toHaveBeenCalledWith({
+      where: {
+        OR: [
+          { barcode: { equals: '4006381333931', mode: 'insensitive' } },
+          { sku: { equals: '4006381333931', mode: 'insensitive' } },
+        ],
+      },
+      include: expect.objectContaining({
+        variants: { orderBy: { id: 'asc' } },
+        inventory: { where: { locationId: 3 }, include: { location: true } },
+      }),
+    });
+    expect(prisma.productVariant.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a variant code and returns the parent product', async () => {
+    const prisma = makePrisma();
+    prisma.product.findFirst = jest.fn(async () => null);
+    prisma.productVariant.findFirst = jest.fn(async () => ({
+      id: 41,
+      sku: 'SAMBUSA-1-L',
+      barcode: '4006381333948',
+      product: productRow,
+    }));
+    const { service } = makeService(prisma);
+
+    const res = await service.findByCode('4006381333948');
+
+    expect(res.matchType).toBe('VARIANT');
+    expect(res.product).toBe(productRow);
+    expect(res.variant).toEqual({
+      id: 41,
+      sku: 'SAMBUSA-1-L',
+      barcode: '4006381333948',
+    });
+    // The nested parent is stripped so the client can merge both objects.
+    expect((res.variant as any).product).toBeUndefined();
+  });
+
+  it('returns NONE without querying for a blank code', async () => {
+    const prisma = makePrisma();
+    const { service } = makeService(prisma);
+
+    const res = await service.findByCode('   ');
+
+    expect(res).toEqual({ product: null, variant: null, matchType: 'NONE' });
+    expect(prisma.product.findFirst).not.toHaveBeenCalled();
+    expect(prisma.productVariant.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('returns NONE when nothing matches', async () => {
+    const prisma = makePrisma();
+    const { service } = makeService(prisma);
+
+    const res = await service.findByCode('DOES-NOT-EXIST');
+
+    expect(res).toEqual({ product: null, variant: null, matchType: 'NONE' });
+  });
+
+  it('leaves the inventory include unscoped when no location is given', async () => {
+    const prisma = makePrisma();
+    prisma.product.findFirst = jest.fn(async () => productRow);
+    const { service } = makeService(prisma);
+
+    await service.findByCode('SAMBUSA-1');
+
+    expect(prisma.product.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          inventory: { include: { location: true } },
+        }),
+      }),
+    );
   });
 });

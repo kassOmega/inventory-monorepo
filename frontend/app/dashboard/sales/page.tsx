@@ -26,9 +26,9 @@ import { useToast } from "@/app/components/ToastProvider";
 import api, { markHandled } from "@/lib/api";
 import { newClientRef } from "@/lib/clientRef";
 import { formatDateTime } from "@/lib/datetime";
+import { addScannedToCart } from "@/lib/cart";
 import { batchLabel, variantLabel } from "@/lib/variantLabel";
 import VariantLinesEditor, {
-  addOrBumpVariantLine,
   defaultVariantLine,
   variantStockFor,
   variantUnitPrice,
@@ -76,6 +76,35 @@ interface CartItem {
 
 type DatePreset = "today" | "week" | "month" | "year";
 
+/**
+ * Resolve a scanned/typed code against the loaded catalogue: a product SKU or
+ * barcode first, then a variant SKU/barcode (which carries its parent product).
+ */
+type ScannedHit = { product: Product; variant: any };
+
+function resolveScannedCode(
+  code: string,
+  products: Product[],
+): ScannedHit | null {
+  const value = code.trim().toLowerCase();
+  const product = products.find(
+    (p) =>
+      (p.sku || "").toLowerCase() === value ||
+      (p.barcode && p.barcode.toLowerCase() === value),
+  );
+  if (product) return { product, variant: null };
+
+  for (const p of products) {
+    const variant = (p.variants ?? []).find(
+      (v) =>
+        (v.sku || "").toLowerCase() === value ||
+        (v.barcode && v.barcode.toLowerCase() === value),
+    );
+    if (variant) return { product: p, variant };
+  }
+  return null;
+}
+
 export default function SalesPage() {
   const { t } = useTranslation();
   const { user, hasPermission } = useAuth();
@@ -106,8 +135,16 @@ export default function SalesPage() {
   const [editOriginalQty, setEditOriginalQty] = useState<Record<string, number>>({});
   // Refs to the quantity inputs so a barcode scan can focus the quantity field.
   const qtyRefs = useRef<Array<HTMLInputElement | null>>([]);
+  // Latest cart for the "scan to cart" flow: scans arrive back-to-back, so each
+  // one must build on the previous result rather than on render state.
+  const cartRef = useRef<CartItem[]>(cart);
+  useEffect(() => {
+    cartRef.current = cart;
+  }, [cart]);
   // AI scan (photo → match catalog product) for individual cart lines.
   const [scanBusyIndex, setScanBusyIndex] = useState<number | null>(null);
+  // Row touched by the last cart-level scan: highlighted briefly, qty focused.
+  const [scannedRowIndex, setScannedRowIndex] = useState<number | null>(null);
   const canAiScan = user?.isSuperuser || hasPermission("ai.sales-assist");
 
   const handleAiScan = async (images: string[], index: number) => {
@@ -652,70 +689,73 @@ export default function SalesPage() {
     }
   };
 
-  const handleScanSku = (index: number, sku: string) => {
-    const code = sku.toLowerCase();
-    let product = products.find(
-      (p) =>
-        (p.sku || "").toLowerCase() === code ||
-        (p.barcode && p.barcode.toLowerCase() === code),
-    );
-    let matchedVariant: any = null;
-    if (!product) {
-      // Match a variant barcode/SKU — the variant auto-selects.
-      for (const p of products) {
-        const v = (p.variants ?? []).find(
-          (v: any) =>
-            (v.sku || "").toLowerCase() === code ||
-            (v.barcode && v.barcode.toLowerCase() === code),
+  /**
+   * Cart-level scan (the "Scan to cart" button): each scan puts the product on
+   * the sale, and scanning the same product/variant again increments the line it
+   * already occupies instead of adding a duplicate row.
+   */
+  const handleScanToCart = async (raw: string) => {
+    const code = raw.trim();
+    if (!code) return;
+
+    let hit: ScannedHit | null = null;
+
+    try {
+      const locParam =
+        isOwner && ownerShopId ? `&locationId=${ownerShopId}` : "";
+      const res = await api.get(
+        `/products/by-code?code=${encodeURIComponent(code)}${locParam}`,
+      );
+      const { product, variant } = res.data ?? {};
+      if (product) {
+        hit = { product, variant: variant ?? null };
+        // Merge so the row's select and the stock helpers can see the product.
+        setProducts((prev) =>
+          prev.some((p) => p.id === product.id) ? prev : [...prev, product],
         );
-        if (v) {
-          product = p;
-          matchedVariant = v;
-          break;
-        }
       }
+    } catch {
+      // Lookup unavailable — fall back to the catalogue already in memory.
+      hit = resolveScannedCode(code, products);
     }
-    if (!product) {
-      toast.error(t("restock.noProductForSku", { sku }));
+
+    if (!hit) {
+      toast.error(t("restock.noProductForSku", { sku: code }));
       return;
     }
-    const pid = String(product.id);
-    setCart((prev) => {
-      const next = prev.map((c, i) => {
-        if (i !== index) return c;
-        const sameProduct = String(c.productId) === pid;
-        if (matchedVariant) {
-          const line = defaultVariantLine(product, matchedVariant);
-          return {
-            ...c,
-            productId: pid,
-            variantLines: sameProduct
-              ? addOrBumpVariantLine(c.variantLines ?? [], line)
-              : [line],
-          };
-        }
-        return {
-          ...c,
-          productId: pid,
-          variantLines: product.hasVariants ? [] : undefined,
-        };
-      });
-      if (index === prev.length - 1) {
-        next.push({
-          productId: "",
-          quantity: 1,
-          customPrice: "",
-          search: "",
-          catFilter: "",
-        });
-      }
-      return next;
-    });
-    // Focus the quantity field once the row updates (plain products).
-    setTimeout(() => {
-      qtyRefs.current[index]?.focus();
-    }, 50);
+
+    const line = hit.variant
+      ? defaultVariantLine(hit.product, hit.variant)
+      : null;
+    // Read the ref (not render state) so back-to-back scans never lose a unit.
+    const outcome = addScannedToCart(cartRef.current, hit.product, line);
+    cartRef.current = outcome.cart;
+    setCart(outcome.cart);
+
+    // Show which line the scan touched and drop the cursor into its quantity so
+    // the shopkeeper can adjust the count straight away.
+    setScannedRowIndex(outcome.rowIndex);
+    setTimeout(() => qtyRefs.current[outcome.rowIndex]?.focus(), 50);
+    setTimeout(() => setScannedRowIndex(null), 1500);
+
+    const name = [hit.product.brand, hit.product.baseName]
+      .filter(Boolean)
+      .join(" ");
+
+    if (outcome.action === "NEEDS_VARIANT") {
+      toast.info(t("sales.scannedPickVariant", { name }));
+      return;
+    }
+    toast.success(
+      t(
+        outcome.action === "ADDED"
+          ? "sales.scannedAdded"
+          : "sales.scannedBumped",
+        { name, qty: String(outcome.quantity) },
+      ),
+    );
   };
+
   const startReturn = (sale: any) => {
     setReturningSale(sale);
     setReturnItems(
@@ -1041,6 +1081,14 @@ export default function SalesPage() {
             </span>
           </div>
 
+          {/* Cart-level scanner: scan item after item; repeating a code bumps it. */}
+          <BarcodeScanner
+            continuous
+            onScan={handleScanToCart}
+            label={`📷 ${t("sales.scanToCart")}`}
+            className="w-full px-4 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700"
+          />
+
           {cart.map((item, index) => {
             const selectedProduct = products.find(
               (p) => p.id === Number(item.productId),
@@ -1060,7 +1108,15 @@ export default function SalesPage() {
             );
 
             return (
-              <div key={index} className="p-3 bg-gray-50 rounded-lg border">
+              <div
+                key={index}
+                className={
+                  "p-3 bg-gray-50 rounded-lg border transition-shadow " +
+                  (scannedRowIndex === index
+                    ? "ring-2 ring-indigo-400 border-indigo-300"
+                    : "")
+                }
+              >
                 <div className="flex flex-col sm:flex-row gap-2 mb-2 sm:items-end">
                   <div className="w-full sm:w-28">
                     <label className="block text-xs font-medium text-gray-500 mb-1">
@@ -1120,10 +1176,6 @@ export default function SalesPage() {
                       className="w-full"
                     />
                   </div>
-                  <BarcodeScanner
-                    onScan={(sku) => handleScanSku(index, sku)}
-                    className="w-full sm:w-auto px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap bg-blue-600 text-white hover:bg-blue-700"
-                  />
                 </div>
 
                 {isVariantRow ? (

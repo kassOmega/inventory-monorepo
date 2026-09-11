@@ -11,6 +11,7 @@ export function normalizeScannedCode(raw: string): string {
   return raw
     .replace(/[\u200B-\u200D\uFEFF]/g, "") // zero-width + BOM
     .replace(/[\r\n\t]/g, "")
+    .trimStart() // the AIM prefix is only valid at the very start
     .replace(/^\]\w{2}/, "") // AIM symbology identifier, e.g. ]C1 ]d2 ]Q3
     .trim();
 }
@@ -23,6 +24,36 @@ export function formatSymbologyLabel(formatName: string): string {
   if (formatName === "DATA_MATRIX") return "DataMatrix";
   if (formatName === "PDF_417") return "PDF417";
   return formatName.replace(/_/g, "-");
+}
+
+/** State of the scan-acceptance guard: the last accepted code + when. */
+export interface ScanGuard {
+  code: string;
+  at: number;
+}
+
+/** Same code re-read inside this window is treated as a double read. */
+export const SCAN_RESCAN_WINDOW_MS = 1500;
+
+/**
+ * Decide whether a successful decode starts a new scan or is a repeat of the one
+ * already handled.
+ *
+ * A repeat is ignored while the code is still visible to the camera (`inFrame`)
+ * — so holding a barcode steady can never add the same item twice — and, as a
+ * backstop, while the same code was accepted less than SCAN_RESCAN_WINDOW_MS ago
+ * (covers double decodes within one frame burst).
+ */
+export function nextScanGuard(
+  guard: ScanGuard,
+  code: string,
+  at: number,
+  inFrame: boolean,
+): { accept: boolean; guard: ScanGuard } {
+  if (code === guard.code && (inFrame || at - guard.at < SCAN_RESCAN_WINDOW_MS)) {
+    return { accept: false, guard };
+  }
+  return { accept: true, guard: { code, at } };
 }
 
 /**

@@ -427,6 +427,45 @@ export class ProductsService {
     return { product };
   }
 
+  /**
+   * Exact barcode/SKU lookup for the POS "scan to cart" flow. A product barcode
+   * or SKU wins; otherwise a variant barcode/SKU is matched and its parent
+   * product is returned alongside it. Case-insensitive, and automatically scoped
+   * to the active tenant by the Prisma middleware. `locationId` scopes the
+   * returned stock levels to the shop the sale is being made at.
+   */
+  async findByCode(code?: string, locationId?: number) {
+    const value = code?.trim();
+    if (!value) return { product: null, variant: null, matchType: 'NONE' };
+
+    const include: any = {
+      category: true,
+      unit: true,
+      variants: { orderBy: { id: 'asc' } },
+      inventory: locationId
+        ? { where: { locationId }, include: { location: true } }
+        : { include: { location: true } },
+    };
+    const exact = { equals: value, mode: 'insensitive' as const };
+
+    const product = await this.prisma.product.findFirst({
+      where: { OR: [{ barcode: exact }, { sku: exact }] },
+      include,
+    });
+    if (product) return { product, variant: null, matchType: 'PRODUCT' };
+
+    const variant = await this.prisma.productVariant.findFirst({
+      where: { OR: [{ barcode: exact }, { sku: exact }] },
+      include: { product: { include } },
+    });
+    if (variant) {
+      const { product: parent, ...variantFields } = variant as any;
+      return { product: parent, variant: variantFields, matchType: 'VARIANT' };
+    }
+
+    return { product: null, variant: null, matchType: 'NONE' };
+  }
+
   async findAll(
     user: JwtPayload,
     search?: string,

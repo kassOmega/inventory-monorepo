@@ -71,6 +71,21 @@ export class ProductsController {
     return this.service.lookupByBrandBase(brand, baseName);
   }
 
+  // Exact barcode/SKU lookup for the POS "scan to cart" flow: returns the
+  // matching product, plus the variant when a variant code was scanned.
+  // Also declared before @Get(':id') so "by-code" is not captured by it.
+  @Get('by-code')
+  @Permissions('products.view')
+  findByCode(
+    @Query('code') code?: string,
+    @Query('locationId') locationId?: string,
+  ) {
+    return this.service.findByCode(
+      code,
+      locationId ? Number(locationId) : undefined,
+    );
+  }
+
   @Get(':id')
   @Permissions('products.view')
   findOne(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
