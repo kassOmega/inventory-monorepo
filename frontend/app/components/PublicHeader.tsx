@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
+import InstallAppButton from "@/app/components/InstallAppButton";
 import LanguageSwitcher from "@/app/components/LanguageSwitcher";
 import { useTranslation } from "react-i18next";
 
@@ -22,9 +23,9 @@ export default function PublicHeader({
   return (
     <header className="sticky top-0 z-40 bg-slate-900 text-white">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
-        <a href="/" className="text-lg font-bold tracking-tight">
+        <Link href="/" className="text-lg font-bold tracking-tight">
           {t("app.name")}
-        </a>
+        </Link>
         {showLinks && (
           <nav className="hidden items-center gap-6 text-sm text-gray-300 md:flex">
             <a href="#modules" className="hover:text-white">{t("landing.navModules")}</a>
@@ -34,6 +35,7 @@ export default function PublicHeader({
           </nav>
         )}
         <div className="flex items-center gap-3">
+          <InstallAppButton variant="header" alwaysVisible />
           <LanguageSwitcher variant="light" />
           {showAuthActions && !isLoading && user && (
             <Link

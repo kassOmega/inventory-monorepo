@@ -616,6 +616,20 @@
     "soundOn": "የማስጠንቀቂያ ድምፅ በርቷል",
     "soundOff": "የማስጠንቀቂያ ድምፅ ጠፍቷል"
   },
+  "install": {
+    "label": "መተግበሪያውን አውርድ",
+    "iosTitle": "በ iPhone / iPad ላይ ጫን",
+    "iosStep1": "በ Safari ውስጥ የ Share አዝራሩን ይንኩ።",
+    "iosStep2": "ወደ ታች ወርዶ Add to Home Screen ይንኩ።",
+    "iosStep3": "Add ይንኩ።",
+    "iosSafariOnly": "በ iPhone/iPad ላይ መተግበሪያዎች የሚጫኑት በ Safari ብቻ ነው — ለመጫን ይህን ገጽ በ Safari ይክፈቱ።",
+    "desktopTitle": "ይህን መተግበሪያ ጫን",
+    "desktopStep1": "በአድራሻ አሞሌው ላይ ያለውን የአሳሽ ምናሌ (⋮ ወይም ⋯) ይክፈቱ።",
+    "desktopStep2": "Install app ወይም Add to Home screen ይምረጡ።",
+    "desktopStep3": "በመሣሪያዎ ላይ ለመጨመር ያረጋግጡ።",
+    "unsupported": "በአሳሽዎ ውስጥ Install አማራጭ ከሌለ Chrome፣ Edge ወይም Safari ይሞክሩ።",
+    "close": "ዝጋ"
+  },
   "auth": {
     "language": "ቋንቋ",
     "loginTitle": "ወደ መለያዎ ይግቡ",
