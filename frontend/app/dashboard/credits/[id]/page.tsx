@@ -12,7 +12,9 @@ import { formatDate } from "@/lib/datetime";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { formatBusinessNumber } from "@/lib/bizNumber";
-import { useEffect, useMemo, useState } from "react";
+import { variantLabel } from "@/lib/variantLabel";
+import { attachSaleVariants, groupSaleItemsByProduct } from "@/lib/saleItems";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 export default function CustomerDetailPage() {
@@ -166,10 +168,24 @@ export default function CustomerDetailPage() {
       return cs.items.some(
         (i: any) =>
           i.product?.brand?.toLowerCase().includes(term) ||
-          i.product?.baseName?.toLowerCase().includes(term),
+          i.product?.baseName?.toLowerCase().includes(term) ||
+          (i.variant?.sku || "").toLowerCase().includes(term) ||
+          variantLabel(i.variant).toLowerCase().includes(term),
       );
     });
   }, [customer, productSearch]);
+
+  // Products whose variant lines are folded open, keyed "<creditSaleId>:<productId>".
+  const [expandedVariants, setExpandedVariants] = useState<Set<string>>(
+    new Set(),
+  );
+  const toggleVariantGroup = (key: string) =>
+    setExpandedVariants((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   const groupedSales = useMemo(() => {
     // Normalize to a local calendar-day key (YYYY-MM-DD) so every credit sale
@@ -409,25 +425,101 @@ export default function CustomerDetailPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {cs.items.map((item: any, i: number) => (
-                          <tr
-                            key={`${cs.id}-${i}`}
-                            className="border-b last:border-b-0"
-                          >
-                            <td className="p-2 sm:p-3">
-                              {item.product?.brand} {item.product?.baseName}
-                            </td>
-                            <td className="p-2 sm:p-3 text-center">
-                              {item.quantity}
-                            </td>
-                            <td className="p-2 sm:p-3 text-right">
-                              {fmtCurrency(item.unitPrice)}
-                            </td>
-                            <td className="p-2 sm:p-3 text-right font-medium">
-                              {fmtCurrency(item.quantity * item.unitPrice)}
-                            </td>
-                          </tr>
-                        ))}
+                        {groupSaleItemsByProduct<any>(
+                          attachSaleVariants(cs.items, cs.sale?.items ?? []),
+                        ).map((group) => {
+                          const key = `${cs.id}:${group.productId}`;
+                          const name = `${group.product?.brand ?? ""} ${
+                            group.product?.baseName ?? ""
+                          }`.trim();
+
+                          // No variants: one plain row, exactly as before.
+                          if (!group.hasVariants) {
+                            const item = group.items[0];
+                            return (
+                              <tr
+                                key={key}
+                                className="border-b last:border-b-0"
+                              >
+                                <td className="p-2 sm:p-3">{name}</td>
+                                <td className="p-2 sm:p-3 text-center">
+                                  {item.quantity}
+                                </td>
+                                <td className="p-2 sm:p-3 text-right">
+                                  {fmtCurrency(item.unitPrice)}
+                                </td>
+                                <td className="p-2 sm:p-3 text-right font-medium">
+                                  {fmtCurrency(item.quantity * item.unitPrice)}
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          // Variant product: fold its lines, collapsed by default.
+                          const open = expandedVariants.has(key);
+                          return (
+                            <Fragment key={key}>
+                              <tr className="border-b">
+                                <td className="p-2 sm:p-3">
+                                  <button
+                                    type="button"
+                                    aria-expanded={open}
+                                    title={
+                                      open
+                                        ? t("products.collapseVariants")
+                                        : t("products.expandVariants")
+                                    }
+                                    onClick={() => toggleVariantGroup(key)}
+                                    className="flex items-center gap-1.5 text-left"
+                                  >
+                                    <span className="w-3 text-gray-400">
+                                      {open ? "▾" : "▸"}
+                                    </span>
+                                    <span>{name}</span>
+                                    <span className="text-[10px] text-gray-400">
+                                      · {group.items.length}{" "}
+                                      {t("products.variants")}
+                                    </span>
+                                  </button>
+                                </td>
+                                <td className="p-2 sm:p-3 text-center">
+                                  {group.quantity}
+                                </td>
+                                <td className="p-2 sm:p-3 text-right">
+                                  {group.unitPrice === null
+                                    ? "—"
+                                    : fmtCurrency(group.unitPrice)}
+                                </td>
+                                <td className="p-2 sm:p-3 text-right font-medium">
+                                  {fmtCurrency(group.subtotal)}
+                                </td>
+                              </tr>
+                              {open &&
+                                group.items.map((item, i) => (
+                                  <tr
+                                    key={`${key}:${i}`}
+                                    className="border-b last:border-b-0 bg-gray-50/60 text-gray-600"
+                                  >
+                                    <td className="p-2 sm:p-3 pl-8 sm:pl-10 text-[11px] sm:text-xs">
+                                      {variantLabel(item.variant) ||
+                                        t("products.standard")}
+                                    </td>
+                                    <td className="p-2 sm:p-3 text-center text-[11px] sm:text-xs">
+                                      {item.quantity}
+                                    </td>
+                                    <td className="p-2 sm:p-3 text-right text-[11px] sm:text-xs">
+                                      {fmtCurrency(item.unitPrice)}
+                                    </td>
+                                    <td className="p-2 sm:p-3 text-right text-[11px] sm:text-xs">
+                                      {fmtCurrency(
+                                        item.quantity * item.unitPrice,
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))}
+                            </Fragment>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

@@ -105,6 +105,10 @@ export class CustomersService {
                 saleType: true,
                 paidAmount: true,
                 remainingAmount: true,
+                // The credit lines are a copy of the sale's items (created from
+                // them in the same order) and carry no variant, so the variant
+                // that was actually sold comes from here.
+                items: { include: { variant: true } },
               },
             },
           },
