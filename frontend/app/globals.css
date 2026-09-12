@@ -91,15 +91,44 @@ table td {
   animation: loading-bar-slide 1.2s ease-in-out infinite;
 }
 
-/* GL report printing: only the portal #print-root is printed. */
+/* GL report printing.
+   - The "Print / PDF" buttons render a report into the #print-root portal; when
+     that portal exists it replaces the page in print.
+   - Printing the page itself (⌘P) with no portal open must still work, so the
+     app is only hidden when a report is actually present (`:has`). */
 #print-root {
   display: none;
 }
 @media print {
-  body > *:not(#print-root) {
+  body:has(#print-root) > *:not(#print-root) {
     display: none !important;
   }
-  #print-root {
+  body:has(#print-root) #print-root {
     display: block !important;
+  }
+
+  /* Journal entry breakdown lines print even while collapsed on screen: the
+     rows carry `hidden` in the UI and these rules undo it, in black. */
+  tr.ledger-sub-line,
+  tr[data-expanded="true"] {
+    display: table-row !important;
+    color: #000000 !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+
+  /* `overflow: hidden` stops content from breaking across pages, so rows past
+     the first page were dropped; the fixed table width also overflows the
+     paper. Reset both for the printable tables. */
+  .gl-print-card,
+  .gl-print-scroll {
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+  }
+  .gl-print-table {
+    min-width: 0 !important;
+    width: 100% !important;
+    white-space: normal !important;
   }
 }

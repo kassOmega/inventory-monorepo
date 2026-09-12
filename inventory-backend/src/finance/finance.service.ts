@@ -4,6 +4,11 @@ import { AccountType, BusinessType, JournalPostingStatus, MenuItemTrackingMode, 
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { getDefaultAccounts } from '../common/verticals';
 import { resolveTax, splitTax } from '../common/tax.util';
+import {
+  GL_JOURNAL_PDF_COLUMNS,
+  buildGlJournalPdfRows,
+  renderGlJournalPdf,
+} from './gl-journal-pdf';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   DEFAULT_POSTING_MAPS,
@@ -2189,6 +2194,80 @@ export class FinanceService {
         credit: round2(totals._sum?.credit ?? 0),
       },
     };
+  }
+
+  /**
+   * PDF export of the journal for the whole filtered period: every entry with
+   * the account lines that make it up (the breakdown the shops need), then the
+   * period totals. Same filters as `getGlJournal`, no paging.
+   */
+  async getGlJournalPdf(args: {
+    startDate?: string;
+    endDate?: string;
+    accountId?: number;
+    source?: string;
+    locationId?: number;
+    moduleSource?: string;
+    status?: string;
+    search?: string;
+  }): Promise<Buffer> {
+    const { entryWhere, lineWhere } = this.glWhere(args);
+    const [entries, totals] = await Promise.all([
+      this.prisma.journalEntry.findMany({
+        where: entryWhere,
+        include: {
+          lines: { include: { account: true }, orderBy: { id: 'asc' } },
+        },
+        orderBy: [{ entryDate: 'desc' }, { id: 'desc' }],
+      }),
+      this.prisma.journalLine.aggregate({
+        where: lineWhere,
+        _sum: { debit: true, credit: true },
+      }),
+    ]);
+
+    // Location names live on the Location table; fetch just the ids in view.
+    const locationIds = [
+      ...new Set(
+        entries
+          .map((e) => e.locationId)
+          .filter((id): id is number => typeof id === 'number'),
+      ),
+    ];
+    const locations = locationIds.length
+      ? await this.prisma.location.findMany({
+          where: { id: { in: locationIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const locationName = new Map(locations.map((l) => [l.id, l.name]));
+
+    const rows = buildGlJournalPdfRows(
+      entries.map((e) => ({
+        entryDate: e.entryDate,
+        reference: e.reference,
+        description: e.description,
+        source: this.refBucket(e.reference),
+        postingStatus: e.postingStatus,
+        locationName: e.locationId
+          ? locationName.get(e.locationId) ?? `#${e.locationId}`
+          : '',
+        totalDebit: (e.lines ?? []).reduce((s, l) => s + (l.debit ?? 0), 0),
+        totalCredit: (e.lines ?? []).reduce((s, l) => s + (l.credit ?? 0), 0),
+        lines: e.lines,
+      })),
+      {
+        debit: totals._sum?.debit ?? 0,
+        credit: totals._sum?.credit ?? 0,
+      },
+    );
+
+    return renderGlJournalPdf({
+      title: 'General Ledger — Journal',
+      subtitle: [args.startDate, args.endDate].filter(Boolean).join(' → '),
+      columns: GL_JOURNAL_PDF_COLUMNS,
+      rows,
+    });
   }
 
   /** Trial balance: debits, credits and net balance per account with activity. */

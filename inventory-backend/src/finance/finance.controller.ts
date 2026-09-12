@@ -1,5 +1,5 @@
 // src/finance/finance.controller.ts
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Param, ParseIntPipe, Patch, Post, Put, Query, Req, StreamableFile } from '@nestjs/common';
 import { Permissions } from '../common/decorators/permissions/permissions.decorator';
 import { RequestWithUser } from '../common/interfaces/request-with-user.interface';
 import {
@@ -148,6 +148,37 @@ export class FinanceController {
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });
+  }
+
+  // PDF download of the journal: every entry with its account lines, then the
+  // period totals. Same query as `gl/journal`, but never paged.
+  @Get('gl/journal/pdf')
+  @Header('Content-Type', 'application/pdf')
+  @Header(
+    'Content-Disposition',
+    'attachment; filename="general-ledger-journal.pdf"',
+  )
+  async getGlJournalPdf(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('accountId') accountId?: string,
+    @Query('source') source?: string,
+    @Query('locationId') locationId?: string,
+    @Query('moduleSource') moduleSource?: string,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+  ) {
+    const buffer = await this.finance.getGlJournalPdf({
+      startDate,
+      endDate,
+      accountId: accountId ? Number(accountId) : undefined,
+      source,
+      locationId: locationId ? Number(locationId) : undefined,
+      moduleSource,
+      status,
+      search,
+    });
+    return new StreamableFile(buffer);
   }
 
   @Get('gl/trial-balance')

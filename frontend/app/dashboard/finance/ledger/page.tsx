@@ -4,6 +4,14 @@ import DateFilter, { getDateRange } from "@/app/components/DateFilter";
 import Modal from "@/app/components/Modal";
 import { useAuth } from "@/context/AuthContext";
 import { statusLabel } from "@/lib/statusLabel";
+import {
+  JOURNAL_EXPORT_COLUMNS,
+  buildJournalExport,
+  toCsvRows,
+  type JournalEntryLike,
+  type JournalLineLike,
+} from "@/lib/glExport";
+import { downloadApiFile } from "@/lib/downloadFile";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -70,7 +78,20 @@ function downloadCsv(filename: string, columns: string[], rows: (string | number
   URL.revokeObjectURL(url);
 }
 
-function PrintReport({ title, meta, columns, rows }: any) {
+/** Message from an API failure (axios-shaped), for the export error banner. */
+const exportErrorMessage = (e: unknown): string =>
+  (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+  "Export failed.";
+
+/**
+ * Printable report. Rows may be plain arrays (as before) or
+ * `{ cells, detail?, bold? }` so a report can nest detail lines under a header
+ * row. `rightFrom` is the first right-aligned column (defaults to the last 3,
+ * the previous behaviour, so existing reports are unchanged).
+ */
+function PrintReport({ title, meta, columns, rows, rightFrom }: any) {
+  const alignFrom =
+    typeof rightFrom === "number" ? rightFrom : Math.max(0, columns.length - 3);
   const report = (
     <div id="print-root" className="bg-white text-gray-900 p-6">
       <div className="flex items-end justify-between border-b border-gray-300 pb-3 mb-4">
@@ -89,13 +110,22 @@ function PrintReport({ title, meta, columns, rows }: any) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r: any[], i: number) => (
-            <tr key={i}>
-              {r.map((cell, j) => (
-                <td key={j} className={`border-b border-gray-100 px-2 py-1 ${j > columns.length - 4 ? "text-right tabular-nums" : ""}`}>{cell ?? ""}</td>
-              ))}
-            </tr>
-          ))}
+          {rows.map((r: any, i: number) => {
+            const row = Array.isArray(r) ? { cells: r } : r;
+            return (
+              <tr key={i} className={row.bold ? "font-semibold" : ""}>
+                {(row.cells ?? []).map((cell: any, j: number) => (
+                  <td
+                    key={j}
+                    className={`border-b border-gray-100 px-2 py-1 ${j >= alignFrom ? "text-right tabular-nums" : ""} ${row.detail ? "text-gray-500 italic" : ""}`}
+                  >
+                    {row.detail && j === 0 ? "↳ " : ""}
+                    {cell ?? ""}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -220,7 +250,7 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [showModal, setShowModal] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
-  const [printDoc, setPrintDoc] = useState<any>(null);
+  const [exporting, setExporting] = useState<"" | "csv" | "pdf">("");
   const extraQs = `${
     filters.locationId ? `&locationId=${encodeURIComponent(filters.locationId)}` : ""
   }${
@@ -249,6 +279,73 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
   }, [load]);
   const toggle = (id: number) => setExpanded((m) => ({ ...m, [id]: !m[id] }));
   const entries = data?.data ?? [];
+
+  // The exports list each entry's lines, so they cover the whole filtered
+  // period rather than the 25 rows on screen. The API caps pageSize at 200.
+  const EXPORT_PAGE_SIZE = 200;
+  const EXPORT_MAX_PAGES = 50; // 10k entries — a guard against a runaway loop
+  const exportDeps = {
+    money,
+    shortDate,
+    sourceLabel: (e: JournalEntryLike) => SOURCE_LABELS[e.source ?? ""] ?? e.source ?? "",
+    locationLabel: (e: JournalEntryLike) => locName(locations, e.locationId),
+    accountLabel: (l: JournalLineLike) =>
+      `${l.account?.code ? `${l.account.code} · ` : ""}${l.account?.name ?? `#${l.accountId}`}`,
+    accountType: (l: JournalLineLike) =>
+      l.account?.type ? statusLabel(l.account.type) : "",
+  };
+  const fetchAllForExport = async () => {
+    const all: JournalEntryLike[] = [];
+    for (let p = 1; p <= EXPORT_MAX_PAGES; p++) {
+      const params = `startDate=${startDate}&endDate=${endDate}&page=${p}&pageSize=${EXPORT_PAGE_SIZE}${extraQs}`;
+      const r = await api.get(
+        `/finance/gl/journal?${params}${accountId ? `&accountId=${accountId}` : ""}`,
+      );
+      const batch: JournalEntryLike[] = r.data?.data ?? [];
+      all.push(...batch);
+      if (batch.length < EXPORT_PAGE_SIZE) break;
+    }
+    return all;
+  };
+  /**
+   * The rows both exports share, plus the line count that goes into the report
+   * header. Logged so "the PDF has no lines" is instantly explainable: `lines`
+   * counts what the API sent, `detailRows` what actually reached the file.
+   */
+  const buildExportRows = async () => {
+    const pageEntries = (data?.data ?? []) as JournalEntryLike[];
+    const countLines = (list: JournalEntryLike[]) =>
+      list.reduce((n, e) => n + (e.lines?.length ?? 0), 0);
+
+    let all = await fetchAllForExport();
+    let lines = countLines(all);
+    const visibleLines = countLines(pageEntries);
+    // Safety net: if the export fetch came back without breakdown lines while
+    // the page in front of the user has them, export what they can see rather
+    // than silently printing entry rows only.
+    if (!lines && visibleLines) {
+      all = pageEntries;
+      lines = visibleLines;
+    }
+    const rows = buildJournalExport(all, data?.totals, exportDeps);
+    console.info("[gl-export]", {
+      entries: all.length,
+      lines,
+      detailRows: rows.filter((r) => r.detail).length,
+    });
+    return { all, rows, lines };
+  };
+  const runExport = async (kind: "csv" | "pdf", run: () => Promise<void>) => {
+    setExporting(kind);
+    setError("");
+    try {
+      await run();
+    } catch (e) {
+      setError(exportErrorMessage(e));
+    } finally {
+      setExporting("");
+    }
+  };
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / (data?.pageSize ?? 25)));
   return (
     <div className="space-y-3">
@@ -271,40 +368,39 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => {
-              const cols = ["Date", "Reference", "Description", "Source", "Status", "Location", "Debit", "Credit"];
-              const rows = (data?.data ?? []).map((e: any) => [
-                shortDate(e.entryDate), e.reference ?? "", e.description ?? "",
-                SOURCE_LABELS[e.source] ?? e.source ?? "", e.postingStatus ?? "POSTED",
-                locName(locations, e.locationId), e.totalDebit ?? 0, e.totalCredit ?? 0,
-              ]);
-              downloadCsv("general-ledger-journal.csv", cols, rows);
-            }}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+            disabled={exporting !== ""}
+            onClick={() =>
+              runExport("csv", async () => {
+                const { rows } = await buildExportRows();
+                downloadCsv(
+                  "general-ledger-journal.csv",
+                  JOURNAL_EXPORT_COLUMNS,
+                  toCsvRows(rows),
+                );
+              })
+            }
+            className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
           >
-            CSV
+            {exporting === "csv" ? "Preparing…" : "CSV"}
           </button>
           <button
-            onClick={() => {
-              setPrintDoc({
-                title: "General Ledger — Journal",
-                meta: [
-                  `${startDate} → ${endDate}`,
-                  MODULE_OPTIONS.find((m) => m.key === filters.moduleSource)?.label ?? "All modules",
-                  locName(locations, filters.locationId ? Number(filters.locationId) : undefined),
-                ],
-                columns: ["Date", "Reference", "Description", "Source", "Status", "Location", "Debit", "Credit"],
-                rows: (data?.data ?? []).map((e: any) => [
-                  shortDate(e.entryDate), e.reference ?? "", e.description ?? "",
-                  SOURCE_LABELS[e.source] ?? e.source ?? "", e.postingStatus ?? "POSTED",
-                  locName(locations, e.locationId), e.totalDebit ?? 0, e.totalCredit ?? 0,
-                ]),
-              });
-              setTimeout(() => window.print(), 120);
-            }}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+            disabled={exporting !== ""}
+            onClick={() =>
+              runExport("pdf", async () => {
+                // Real PDF download from the API: every entry with its account
+                // breakdown lines, then the period totals.
+                const params = `startDate=${startDate}&endDate=${endDate}${extraQs}${
+                  accountId ? `&accountId=${accountId}` : ""
+                }`;
+                await downloadApiFile(
+                  `/finance/gl/journal/pdf?${params}`,
+                  "general-ledger-journal.pdf",
+                );
+              })
+            }
+            className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
           >
-            Print / PDF
+            {exporting === "pdf" ? "Preparing…" : "Download PDF"}
           </button>
           {canManage && (
             <button onClick={() => setShowModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-3 py-2 text-sm font-medium">+ New Journal Entry</button>
@@ -316,9 +412,9 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
       ) : entries.length === 0 ? (
         <p className="text-gray-400 text-sm py-8 text-center">No journal entries in this period.</p>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm whitespace-nowrap min-w-[1000px]">
+        <div className="gl-print-card bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="gl-print-scroll overflow-x-auto">
+            <table className="gl-print-table w-full text-sm whitespace-nowrap min-w-[1000px]">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-100 bg-gray-50/60">
                   <th className="px-3 py-2">Date</th>
@@ -344,9 +440,15 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
                       <td className="px-3 py-2 text-right tabular-nums">{money(e.totalDebit)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{money(e.totalCredit)}</td>
                     </tr>
-                    {expanded[e.id] &&
-                      (e.lines ?? []).map((l: any) => (
-                        <tr key={`l${l.id}`} className="bg-gray-50/60 text-xs">
+                    {(e.lines ?? []).map((l: any) => (
+                        <tr
+                          key={`l${l.id}`}
+                          data-expanded={expanded[e.id] ? "true" : "false"}
+                          className={
+                            "ledger-sub-line bg-gray-50/60 text-xs " +
+                            (expanded[e.id] ? "" : "hidden")
+                          }
+                        >
                           <td className="px-3 py-1.5 pl-6 text-gray-400">↳ line</td>
                           <td className="px-3 py-1.5">{l.account?.code ? `${l.account.code} · ` : ""}{l.account?.name ?? `#${l.accountId}`}</td>
                           <td className="px-3 py-1.5" colSpan={4}>{l.account?.type ? statusLabel(l.account.type) : ""}</td>
@@ -369,7 +471,6 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
           </div>
         </div>
       )}
-      {printDoc && <PrintReport {...printDoc} />}
       <EntryModal
         open={showModal}
         onClose={() => setShowModal(false)}
