@@ -104,6 +104,9 @@ async function bootstrap() {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
-  await app.listen(process.env.PORT ?? 3000);
+  const port = process.env.PORT ?? 3000;
+  await app.listen(port);
+  const url = await app.getUrl();
+  console.log(`[backend] listening on ${url} (PORT=${port})`);
 }
 bootstrap();

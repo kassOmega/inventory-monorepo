@@ -69,7 +69,9 @@ start_backend() {
     exit 1
   fi
   echo "[entrypoint] starting API on :$BACKEND_PORT ($entry)"
-  node "$entry" &
+  # Nest reads process.env.PORT in src/main.ts. Keep the public/frontend PORT
+  # value untouched and override PORT only for the backend child process.
+  PORT="$BACKEND_PORT" node "$entry" &
   BACKEND_PID=$!
 }
 
@@ -91,10 +93,10 @@ wait_for_backend() {
   node -e '
     const port = process.env.BACKEND_PORT || 3000;
     const url = `http://127.0.0.1:${port}/`;
-    const deadline = Date.now() + 90_000;
+    const deadline = Date.now() + 10_000;
     const tick = async () => {
       if (Date.now() > deadline) {
-        console.error(`[entrypoint] API did not answer on ${url} within 90s`);
+        console.error(`[entrypoint] API did not answer on ${url} within 10s`);
         console.error(`[entrypoint] check DATABASE_URL and the API log above`);
         process.exit(1);
       }
