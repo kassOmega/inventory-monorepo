@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "npx prisma generate && npx prisma db push --accept-data-loss && nest build",
+    "build": "npx prisma generate && npx prisma db push --accept-data-loss && npx ts-node prisma/backfill-guest-id-types.ts && npx ts-node prisma/backfill-room-charges.ts && npx ts-node prisma/backfill-hospitality-role-permissions.ts && nest build",
     "db:reset:prod": "npx prisma generate && npx prisma db push --force-reset && npx ts-node prisma/seed-prod.ts",
     "db:push": "prisma db push",
     "seed": "ts-node prisma/seed.ts",
