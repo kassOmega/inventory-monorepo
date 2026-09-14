@@ -1,0 +1,24 @@
+# Build context hygiene. Keeps the image small AND prevents a local
+# node_modules/.next produced on macOS from leaking into the Linux build.
+**/node_modules
+**/.next
+**/out
+**/build
+**/dist
+**/coverage
+**/.turbo
+**/tsconfig.tsbuildinfo
+**/.vercel
+**/.swc
+
+# Never bake local secrets into the image — pass build args / runtime env.
+**/.env
+**/.env.local
+**/.env.*.local
+
+.git
+.github
+.dockerignore
+Dockerfile
+**/.DS_Store
+**/*.log

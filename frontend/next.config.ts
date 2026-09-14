@@ -17,12 +17,23 @@ const withPWA = require("@ducanh2912/next-pwa").default({
 
 const apiBaseUrl =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
-let apiOrigin = "http://localhost:3000";
-try {
-  apiOrigin = new URL(apiBaseUrl).origin;
-} catch {
-  // keep the fallback origin
+// When the API base is absolute (e.g. https://api.example.com) the browser
+// talks to a different origin, so it must be allow-listed in connect-src.
+// A relative base (e.g. "/api", used by the combined Docker image where the
+// backend is reverse-proxied under this same origin) is already covered by
+// `'self'`, so no extra origin is added.
+let apiOrigin: string | null = null;
+if (/^https?:\/\//i.test(apiBaseUrl)) {
+  try {
+    apiOrigin = new URL(apiBaseUrl).origin;
+  } catch {
+    apiOrigin = null;
+  }
 }
+
+// Set by the Docker build: the backend runs inside the same container, so
+// Next.js proxies /api/* to it (single origin => no CORS, no extra ports).
+const apiProxyTarget = process.env.API_PROXY_TARGET;
 
 const isDev = process.env.NODE_ENV === "development";
 const scriptSrc = isDev
@@ -50,7 +61,7 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      `connect-src 'self' ${apiOrigin}`,
+      ["connect-src", "'self'", apiOrigin].filter(Boolean).join(" "),
       `script-src ${scriptSrc}`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
@@ -65,7 +76,19 @@ const securityHeaders = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // `standalone` is only enabled for the Docker build so the Vercel deployment
+  // keeps using its own builder untouched.
+  output: process.env.NEXT_OUTPUT_STANDALONE === "true" ? "standalone" : undefined,
   outputFileTracingRoot: __dirname,
+  async rewrites() {
+    if (!apiProxyTarget) return [];
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${apiProxyTarget.replace(/\/$/, "")}/:path*`,
+      },
+    ];
+  },
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },
