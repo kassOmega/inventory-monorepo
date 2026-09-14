@@ -3,7 +3,7 @@ import { TaxDirection } from '@prisma/client';
 import { assertNotDuplicate } from '../common/duplicate.util';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { resolveTax, round2, splitTax } from '../common/tax.util';
-import { getCurrentTenantId } from '../common/tenant/tenant.context';
+import { getCurrentTenantId, requireTenantId } from '../common/tenant/tenant.context';
 import { FinanceService } from '../finance/finance.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -110,7 +110,7 @@ export class PurchasesService {
     const shopId = purchase.shopId;
 
     return this.prisma.$transaction(async (tx) => {
-      const tenantId = getCurrentTenantId();
+      const tenantId = requireTenantId();
 
       // Output VAT snapshot for the flip sale — same rule as sales.service.createSale.
       // totalAmount is the gross the customer pays; in exclusive mode the tax is
@@ -132,6 +132,7 @@ export class PurchasesService {
       // 1. Linked sale record (the flip's sell side)
       const sale = await tx.sale.create({
         data: {
+          tenantId,
           invoiceNumber: `INV-${Date.now()}`,
           shopId,
           totalAmount,

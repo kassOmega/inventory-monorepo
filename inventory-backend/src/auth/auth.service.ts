@@ -205,6 +205,7 @@ export class AuthService {
         {
           name: dto.business.name.trim(),
           businessType: dto.business.businessType,
+          hospitalityServices: dto.business.hospitalityServices,
           standalone: dto.business.standalone ?? false,
         },
         { bypassBusinessLimit: false },

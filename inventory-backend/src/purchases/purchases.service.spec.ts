@@ -2,6 +2,7 @@ import { PurchasesService } from './purchases.service';
 
 jest.mock('../common/tenant/tenant.context', () => ({
   getCurrentTenantId: jest.fn(() => 102),
+  requireTenantId: jest.fn(() => 102),
 }));
 
 describe('PurchasesService.approve', () => {

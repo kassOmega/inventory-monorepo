@@ -68,10 +68,88 @@ export const VERTICAL_FEATURES: Record<string, VerticalFeatures> = {
 
 export const VERTICAL_LABELS: Record<string, string> = {
   RETAIL: "Retail & Distribution",
-  HOSPITALITY: "Hotels & Restaurants",
+  HOSPITALITY: "Hospitality",
   MANUFACTURING: "Manufacturing & Production",
   SERVICE: "Services & Consulting",
 };
+
+// ---------------------------------------------------------------------------
+// Hospitality service lines. The single source of truth for every multi-select
+// (signup / create business), the sidebar gating and the Hospitality Services
+// settings page. Values must match the backend HospitalityServiceType enum.
+// ---------------------------------------------------------------------------
+export interface HospitalityServiceOption {
+  value: string;
+  label: string;
+  description: string;
+  /** i18n key suffix under `hospitalityServices.*`. */
+  i18nKey: string;
+}
+
+export const HOSPITALITY_SERVICES: HospitalityServiceOption[] = [
+  {
+    value: "ACCOMMODATION",
+    label: "Accommodation",
+    description: "Rooms, pensions, lodging",
+    i18nKey: "ACCOMMODATION",
+  },
+  {
+    value: "FOOD_AND_BEVERAGE",
+    label: "Food & Beverage",
+    description: "Restaurant, bar, kitchen, barista",
+    i18nKey: "FOOD_AND_BEVERAGE",
+  },
+  {
+    value: "SPA_AND_WELLNESS",
+    label: "Spa & Wellness",
+    description: "Sauna, steam, massages, salon",
+    i18nKey: "SPA_AND_WELLNESS",
+  },
+  {
+    value: "GYM_AND_FITNESS",
+    label: "Gym & Fitness",
+    description: "Fitness center, memberships",
+    i18nKey: "GYM_AND_FITNESS",
+  },
+  {
+    value: "SWIMMING_POOL",
+    label: "Swimming Pool",
+    description: "Pool access, day passes",
+    i18nKey: "SWIMMING_POOL",
+  },
+  {
+    value: "EVENT_AND_HALL_RENTAL",
+    label: "Event & Hall Rental",
+    description: "Halls, conference spaces",
+    i18nKey: "EVENT_AND_HALL_RENTAL",
+  },
+];
+
+/** The default selection used when a hospitality owner skips the step. */
+export const DEFAULT_HOSPITALITY_SERVICES = ["FOOD_AND_BEVERAGE", "ACCOMMODATION"];
+
+export const HOSPITALITY_SERVICE_LABELS: Record<string, string> =
+  Object.fromEntries(HOSPITALITY_SERVICES.map((s) => [s.value, s.label]));
+
+export const HOSPITALITY_SERVICE_DESCRIPTIONS: Record<string, string> =
+  Object.fromEntries(HOSPITALITY_SERVICES.map((s) => [s.value, s.description]));
+
+/** Friendly display name for a HospitalityService row (incl. custom ones). */
+export function hospitalityServiceName(s: {
+  serviceType?: string | null;
+  customName?: string | null;
+} | null | undefined): string {
+  if (!s) return "Facility";
+  return (
+    s.customName ??
+    (s.serviceType ? HOSPITALITY_SERVICE_LABELS[s.serviceType] ?? s.serviceType : "Facility")
+  );
+}
+
+/** Services that can carry memberships (everything except the two core lines). */
+export function isMembershipCapableService(s: { serviceType?: string | null } | null | undefined) {
+  return s?.serviceType !== "FOOD_AND_BEVERAGE" && s?.serviceType !== "ACCOMMODATION";
+}
 
 export function getVerticalFeatures(businessType?: string | null): VerticalFeatures {
   return VERTICAL_FEATURES[businessType ?? ""] ?? retail();

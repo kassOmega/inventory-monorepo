@@ -6,6 +6,7 @@ import {
 
 jest.mock('../common/tenant/tenant.context', () => ({
   getCurrentTenantId: jest.fn(() => 1),
+  requireTenantId: jest.fn(() => 1),
 }));
 
 // Shared fixture: IN_PROGRESS work order producing 10 units of a chair from

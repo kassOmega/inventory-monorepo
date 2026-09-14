@@ -25,31 +25,58 @@ export class CashService {
       if (filters.dateTo) createdAt.lte = new Date(`${filters.dateTo}T23:59:59`);
       where.createdAt = createdAt;
     }
-    const payments = await this.prisma.orderPayment.findMany({
-      where,
-      include: {
-        order: { include: { table: true, items: true, fiscalReceipt: true } },
-        paymentMethod: true,
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+    const [payments, facilityPayments] = await Promise.all([
+      this.prisma.orderPayment.findMany({
+        where,
+        include: {
+          order: { include: { table: true, items: true, fiscalReceipt: true } },
+          paymentMethod: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.facilityPayment.findMany({
+        where,
+        include: { paymentMethod: true, facilityVisit: { include: { customer: true } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
 
-    const userIds = [...new Set(payments.map((p) => p.collectedById).filter((v): v is number => v != null))];
+    const userIds = [
+      ...new Set([
+        ...payments.map((p) => p.collectedById).filter((v): v is number => v != null),
+        ...facilityPayments.map((p) => p.collectedById).filter((v): v is number => v != null),
+      ]),
+    ];
     const users = await this.prisma.user.findMany({
       where: { id: { in: userIds } },
       select: { id: true, name: true },
     });
     const nameMap = new Map(users.map((u) => [u.id, u.name]));
 
-    return payments.map((p) => ({
+    const orderRows = payments.map((p) => ({
       ...p,
+      kind: 'ORDER',
       collectedByName: p.collectedById != null ? nameMap.get(p.collectedById) ?? null : null,
     }));
+    const facilityRows = facilityPayments.map((p) => ({
+      ...p,
+      kind: 'FACILITY',
+      collectedByName: p.collectedById != null ? nameMap.get(p.collectedById) ?? null : null,
+    }));
+
+    return [...orderRows, ...facilityRows].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
   }
 
   async confirmPayment(id: number, userId: number) {
     const tenantId = this.tenant();
-    const payment = await this.prisma.orderPayment.findFirst({ where: { tenantId, id } });
+    const payment = await this.prisma.orderPayment.findFirst({
+      where: { tenantId, id },
+      include: {
+        order: { select: { billingType: true, packageGuestId: true, orderNumber: true } },
+      },
+    });
     if (!payment) throw new NotFoundException('Payment not found');
 
     const updated = await this.prisma.orderPayment.update({
@@ -57,8 +84,34 @@ export class CashService {
       data: { status: 'CONFIRMED', confirmedById: userId, confirmedAt: new Date() },
     });
 
-    // Post categorized income once the payment is confirmed.
+    // Post categorized income once the payment is confirmed. For hospitality
+    // package/room orders the posted amount is already net of entitlements.
     await this.finance.postOrderIncome(payment.orderId, tenantId);
+
+    // POS-collected excess on a package order reduces the guest folio balance.
+    const order = payment.order as { billingType?: string; packageGuestId?: string | null } | null;
+    if (order && (order.billingType === 'PACKAGE' || order.billingType === 'ROOM_CHARGE') && order.packageGuestId) {
+      await this.prisma.guestFolio.updateMany({
+        where: { packageGuestId: order.packageGuestId, status: 'OPEN' },
+        data: { totalPayments: { increment: payment.amount } },
+      });
+    }
+
+    return updated;
+  }
+
+  async confirmFacilityPayment(id: number, userId: number) {
+    const tenantId = this.tenant();
+    const payment = await this.prisma.facilityPayment.findFirst({ where: { tenantId, id } });
+    if (!payment) throw new NotFoundException('Facility payment not found');
+
+    const updated = await this.prisma.facilityPayment.update({
+      where: { id },
+      data: { status: 'CONFIRMED', confirmedById: userId, confirmedAt: new Date() },
+    });
+
+    // Post the facility day-pass income to the ledger.
+    await this.finance.postFacilityIncome(payment.id, tenantId);
     return updated;
   }
 

@@ -12,13 +12,13 @@ import {
   RequestType,
 } from '@prisma/client';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
-import { getCurrentTenantId } from '../common/tenant/tenant.context';
+import { inventoryUpsert } from '../common/inventory.util';
+import { requireTenantId } from '../common/tenant/tenant.context';
 import { FinanceService } from '../finance/finance.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { RestockDto } from './dto/restock.dto';
 import { RegisterPurchaseDto } from './dto/register-purchase.dto';
-import { inventoryUpsert } from '../common/inventory.util';
+import { RestockDto } from './dto/restock.dto';
 
 @Injectable()
 export class RestockService {
@@ -70,7 +70,7 @@ export class RestockService {
       );
     }
 
-    const tenantId = getCurrentTenantId();
+    const tenantId = requireTenantId();
     // Standalone businesses are owner-operated single shops: restocks add
     // stock directly (inventory auto-updates) without a confirmation step,
     // and the owner never has to pick a location.
@@ -186,6 +186,7 @@ export class RestockService {
         // request is still written so 100% of restock activity is queryable.
         if (receiverCount === 0) {
           await inventoryUpsert(tx, {
+            tenantId,
             productId: dto.productId,
             variantId,
             locationId: target.id,
@@ -489,13 +490,14 @@ export class RestockService {
    * purchase stays fully queryable in history.
    */
   async registerPurchase(dto: RegisterPurchaseDto, user: JwtPayload) {
-    const tenantId = getCurrentTenantId();
+    const tenantId = requireTenantId();
     // Hospitality multi-variant purchases carry per-variant quantity + cost in
     // `lines` (existing item) or `createNew.variants` (on-the-fly item). Their
     // aggregates (quantity / totalAmount / unitBuyPrice) are derived from those
     // lines; single-item purchases keep the top-level values as-is.
     const isMultiVariant =
-      (dto.lines?.length ?? 0) > 0 || (dto.createNew?.variants?.length ?? 0) > 0;
+      (dto.lines?.length ?? 0) > 0 ||
+      (dto.createNew?.variants?.length ?? 0) > 0;
     const quantity = isMultiVariant
       ? (dto.lines ?? []).reduce((s, l) => s + l.quantity, 0) +
         (dto.createNew?.variants ?? []).reduce((s, v) => s + v.quantity, 0)
@@ -533,7 +535,9 @@ export class RestockService {
         throw new BadRequestException(
           `"${[existing.brand, existing.baseName]
             .filter(Boolean)
-            .join(' ')}" already exists — select it from the item search instead of creating a duplicate.`,
+            .join(
+              ' ',
+            )}" already exists — select it from the item search instead of creating a duplicate.`,
         );
       }
     }
@@ -568,7 +572,11 @@ export class RestockService {
         });
         if (!target) {
           target = await this.prisma.location.create({
-            data: { name: org?.name ?? 'Shop', type: LocationType.SHOP, tenantId },
+            data: {
+              name: org?.name ?? 'Shop',
+              type: LocationType.SHOP,
+              tenantId,
+            },
           });
         }
       }
@@ -606,7 +614,9 @@ export class RestockService {
       );
     }
     if (!isOwner && user.locationId !== target.id) {
-      throw new ForbiddenException('You can only purchase stock for your own store/shop');
+      throw new ForbiddenException(
+        'You can only purchase stock for your own store/shop',
+      );
     }
     const shopId = target.type === LocationType.SHOP ? target.id : null;
     const targetLoc = target;
@@ -634,10 +644,14 @@ export class RestockService {
         const kind = createNew.kind ?? ProductKind.GOODS;
         if (kind === ProductKind.INGREDIENT) {
           if (createNew.unitId == null) {
-            throw new BadRequestException('Unit of measure is required for ingredient items (e.g. kg, L, g).');
+            throw new BadRequestException(
+              'Unit of measure is required for ingredient items (e.g. kg, L, g).',
+            );
           }
           if (createNew.categoryId == null) {
-            throw new BadRequestException('Category is required for ingredient items.');
+            throw new BadRequestException(
+              'Category is required for ingredient items.',
+            );
           }
         }
         if (createNew.categoryId == null) {
@@ -711,7 +725,9 @@ export class RestockService {
         }
       } else {
         if (dto.productId == null) {
-          throw new BadRequestException('Select an existing item or create a new one.');
+          throw new BadRequestException(
+            'Select an existing item or create a new one.',
+          );
         }
         const found = await tx.product.findUnique({
           where: { id: dto.productId },
@@ -726,7 +742,9 @@ export class RestockService {
         if (dto.lines && dto.lines.length > 0) {
           // Hospitality multi-variant purchase of an existing variant product.
           if (!found.hasVariants) {
-            throw new BadRequestException('This item has no variants to purchase.');
+            throw new BadRequestException(
+              'This item has no variants to purchase.',
+            );
           }
           for (const line of dto.lines) {
             const variant = await tx.productVariant.findFirst({
@@ -753,9 +771,14 @@ export class RestockService {
               where: { id: variantId, productId },
               select: { id: true },
             });
-            if (!variant) throw new BadRequestException('Variant not found for this product');
+            if (!variant)
+              throw new BadRequestException(
+                'Variant not found for this product',
+              );
           } else if (found.hasVariants) {
-            throw new BadRequestException('Please select a variant for this product');
+            throw new BadRequestException(
+              'Please select a variant for this product',
+            );
           }
         }
       }
@@ -828,6 +851,7 @@ export class RestockService {
       if (variantLines.length > 0) {
         for (const line of variantLines) {
           await inventoryUpsert(tx, {
+            tenantId,
             productId,
             variantId: line.variantId,
             locationId: targetLoc.id,
@@ -837,6 +861,7 @@ export class RestockService {
         }
       } else {
         await inventoryUpsert(tx, {
+          tenantId,
           productId,
           variantId,
           locationId: targetLoc.id,

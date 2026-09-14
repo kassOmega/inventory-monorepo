@@ -73,9 +73,13 @@ export default function CashierPage() {
     load();
   }, [load]);
 
-  const confirm = async (id: number) => {
+  const confirm = async (p: any) => {
     try {
-      await api.post(`/cashier/payments/${id}/confirm`);
+      const url =
+        p.kind === "FACILITY"
+          ? `/cashier/facility-payments/${p.id}/confirm`
+          : `/cashier/payments/${p.id}/confirm`;
+      await api.post(url);
       await load();
     } catch (e: any) {
       setError(e?.response?.data?.message ?? t("cashier.failedConfirm"));
@@ -214,6 +218,35 @@ export default function CashierPage() {
             />
           </div>
           {pending.length === 0 && <p className="text-gray-400 text-sm">{t("cashier.noPending")}</p>}
+          {/* Facility day-pass payments carry no order → no fiscal receipt, so they
+              render outside the consolidated fiscal groups below. */}
+          {pending.some((p) => p.kind === "FACILITY") && (
+            <ul className="divide-y divide-gray-100 mb-3">
+              {pending
+                .filter((p) => p.kind === "FACILITY")
+                .map((p) => (
+                  <li key={`${p.kind}-${p.id}`} className="py-2 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-800">
+                        {p.facilityVisit?.customer?.name ?? "Guest"} — {p.notes ?? "Facility day pass"} · {money(p.amount)}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        <span className="bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded text-[10px] font-medium mr-1">
+                          Facility
+                        </span>
+                        {p.paymentMethod?.name ?? "—"}
+                        {p.collectedByName ? ` · Collected: ${p.collectedByName}` : ""}
+                      </p>
+                    </div>
+                    {canConfirm && (
+                      <button onClick={() => confirm(p)} className="bg-green-600 text-white rounded px-3 py-1.5 text-xs font-medium shrink-0">
+                        {t("cashier.confirm")}
+                      </button>
+                    )}
+                  </li>
+                ))}
+            </ul>
+          )}
           {groups.map((g) => {
             const printable = g.payments.filter(
               (p) =>

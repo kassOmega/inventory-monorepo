@@ -1,5 +1,6 @@
-import { BusinessType } from '@prisma/client';
+import { BusinessType, HospitalityServiceType } from '@prisma/client';
 import {
+  IsArray,
   IsBoolean,
   IsEnum,
   IsIn,
@@ -20,6 +21,16 @@ export class CreateOrganizationDto {
   @IsEnum(BusinessType)
   @IsOptional()
   businessType?: BusinessType;
+
+  /**
+   * Hospitality only: the service lines the business offers (multi-select).
+   * Omitted/empty for HOSPITALITY falls back to the default service set; it is
+   * ignored entirely for non-hospitality business types.
+   */
+  @IsArray()
+  @IsEnum(HospitalityServiceType, { each: true })
+  @IsOptional()
+  hospitalityServices?: HospitalityServiceType[];
 
   /** Standalone = a single-location shop run by the owner alone (no staff). */
   @IsBoolean()

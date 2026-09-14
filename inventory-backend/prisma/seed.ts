@@ -18,6 +18,7 @@ import {
   DEFAULT_ROLE_PERMISSIONS,
   PERMISSIONS,
 } from '../src/common/permissions';
+import { DEFAULT_GUEST_ID_TYPES } from '../src/common/hospitality-settings';
 import { getDefaultAccounts } from '../src/common/verticals';
 import { SHOPS } from './seed-shop-catalog';
 
@@ -137,6 +138,7 @@ await prisma.productionScrapLog.deleteMany({});
   const ownerRole = await prisma.role.create({
     data: {
       name: 'Owner',
+      systemKey: 'OWNER',
       description: 'Full access to everything',
       isSystem: true,
     },
@@ -144,18 +146,21 @@ await prisma.productionScrapLog.deleteMany({});
   const storekeeperRole = await prisma.role.create({
     data: {
       name: 'Storekeeper',
+      systemKey: 'STOREKEEPER',
       description: 'Manages store stock and dispatches',
     },
   });
   const shopkeeperRole = await prisma.role.create({
     data: {
       name: 'Shopkeeper',
+      systemKey: 'SHOPKEEPER',
       description: 'Runs a shop: sales, purchases, returns',
     },
   });
   const standaloneRole = await prisma.role.create({
     data: {
       name: 'Standalone Shop',
+      systemKey: 'STANDALONE_SHOPKEEPER',
       description:
         'Independent shop: restocks its own inventory (owner approves) and registers sales directly',
     },
@@ -407,6 +412,7 @@ await prisma.productionScrapLog.deleteMany({});
   const standaloneOwnerRole = await prisma.role.create({
     data: {
       name: 'Owner',
+      systemKey: 'OWNER',
       description: 'Full access to everything',
       isSystem: true,
       organizationId: standaloneOrg.id,
@@ -446,6 +452,21 @@ await prisma.productionScrapLog.deleteMany({});
       },
     });
     await seedOrgAccounts(org);
+    // Hospitality businesses start with the standard guest ID types so the
+    // front desk can register a guest's ID at check-in without any setup.
+    if (businessType === BusinessType.HOSPITALITY) {
+      await prisma.guestIdType.createMany({
+        data: DEFAULT_GUEST_ID_TYPES.map((t) => ({
+          tenantId: org.id,
+          name: t.name,
+          code: t.code,
+          nameI18n: t.nameI18n,
+          requiresExpiry: t.requiresExpiry,
+          sortOrder: t.sortOrder,
+        })),
+        skipDuplicates: true,
+      });
+    }
     return org;
   };
 
@@ -457,7 +478,15 @@ await prisma.productionScrapLog.deleteMany({});
     permissionsKey: keyof typeof DEFAULT_ROLE_PERMISSIONS,
   ) => {
     const role = await prisma.role.create({
-      data: { name, description, isSystem, organizationId: orgId },
+      data: {
+        name,
+        description,
+        isSystem,
+        organizationId: orgId,
+        // Immutable key (OWNER, MANAGER, CASHIER, ...) used for notification
+        // targeting instead of the user-editable role name.
+        systemKey: permissionsKey,
+      },
     });
     await linkRolePermissions(
       role.id,
@@ -2199,9 +2228,17 @@ await prisma.productionScrapLog.deleteMany({});
   console.log('🏷️ Categories created.');
 
   // 6. Create Products
+  // Strict tenancy: Product/Sale/Inventory now require a NOT NULL tenantId, so
+  // every demo row below is stamped with the inventory demo org.
+  const demoTenantId = inventoryOrg.id;
+  const createProduct = (args: { data: Record<string, any> }) =>
+    prisma.product.create({
+      data: { ...args.data, tenantId: demoTenantId } as any,
+    });
+
   const products = await Promise.all([
     // Bulbs
-    prisma.product.create({
+    createProduct({
       data: {
         sku: 'BLB-PHILIPS-12W-SPOT',
         brand: 'Philips',
@@ -2212,7 +2249,7 @@ await prisma.productionScrapLog.deleteMany({});
         categoryId: catBulb.id,
       },
     }),
-    prisma.product.create({
+    createProduct({
       data: {
         sku: 'BLB-OSRAM-15W-HANG',
         brand: 'Osram',
@@ -2223,7 +2260,7 @@ await prisma.productionScrapLog.deleteMany({});
         categoryId: catBulb.id,
       },
     }),
-    prisma.product.create({
+    createProduct({
       data: {
         sku: 'BLB-GE-20W-PANEL',
         brand: 'GE',
@@ -2234,7 +2271,7 @@ await prisma.productionScrapLog.deleteMany({});
         categoryId: catBulb.id,
       },
     }),
-    prisma.product.create({
+    createProduct({
       data: {
         sku: 'BLB-PHILIPS-50W-FLOOD',
         brand: 'Philips',
@@ -2247,7 +2284,7 @@ await prisma.productionScrapLog.deleteMany({});
     }),
 
     // Wires
-    prisma.product.create({
+    createProduct({
       data: {
         sku: 'WIRE-DUCAB-2.5-3C',
         brand: 'Ducab',
@@ -2258,7 +2295,7 @@ await prisma.productionScrapLog.deleteMany({});
         categoryId: catWire.id,
       },
     }),
-    prisma.product.create({
+    createProduct({
       data: {
         sku: 'WIRE-DUCAB-1.5-1C',
         brand: 'Ducab',
@@ -2269,7 +2306,7 @@ await prisma.productionScrapLog.deleteMany({});
         categoryId: catWire.id,
       },
     }),
-    prisma.product.create({
+    createProduct({
       data: {
         sku: 'WIRE-ALSHEM-4.0-4C',
         brand: 'Al-Shem',
@@ -2282,7 +2319,7 @@ await prisma.productionScrapLog.deleteMany({});
     }),
 
     // Switches
-    prisma.product.create({
+    createProduct({
       data: {
         sku: 'SWT-LEGRAND-1G1W',
         brand: 'Legrand',
@@ -2293,7 +2330,7 @@ await prisma.productionScrapLog.deleteMany({});
         categoryId: catSwitch.id,
       },
     }),
-    prisma.product.create({
+    createProduct({
       data: {
         sku: 'SWT-LEGRAND-2G2W',
         brand: 'Legrand',
@@ -2304,7 +2341,7 @@ await prisma.productionScrapLog.deleteMany({});
         categoryId: catSwitch.id,
       },
     }),
-    prisma.product.create({
+    createProduct({
       data: {
         sku: 'SOC-SCHNEIDER-13A-DUAL',
         brand: 'Schneider',
@@ -2317,7 +2354,7 @@ await prisma.productionScrapLog.deleteMany({});
     }),
 
     // Circuit Breakers
-    prisma.product.create({
+    createProduct({
       data: {
         sku: 'BRK-ABB-16A-MCB',
         brand: 'ABB',
@@ -2328,7 +2365,7 @@ await prisma.productionScrapLog.deleteMany({});
         categoryId: catBreaker.id,
       },
     }),
-    prisma.product.create({
+    createProduct({
       data: {
         sku: 'BRK-ABB-32A-MCB',
         brand: 'ABB',
@@ -2339,7 +2376,7 @@ await prisma.productionScrapLog.deleteMany({});
         categoryId: catBreaker.id,
       },
     }),
-    prisma.product.create({
+    createProduct({
       data: {
         sku: 'BRK-SCHNEIDER-63A-RCCB',
         brand: 'Schneider',
@@ -2352,7 +2389,7 @@ await prisma.productionScrapLog.deleteMany({});
     }),
 
     // Tools
-    prisma.product.create({
+    createProduct({
       data: {
         sku: 'TL-FLUKE-117-MULTIMETER',
         brand: 'Fluke',
@@ -2363,7 +2400,7 @@ await prisma.productionScrapLog.deleteMany({});
         categoryId: catTools.id,
       },
     }),
-    prisma.product.create({
+    createProduct({
       data: {
         sku: 'TL-INGCO-STRIPPER-8IN',
         brand: 'Ingco',
@@ -2442,7 +2479,8 @@ await prisma.productionScrapLog.deleteMany({});
       { productId: prodWireArmored.id, locationId: shop3.id, quantity: 4 },
       { productId: prodSwt2G.id, locationId: shop3.id, quantity: 60 },
       { productId: prodRccb63.id, locationId: shop3.id, quantity: 10 },
-    ],
+      // Strict tenancy: Inventory.tenantId is a required FK to Organization.
+    ].map((row) => ({ ...row, tenantId: demoTenantId })),
   });
 
   console.log('🏭 Inventories distributed.');
@@ -2704,6 +2742,7 @@ await prisma.productionScrapLog.deleteMany({});
 
     return await prisma.sale.create({
       data: {
+        tenantId: demoTenantId,
         invoiceNumber: `INV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         shopId,
         soldById,
@@ -3001,13 +3040,13 @@ await prisma.productionScrapLog.deleteMany({});
     { name: 'LocationCategory', model: prisma.locationCategory },
     { name: 'Location', model: prisma.location },
     { name: 'Category', model: prisma.category },
-    { name: 'Product', model: prisma.product },
-    { name: 'Inventory', model: prisma.inventory },
+    // Product / Inventory / Sale are NOT listed: their tenantId is NOT NULL with
+    // an Organization FK (strict tenancy), so a NULL-tenant backfill is invalid
+    // for them and their rows are always created with an explicit tenantId.
     { name: 'PriceHistory', model: prisma.priceHistory },
     { name: 'Notification', model: prisma.notification },
     { name: 'StockRequest', model: prisma.stockRequest },
     { name: 'RequestItem', model: prisma.requestItem },
-    { name: 'Sale', model: prisma.sale },
     { name: 'SaleItem', model: prisma.saleItem },
     { name: 'PaymentMethod', model: prisma.paymentMethod },
     { name: 'CreditSale', model: prisma.creditSale },
@@ -3091,6 +3130,7 @@ await prisma.productionScrapLog.deleteMany({});
     const shopOwnerRole = await prisma.role.create({
       data: {
         name: 'Owner',
+        systemKey: 'OWNER',
         description: 'Full access to everything',
         isSystem: true,
         organizationId: shopOrg.id,

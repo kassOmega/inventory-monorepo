@@ -100,7 +100,75 @@ export const PERMISSIONS: PermissionDefinition[] = [
   { key: 'cashier.view', label: 'View Payments', group: 'Cashier' },
   { key: 'cashier.confirm', label: 'Confirm Payments', group: 'Cashier' },
   { key: 'hotel.reception', label: 'Front Desk', group: 'Hotel' },
-  { key: 'hotel.housekeeping', label: 'Housekeeping', group: 'Hotel' },
+  { key: 'hotel.housekeeping', label: 'View Room Board', group: 'Hotel' },
+  {
+    key: 'hotel.housekeeping.update',
+    label: 'Update Room Cleanliness Status',
+    group: 'Hotel',
+  },
+  {
+    key: 'facility.view',
+    label: 'View Facilities (Gym, Pool, Spa…)',
+    group: 'Hospitality Facilities & Memberships',
+  },
+  {
+    key: 'facility.manage',
+    label: 'Manage Facilities (config, closures)',
+    group: 'Hospitality Facilities & Memberships',
+  },
+  {
+    key: 'facility.check-in',
+    label: 'Check In Facility Guests (day passes, members)',
+    group: 'Hospitality Facilities & Memberships',
+  },
+  {
+    key: 'memberships.view',
+    label: 'View Memberships',
+    group: 'Hospitality Facilities & Memberships',
+  },
+  {
+    key: 'memberships.manage',
+    label: 'Manage Memberships (assign, extend, passes)',
+    group: 'Hospitality Facilities & Memberships',
+  },
+  {
+    key: 'packages.view',
+    label: 'View Hospitality Packages',
+    group: 'Hospitality Packages & Folio',
+  },
+  {
+    key: 'packages.manage',
+    label: 'Manage Packages & Entitlements',
+    group: 'Hospitality Packages & Folio',
+  },
+  {
+    key: 'packages.redeem',
+    label: 'Check In Package Guests & Redeem Entitlements',
+    group: 'Hospitality Packages & Folio',
+  },
+  {
+    key: 'folios.view',
+    label: 'View Guest Folios',
+    group: 'Hospitality Packages & Folio',
+  },
+  {
+    key: 'folios.charge',
+    label: 'Post Charges to Guest Folios',
+    group: 'Hospitality Packages & Folio',
+  },
+  {
+    key: 'folios.settle',
+    label: 'Settle Folios & Collect Payment',
+    group: 'Hospitality Packages & Folio',
+  },
+  {
+    // Legacy umbrella kept for backwards compatibility: it is treated as
+    // implying both `folios.charge` and `folios.settle` wherever folio money is
+    // handled, so roles granted before the split keep working untouched.
+    key: 'folios.manage',
+    label: 'Manage Guest Folios (charges + settlement)',
+    group: 'Hospitality Packages & Folio',
+  },
   { key: 'ai.view', label: 'View AI Forecast & Insights', group: 'AI' },
   { key: 'ai.chat', label: 'Use AI Business Coach', group: 'AI' },
   {
@@ -186,11 +254,17 @@ export const PERMISSION_GROUPS_BY_BUSINESS_TYPE: Record<
     'Dashboard',
     'Restaurant',
     'Hotel',
+    'Hospitality Facilities & Memberships',
+    'Hospitality Packages & Folio',
     'Stations',
     'Kitchen',
     'Bar',
     'Barista',
     'Cashier',
+    // Custom hospitality service lines (HospitalityServiceType.CUSTOM) map to
+    // generic facility dashboards, but the vertical also reuses the Service
+    // catalog keys for its service page — keep them assignable here.
+    'Service',
     'Reports',
     'Users',
     'Roles',
@@ -269,6 +343,21 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'restaurant.manage',
     'hotel.view',
     'hotel.manage',
+    'hotel.reception',
+    'hotel.housekeeping',
+    'hotel.housekeeping.update',
+    'facility.view',
+    'facility.manage',
+    'facility.check-in',
+    'memberships.view',
+    'memberships.manage',
+    'packages.view',
+    'packages.manage',
+    'packages.redeem',
+    'folios.view',
+    'folios.charge',
+    'folios.settle',
+    'folios.manage',
     'cashier.view',
     'finance.view',
     'finance.manage',
@@ -298,10 +387,34 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'restaurant.view',
     'cashier.view',
     'cashier.confirm',
+    // The till also settles guest folios (day passes, package guests and the
+    // front-desk box office) — read the ledger and collect money, nothing else.
+    'folios.view',
+    'folios.settle',
     'service.view',
   ],
-  RECEPTIONIST: ['dashboard.view', 'hotel.view', 'hotel.reception'],
-  HOUSEKEEPING: ['dashboard.view', 'hotel.view', 'hotel.housekeeping'],
+  // Front desk: checks guests in/out, takes reservations and settles folios.
+  // `folios.view` / `folios.charge` / `folios.settle` are what the unified folio
+  // surface (room ledger + linked package guests) is gated on; `hotel.housekeeping`
+  // is the read-only room board so reception can see cleanliness at a glance.
+  RECEPTIONIST: [
+    'dashboard.view',
+    'hotel.view',
+    'hotel.reception',
+    'hotel.housekeeping',
+    'folios.view',
+    'folios.charge',
+    'folios.settle',
+    'folios.manage',
+  ],
+  // Housekeeping maintains room cleanliness: see the board, flip the status.
+  // Deliberately no folio/billing/reception keys.
+  HOUSEKEEPING: [
+    'dashboard.view',
+    'hotel.view',
+    'hotel.housekeeping',
+    'hotel.housekeeping.update',
+  ],
   // Standalone shop: a single shop that manages its own inventory (no separate
   // store). The shopkeeper requests restocks, the owner approves, and the
   // shopkeeper confirms receipt; sales are registered directly.

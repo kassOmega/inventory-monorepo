@@ -7,5 +7,6 @@ import { HotelService } from './hotel.service';
   imports: [FinanceModule],
   controllers: [HotelController],
   providers: [HotelService],
+  exports: [HotelService],
 })
 export class HotelModule {}

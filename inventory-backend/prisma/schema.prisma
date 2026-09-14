@@ -155,6 +155,7 @@ model RestaurantStation {
   createdAt    DateTime @default(now())
 
   menuCategories MenuCategory[]
+  packageEntitlements PackageEntitlement[]
 
   @@unique([tenantId, key])
   @@index([tenantId])
@@ -180,6 +181,32 @@ enum HotelReservationStatus {
   CHECKED_IN
   CHECKED_OUT
   CANCELLED
+}
+
+// The service lines a hospitality business can offer. ACCOMMODATION covers
+// rooms / pensions / lodging and replaces the legacy ROOM_MANAGEMENT key.
+enum HospitalityServiceType {
+  FOOD_AND_BEVERAGE
+  ACCOMMODATION
+  SPA_AND_WELLNESS
+  GYM_AND_FITNESS
+  SWIMMING_POOL
+  EVENT_AND_HALL_RENTAL
+  CUSTOM
+}
+
+enum MembershipStatus {
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+  CANCELLED
+}
+
+enum FacilityVisitType {
+  MEMBER
+  WALK_IN
+  // Check-in billed against a package guest's entitlement (pass/credit).
+  PACKAGE
 }
 
 enum CashEntryType {
@@ -228,6 +255,10 @@ model Organization {
   taxId           String? // VAT / TIN registration number (receipts & reports)
   status          OrgStatus    @default(ACTIVE)
   settings        Json?
+  // Denormalized list of the hospitality service lines the business offers
+  // (HospitalityServiceType values). Kept in sync with the HospitalityService
+  // rows so list responses and nav gating can read it without a join.
+  enabledHospitalityServices String[] @default([])
   aiEnabled       Boolean      @default(true) // AI feature enabled (on-demand, admin-controlled)
   aiTrialEndsAt   DateTime? // null = unlimited (paid); otherwise the 15-day trial / granted window
   createdAt       DateTime     @default(now())
@@ -241,6 +272,12 @@ model Organization {
   memberships      Membership[]
   roles            Role[]
   customers        Customer[]
+  hospitalityServices HospitalityService[]
+  // Strict-tenancy core models (tenantId is required + FK-enforced).
+  products         Product[]
+  sales            Sale[]
+  orders           Order[]
+  inventory        Inventory[]
   agentConfig      OrganizationAgentConfig?
   agentActions     AgentActionLog[]
   verificationDocs VerificationDocument[]   @relation("OrgVerificationDocs")
@@ -377,6 +414,10 @@ model Role {
   name           String
   description    String?
   isSystem       Boolean          @default(false)
+  // Immutable notification/automation key (OWNER, MANAGER, WAITER, CHEF,
+  // BARMAN, BARISTA, CASHIER, RECEPTIONIST, HOUSEKEEPING, STATION_<KEY>, ...).
+  // Notification targeting uses this instead of the user-editable `name`.
+  systemKey      String?
   organizationId Int?
   organization   Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   permissions    RolePermission[]
@@ -389,6 +430,7 @@ model Role {
   productionFlows    MfgFlow[]
 
   @@unique([organizationId, name])
+  @@unique([organizationId, systemKey])
   @@index([organizationId])
 }
 
@@ -443,6 +485,13 @@ model User {
   sales            Sale[]
   verificationDocs VerificationDocument[] @relation("UserVerificationDocs")
   servicePayments  ServicePayment[]
+  // Hotel PMS: billing creators + front-desk check-ins.
+  foliosCreated      Folio[]            @relation("FolioCreatedBy")
+  foliosSettled      Folio[]            @relation("FolioSettledBy")
+  guestFoliosSettled GuestFolio[]       @relation("GuestFolioSettledBy")
+  folioEntries       FolioEntry[]
+  guestFolioEntries  GuestFolioEntry[]
+  hotelCheckIns      HotelReservation[]
 }
 
 model LocationCategory {
@@ -502,7 +551,8 @@ model Category {
 
 model Product {
   id                  Int                  @id @default(autoincrement())
-  tenantId            Int?
+  tenantId            Int
+  organization        Organization         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   sku                 String // Auto-generated unique code
   barcode             String? // EAN/UPC barcode scanner support
   brand               String
@@ -630,7 +680,8 @@ model PriceHistory {
 // --- Inventory Tracking (Location Specific) ---
 model Inventory {
   id         Int             @id @default(autoincrement())
-  tenantId   Int?
+  tenantId   Int
+  organization Organization  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   productId  Int
   product    Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
   variantId  Int? // set for variant-level stock; null for plain products
@@ -750,7 +801,8 @@ model RequestActivity {
 // --- Sales & Profit Tracking ---
 model Sale {
   id              Int             @id @default(autoincrement())
-  tenantId        Int?
+  tenantId        Int
+  organization    Organization    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   invoiceNumber   String
   shopId          Int
   shop            Location        @relation(fields: [shopId], references: [id])
@@ -858,6 +910,7 @@ model PaymentMethod {
   expenses        Expense[]
   orders          Order[]
   orderPayments   OrderPayment[]
+  facilityPayments FacilityPayment[]
   cashCollections CashCollection[]
   servicePayments ServicePayment[]
 
@@ -876,6 +929,9 @@ model Customer {
   organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   name             String
   phone            String?
+  /// Optional contact email — used by the memberships module (MembershipType
+  /// assignment matches/creates customers by phone, name and email).
+  email            String?
   shopId           Int?
   shop             Location?         @relation(fields: [shopId], references: [id])
   createdAt        DateTime          @default(now())
@@ -885,6 +941,8 @@ model Customer {
   serviceBookings  ServiceBooking[]
   serviceTickets   ServiceTicket[]
   businessInsights BusinessInsight[]
+  customerMemberships CustomerMembership[]
+  facilityVisits       FacilityVisit[]
 
   @@unique([organizationId, number])
   @@index([organizationId])
@@ -1154,8 +1212,9 @@ model OtherIncome {
   variant        ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
   menuItemId     Int?
   menuItem       MenuItem?       @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
-  source         String? // e.g. "ORDER", "SALE", "FOLIO", "MANUAL"
+  source         String? // e.g. "ORDER", "SALE", "MANUAL", "FACILITY", "PACKAGE", "FOLIO"
   sourceId       Int? // idempotency key for auto-posted entries (order/sale/folio id)
+  sourceRef      String? // string idempotency key (e.g. hospitality package guest uuid)
   description    String?
   amount         Float
   incomeDate     DateTime        @default(now())
@@ -1325,6 +1384,7 @@ model MenuCategory {
   children     MenuCategory[]     @relation("MenuCategoryHierarchy")
   items        MenuItem[]
   otherIncomes OtherIncome[]
+  packageEntitlements PackageEntitlement[]
 
   @@index([tenantId])
   @@index([stationId])
@@ -1350,6 +1410,9 @@ model MenuItem {
   // BENCHMARK; ignored otherwise.
   estimatedCogs   Float?
   imageUrl        String?
+  // Service duration in minutes (spa/wellness treatments, massages, salon).
+  // Null for items where duration is not tracked (most F&B menu items).
+  durationMins    Int?
   sortOrder       Int                  @default(0)
   // Optional per-item station route override (ordered [{ id, name, key }]);
   // null = inherit the menu category's route.
@@ -1357,6 +1420,7 @@ model MenuItem {
   options         MenuItemOption[]
   orderItems      OrderItem[]
   ingredients     MenuItemIngredient[]
+  packageEntitlements PackageEntitlement[]
   otherIncomes    OtherIncome[]
   cogsEntries     CogsEntry[]
 
@@ -1392,7 +1456,8 @@ model DiningTable {
 
 model Order {
   id              Int                  @id @default(autoincrement())
-  tenantId        Int?
+  tenantId        Int
+  organization    Organization          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   orderNumber     String
   tableId         Int?
   table           DiningTable?         @relation(fields: [tableId], references: [id])
@@ -1419,11 +1484,33 @@ model Order {
   fiscalError     String?
   clientRef       String? // client-generated idempotency key (double-submit protection)
 
+  // --- Hospitality packages / room charging (Package & Entitlement Routing) ---
+  // STANDARD (default) = normal POS billing. PACKAGE/ROOM_CHARGE bill the
+  // order against a guest package; entitlements cover part of the value.
+  billingType    String            @default("STANDARD") // STANDARD | PACKAGE | ROOM_CHARGE
+  packageGuestId String?
+  packageGuest   PackageGuest?     @relation(fields: [packageGuestId], references: [id], onDelete: SetNull)
+  packageId      String?
+  package        HospitalityPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  guestTag       String? // e.g. "[Room 12 / Spa Package]" shown on station tickets
+  packageDiscount Float             @default(0) // ETB covered by package entitlements
+  // --- Charge-to-room (POS -> hotel stay folio) ---
+  // Set when an order is billed to a stay. Package guests still route through
+  // packageGuestId (GuestFolioEntry); a standard stay posts itemized FolioEntry
+  // lines on this reservation's folio.
+  hotelReservationId Int?
+  hotelReservation   HotelReservation? @relation(fields: [hotelReservationId], references: [id], onDelete: SetNull)
+  // Settlement intent captured at order time (PAY_NOW | DEFER_TO_FOLIO). Null
+  // falls back to the company hospitality policy at settlement.
+  netChargeMode  String?
+
   @@unique([tenantId, orderNumber])
   @@unique([tenantId, clientRef])
   @@index([tenantId])
   @@index([status])
   @@index([tableId])
+  @@index([packageGuestId])
+  @@index([hotelReservationId])
 }
 
 // Audit trail of order lifecycle transitions. One row is written for each
@@ -1463,7 +1550,10 @@ model OrderItem {
   stationIndex Int             @default(0)
   stationKey   String? // current hop's key (fast board queries)
   stationName  String? // current hop's display name (board + history)
-  notes        String?
+  notes          String?
+  // Package/entitlement coverage for hospitality package billing.
+  packageDiscount Float       @default(0) // ETB covered by the guest's entitlement
+  netCharge      Float        @default(0) // gross - packageDiscount (excess to charge)
 
   @@index([tenantId])
   @@index([orderId])
@@ -1525,12 +1615,52 @@ model HotelReservation {
   totalAmount Float                  @default(0)
   notes       String?
   createdAt   DateTime               @default(now())
+
+  // --- Guest registration & identification (captured at check-in) ---
+  email                 String?
+  address               String?
+  nationality           String?
+  idTypeId              Int?
+  idType                GuestIdType? @relation(fields: [idTypeId], references: [id], onDelete: SetNull)
+  idNumber              String?
+  idExpiryDate          DateTime?
+  idDocumentUrl         String? // stored path under uploads/guests (served via the API)
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  checkedInById         Int?
+  checkedInBy           User?        @relation(fields: [checkedInById], references: [id], onDelete: SetNull)
+
   folios      Folio[]
+  packageGuests PackageGuest[]
+  // POS orders charged to this stay (charge-to-room).
+  orders      Order[]
 
   @@index([tenantId])
   @@index([checkIn])
   @@index([checkOut])
   @@index([roomId])
+  @@index([idTypeId])
+}
+
+// Tenant-configurable guest identification types (Kebele ID, Passport, …).
+// Never hard-deleted — deactivating hides a type from new check-ins while
+// historical reservations keep their link.
+model GuestIdType {
+  id             Int      @id @default(autoincrement())
+  tenantId       Int?
+  name           String
+  code           String // stable key, e.g. "KEBELE_ID"
+  nameI18n       Json?
+  requiresExpiry Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  reservations HotelReservation[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
 }
 
 model Folio {
@@ -1545,6 +1675,11 @@ model Folio {
   taxRateId     Int?
   taxInclusive  Boolean          @default(true) // how taxAmount was computed
   createdAt     DateTime         @default(now())
+  // Who opened / settled this stay folio (front-desk receptionist).
+  createdById   Int?
+  createdBy     User?            @relation("FolioCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  settledById   Int?
+  settledBy     User?            @relation("FolioSettledBy", fields: [settledById], references: [id], onDelete: SetNull)
   entries       FolioEntry[]
 
   @@index([tenantId])
@@ -1561,11 +1696,133 @@ model FolioEntry {
   description String
   amount      Float
   type        String   @default("CHARGE")
+  // Itemization for POS charge-to-room lines (mirrors GuestFolioEntry).
+  // `amount` stays the line total; the count lives in the description.
+  sourceService String?
+  unitPrice   Float    @default(0)
+  // POS order this line came from (null for room rates / manual add-ons).
+  orderId     Int?
   createdAt   DateTime @default(now())
   createdById Int?
+  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([folioId])
+  @@index([orderId])
+}
+
+// --- Hospitality multi-service architecture (F&B, Rooms, Gym, Pool) ---
+// Each hospitality business can enable/disable services independently. Routes
+// in the dashboard sidebar are filtered by the enabled services of the active
+// business.
+model HospitalityService {
+  id             String                 @id @default(uuid())
+  organizationId Int
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  serviceType    HospitalityServiceType
+  // Custom (owner-created) services: type=CUSTOM + a unique key + display name.
+  customKey      String?
+  customName     String?
+  isEnabled      Boolean                @default(true)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  membershipTypes MembershipType[]
+  facilityVisits   FacilityVisit[]
+  packages         HospitalityPackage[]
+  packageEntitlements PackageEntitlement[]
+
+  @@unique([organizationId, serviceType, customKey])
+  @@index([organizationId])
+}
+
+// Pass plans for a service (e.g. monthly Gym pass, seasonal Pool pass).
+model MembershipType {
+  id                   String                 @id @default(uuid())
+  organizationId       Int
+  hospitalityServiceId String
+  hospitalityService   HospitalityService     @relation(fields: [hospitalityServiceId], references: [id], onDelete: Cascade)
+  name                 String
+  durationDays         Int
+  price                Float
+  isActive             Boolean                @default(true)
+  createdAt            DateTime               @default(now())
+
+  customerMemberships  CustomerMembership[]
+  packageEntitlements  PackageEntitlement[]
+
+  @@index([organizationId])
+  @@index([hospitalityServiceId])
+}
+
+// A customer's subscription to a membership type.
+model CustomerMembership {
+  id               String           @id @default(uuid())
+  organizationId   Int
+  customerId       Int
+  customer         Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  membershipTypeId String
+  membershipType   MembershipType   @relation(fields: [membershipTypeId], references: [id], onDelete: Restrict)
+  startDate        DateTime
+  endDate          DateTime
+  status           MembershipStatus @default(ACTIVE)
+  createdAt        DateTime         @default(now())
+
+  facilityVisits FacilityVisit[]
+
+  @@index([organizationId])
+  @@index([customerId])
+  @@index([membershipTypeId])
+}
+
+// A facility visit / check-in (member with an active pass, or a walk-in).
+model FacilityVisit {
+  id                    String               @id @default(uuid())
+  organizationId        Int
+  hospitalityServiceId  String
+  hospitalityService    HospitalityService   @relation(fields: [hospitalityServiceId], references: [id], onDelete: Cascade)
+  type                  FacilityVisitType
+  customerId            Int?
+  customer              Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerMembershipId  String?
+  customerMembership    CustomerMembership?  @relation(fields: [customerMembershipId], references: [id], onDelete: SetNull)
+  guestName             String?
+  guestPhone            String?
+  // When set, this facility check-in is billed against the guest's package
+  // (entitlement-covered at $0) instead of a walk-in day pass.
+  packageGuestId        String?
+  packageGuest          PackageGuest?        @relation(fields: [packageGuestId], references: [id], onDelete: SetNull)
+  checkInAt             DateTime             @default(now())
+  checkOutAt            DateTime?
+  payment               FacilityPayment?
+
+  @@index([organizationId])
+  @@index([hospitalityServiceId])
+  @@index([customerMembershipId])
+  @@index([packageGuestId])
+  @@index([checkOutAt])
+}
+
+// Walk-in / day-pass payment queued for the cashier to confirm, then posted
+// to the ledger (Finance) as facility income.
+model FacilityPayment {
+  id                    Int              @id @default(autoincrement())
+  tenantId              Int?
+  facilityVisitId       String?          @unique
+  facilityVisit         FacilityVisit?   @relation(fields: [facilityVisitId], references: [id], onDelete: SetNull)
+  hospitalityServiceId  String?
+  amount                Float
+  paymentMethodId       Int?
+  paymentMethod         PaymentMethod?   @relation(fields: [paymentMethodId], references: [id])
+  status                String           @default("PENDING_CONFIRMATION") // PENDING_CONFIRMATION | CONFIRMED | VOIDED
+  collectedById         Int?
+  confirmedById         Int?
+  confirmedAt           DateTime?
+  notes                 String?
+  createdAt             DateTime         @default(now())
+
+  @@index([tenantId])
+  @@index([status])
 }
 
 // --- Hospitality cash management ---
@@ -2420,6 +2677,167 @@ model MenuItemIngredient {
 
   @@unique([menuItemId, productId])
   @@index([tenantId])
+}
+
+// --- Hospitality Packages, Entitlements & Unified Guest Folio ---
+// Owner-defined packages bundle daily entitlement allowances per station
+// (Kitchen, Bar, Barista, ...) optionally scoped to a product/category. A
+// package guest's orders are billed against the package: entitlements cover
+// part of the item value and the excess (net charge) is either deferred to
+// the guest folio or collected at the POS, per the business policy.
+model HospitalityPackage {
+  id                   String               @id @default(uuid())
+  organizationId       Int
+  // Primary service line (optional now): a cross-service package (stay + spa
+  // voucher + gym access) spans several services and leaves this null.
+  hospitalityServiceId String?
+  hospitalityService   HospitalityService?  @relation(fields: [hospitalityServiceId], references: [id], onDelete: SetNull)
+  name                 String
+  price                Float                @default(0) // package value paid upfront
+  isActive             Boolean              @default(true)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  entitlements PackageEntitlement[]
+  guests       PackageGuest[]
+  orders       Order[]
+
+  @@index([organizationId])
+  @@index([hospitalityServiceId])
+}
+
+// One entitlement line. Three kinds:
+//  - ITEM   : F&B/menu coverage scoped to a station (+ optional category/item).
+//  - CREDIT : a service-line credit (ETB allowance) — e.g. $20 F&B credit.
+//  - PASS   : a service pass (optionally a specific MembershipType) consumed at
+//             facility check-in — e.g. 1 pool pass or 1 spa voucher.
+// Service-scoped lines carry `hospitalityServiceId`; item lines carry a station.
+model PackageEntitlement {
+  id                   String               @id @default(uuid())
+  packageId            String
+  package              HospitalityPackage   @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  // ITEM | CREDIT | PASS
+  entitlementKind      String               @default("ITEM")
+  stationId            Int?
+  station              RestaurantStation?   @relation(fields: [stationId], references: [id], onDelete: SetNull)
+  menuCategoryId       Int?
+  menuCategory         MenuCategory?        @relation(fields: [menuCategoryId], references: [id], onDelete: SetNull)
+  menuItemId           Int?
+  menuItem             MenuItem?            @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+  // Service line this entitlement belongs to (cross-service packages).
+  hospitalityServiceId String?
+  hospitalityService   HospitalityService?  @relation(fields: [hospitalityServiceId], references: [id], onDelete: SetNull)
+  // PASS entitlements may target a specific pass plan (e.g. Monthly Gym Pass).
+  membershipTypeId     String?
+  membershipType       MembershipType?      @relation(fields: [membershipTypeId], references: [id], onDelete: SetNull)
+  allowanceValue       Float                @default(0) // covered ETB per unit (0 = fully covered)
+  dailyLimit           Int?                 // max covered units per day (null = unlimited)
+  isActive             Boolean              @default(true)
+  createdAt            DateTime             @default(now())
+
+  usage PackageGuestEntitlementUsage[]
+
+  @@unique([packageId, stationId, menuCategoryId, menuItemId, hospitalityServiceId, entitlementKind, membershipTypeId])
+  @@index([packageId])
+  @@index([stationId])
+  @@index([hospitalityServiceId])
+}
+
+// A guest checked in under a package (room + guest + active package).
+model PackageGuest {
+  id             String                 @id @default(uuid())
+  organizationId Int
+  packageId      String
+  package        HospitalityPackage     @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  guestName      String
+  roomNumber     String?
+  // Authoritative link to the hotel stay this guest is billed against. Kept
+  // alongside `roomNumber`, which stays for POS display, the station guest tag
+  // and legacy string lookups.
+  hotelReservationId Int?
+  hotelReservation   HotelReservation? @relation(fields: [hotelReservationId], references: [id], onDelete: SetNull)
+  checkInAt      DateTime               @default(now())
+  checkOutAt     DateTime?
+  status         String                 @default("CHECKED_IN") // CHECKED_IN | CHECKED_OUT
+  createdAt      DateTime               @default(now())
+
+  folio  GuestFolio?
+  orders Order[]
+  // Facility check-ins (gym/pool/spa) that consumed this guest's package
+  // entitlements at $0 (see FacilityVisit.packageGuestId).
+  facilityVisits FacilityVisit[]
+  usage  PackageGuestEntitlementUsage[]
+
+  @@index([organizationId])
+  @@index([packageId])
+  @@index([roomNumber])
+  @@index([hotelReservationId])
+}
+
+// Unified guest folio: aggregates every itemized charge across all stations.
+model GuestFolio {
+  id                   String            @id @default(uuid())
+  organizationId       Int
+  packageGuestId       String            @unique
+  packageGuest         PackageGuest      @relation(fields: [packageGuestId], references: [id], onDelete: Cascade)
+  status               String            @default("OPEN") // OPEN | SETTLED
+  settledAt            DateTime?
+  settledById          Int?
+  settledBy            User?             @relation("GuestFolioSettledBy", fields: [settledById], references: [id], onDelete: SetNull)
+  packageValuePaid     Float             @default(0) // upfront package price
+  totalPackageDiscount Float             @default(0) // ETB covered by entitlements
+  totalAddOns          Float             @default(0) // net charges (excess)
+  totalPayments        Float             @default(0) // collected at the POS
+  createdAt            DateTime          @default(now())
+
+  entries GuestFolioEntry[]
+
+  @@index([organizationId])
+  @@index([status])
+}
+
+// Itemized ledger row for every consumed item across all stations.
+model GuestFolioEntry {
+  id              String     @id @default(uuid())
+  folioId         String
+  folio           GuestFolio @relation(fields: [folioId], references: [id], onDelete: Cascade)
+  orderId         Int?
+  orderItemId     Int?
+  stationName     String? // ordering station (first hop) display name
+  servedByName    String? // waiter/staff who took the order
+  itemName        String
+  quantity        Int        @default(1)
+  // Service line the item was consumed under (HospitalityServiceType value, or
+  // the custom service key). Shown as the itemized bill's `sourceService`.
+  sourceService   String?
+  // Snapshot of the item's unit price at order time (totalPrice = unitPrice x quantity).
+  unitPrice       Float      @default(0)
+  grossPrice      Float      @default(0)
+  packageDiscount Float      @default(0)
+  netCharge       Float      @default(0)
+  createdAt       DateTime   @default(now())
+  // Staff who created the line (servedByName stays as the display snapshot).
+  createdById     Int?
+  createdBy       User?      @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([folioId])
+  @@index([orderId])
+}
+
+// Daily entitlement consumption per guest (drives remaining-allowance checks).
+model PackageGuestEntitlementUsage {
+  id             String              @id @default(uuid())
+  packageGuestId String
+  packageGuest   PackageGuest        @relation(fields: [packageGuestId], references: [id], onDelete: Cascade)
+  entitlementId  String
+  entitlement    PackageEntitlement  @relation(fields: [entitlementId], references: [id], onDelete: Cascade)
+  usageDate      String              // YYYY-MM-DD (business-local date)
+  quantityUsed   Int                 @default(0)
+  valueUsed      Float               @default(0)
+  updatedAt      DateTime            @updatedAt
+
+  @@unique([packageGuestId, entitlementId, usageDate])
+  @@index([entitlementId])
 }
 
 // --- Employees / staff roster (people who work in the business). ---

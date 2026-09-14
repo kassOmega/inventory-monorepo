@@ -70,9 +70,16 @@ const TABLE_STYLES: Record<string, string> = {
 };
 const tableBadge = (s: string) => TABLE_STYLES[s] ?? "bg-gray-100 text-gray-700";
 
+const isPackageOrder = (o: any) =>
+  o?.billingType === "PACKAGE" || o?.billingType === "ROOM_CHARGE";
+
+// Sentinel value for the order-target select: bill the order to a checked-in
+// hotel stay's folio instead of a table (charge-to-room).
+const ROOM_TARGET = "__ROOM__";
+
 export default function FoodServicePanel({ title }: { title: string }) {
   const { t } = useTranslation();
-  const { hasPermission, user } = useAuth();
+  const { hasPermission, user, activeOrganizationId } = useAuth();
   const confirm = useConfirm();
   const terms = getVerticalTerminology(user?.businessType);
   const canManage = hasPermission("restaurant.manage");
@@ -97,13 +104,17 @@ export default function FoodServicePanel({ title }: { title: string }) {
   const [error, setError] = useState("");
   const [cart, setCart] = useState<{ menuItemId: number; name: string; price: number; quantity: number }[]>([]);
   const [tableId, setTableId] = useState("");
+  // Charge-to-room: active checked-in stays from /hotel/chargeable-rooms.
+  const [roomTargets, setRoomTargets] = useState<any[]>([]);
+  const [hotelReservationId, setHotelReservationId] = useState("");
+  const [loadingRooms, setLoadingRooms] = useState(false);
   const [tableForm, setTableForm] = useState({ name: "", capacity: "4" });
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   // Company tax config (settings + rates) so the settle dialog can show the
   // computed output VAT before the cashier collects payment.
   const [taxCfg, setTaxCfg] = useState<any>(null);
   const [settleTarget, setSettleTarget] = useState<any>(null);
-  const [settleForm, setSettleForm] = useState({ paymentMethodId: "", amount: "", transactionReference: "" });
+  const [settleForm, setSettleForm] = useState({ paymentMethodId: "", amount: "", transactionReference: "", netChargeMode: "FOLIO" });
   // Orders selected for settlement (a table may have several open orders).
   const [settleOrders, setSettleOrders] = useState<
     {
@@ -134,6 +145,13 @@ export default function FoodServicePanel({ title }: { title: string }) {
   const [dateTo, setDateTo] = useState("");
   const [orderStation, setOrderStation] = useState("");
   const [orderSearch, setOrderSearch] = useState("");
+  // Hospitality package billing (only surfaced when enablePackageRouting is on).
+  const [policy, setPolicy] = useState<any>(null);
+  const [billingMode, setBillingMode] = useState<"STANDARD" | "PACKAGE" | "ROOM_CHARGE">("STANDARD");
+  const [billingGuest, setBillingGuest] = useState<any>(null);
+  const [guestQuery, setGuestQuery] = useState("");
+  const [guestResults, setGuestResults] = useState<any[]>([]);
+  const [entitlements, setEntitlements] = useState<any[]>([]);
   // "take" = the order-taking screen (menu + cart); "orders" = the order
   // lists, which themselves have Live / History tabs; "tables" = table
   // management. The active tabs live in the URL (?tab=&list=) so they can be
@@ -191,26 +209,34 @@ export default function FoodServicePanel({ title }: { title: string }) {
     if (!canSeeAllOrders && user?.id) params.set("waiterId", String(user.id));
     const qs = params.toString();
     try {
-      const [m, t, o, pm, st, tx] = await Promise.all([
+      const orgId = activeOrganizationId;
+      const [m, tbl, o, pm, st, tx, org] = await Promise.all([
         api.get("/restaurant/menu"),
         api.get("/restaurant/tables"),
         api.get(`/restaurant/orders${qs ? `?${qs}` : ""}`),
         api.get("/payment-methods"),
         api.get("/restaurant/stations"),
         api.get("/taxes").catch(() => null),
+        orgId ? api.get(`/tenants/${orgId}`) : Promise.resolve({ data: null }),
       ]);
       setMenu(m.data);
-      setTables(t.data);
+      setTables(tbl.data);
       setOrders(o.data);
       setPaymentMethods(pm.data);
       setStations(Array.isArray(st.data) ? st.data : []);
+      const settings = org.data?.settings ?? {};
+      setPolicy({
+        enablePackageRouting: settings.enablePackageRouting === true,
+        enableRoomFolioCharging: settings.enableRoomFolioCharging === true,
+        defaultExcessSettlementMode: settings.defaultExcessSettlementMode ?? "FLEXIBLE",
+      });
       setTaxCfg(tx?.data ?? null);
     } catch (e: any) {
       setError(e?.response?.data?.message ?? e?.message ?? t("orders.failedLoadData"));
     } finally {
       setLoading(false);
     }
-  }, [dateFrom, dateTo, canSeeAllOrders, user?.id]);
+  }, [dateFrom, dateTo, activeOrganizationId, canSeeAllOrders, user?.id]);
 
   useEffect(() => {
     load();
@@ -244,19 +270,90 @@ export default function FoodServicePanel({ title }: { title: string }) {
 
   const placeOrder = async () => {
     if (cart.length === 0) return setError(t("orders.addItemsFirst"));
+    // Charge-to-room requires an actual stay to bill.
+    const isRoomCharge = tableId === ROOM_TARGET;
+    if (isRoomCharge && !hotelReservationId) {
+      return setError(t("orders.selectRoomFirst"));
+    }
     try {
       await api.post("/restaurant/orders", {
-        tableId: tableId ? Number(tableId) : undefined,
+        tableId:
+          isRoomCharge || !tableId ? undefined : Number(tableId),
         items: cart.map((c) => ({ menuItemId: c.menuItemId, quantity: c.quantity })),
         clientRef: orderRef.current,
+        ...(isRoomCharge
+          ? {
+              // Charge-to-room: itemized lines land on the stay folio and the
+              // net charge is deferred for front-desk checkout.
+              billing: {
+                type: "ROOM_CHARGE",
+                hotelReservationId: Number(hotelReservationId),
+                netChargeMode: "DEFER_TO_FOLIO",
+              },
+            }
+          : billingMode !== "STANDARD"
+            ? {
+                billing: {
+                  type: billingMode,
+                  packageGuestId: billingGuest?.id,
+                  packageId: billingGuest?.package?.id,
+                  roomNumber: billingGuest?.roomNumber,
+                },
+              }
+            : {}),
       });
       orderRef.current = newClientRef();
       setCart([]);
       setTableId("");
+      setHotelReservationId("");
+      setBillingGuest(null);
+      setGuestQuery("");
+      setGuestResults([]);
+      setEntitlements([]);
+      setBillingMode("STANDARD");
       setError("");
       await load();
     } catch (e: any) {
       setError(e?.response?.data?.message ?? t("orders.failedPlaceOrder"));
+    }
+  };
+
+  // POS-scoped charge-to-room list (active checked-in stays only).
+  const loadChargeableRooms = async () => {
+    setLoadingRooms(true);
+    try {
+      const r = await api.get("/hotel/chargeable-rooms");
+      setRoomTargets(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      // Business without the hotel module (or no active stays) — stay empty.
+      setRoomTargets([]);
+    } finally {
+      setLoadingRooms(false);
+    }
+  };
+
+  const searchGuests = async (q: string) => {
+    setGuestQuery(q);
+    if (!q.trim()) return setGuestResults([]);
+    try {
+      const r = await api.get(`/hospitality/packages/lookup?q=${encodeURIComponent(q.trim())}`);
+      setGuestResults(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      setGuestResults([]);
+    }
+  };
+
+  const selectGuest = async (g: any) => {
+    setBillingGuest(g);
+    setGuestResults([]);
+    setGuestQuery(g.roomNumber ? `Room ${g.roomNumber} · ${g.guestName}` : g.guestName);
+    try {
+      const r = await api.get(
+        `/hospitality/packages/${g.package.id}/entitlements?guestId=${g.id}`,
+      );
+      setEntitlements(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      setEntitlements([]);
     }
   };
 
@@ -295,6 +392,16 @@ export default function FoodServicePanel({ title }: { title: string }) {
   };
 
   const openSettle = (order: any) => {
+    const isPackage = order.billingType === "PACKAGE" || order.billingType === "ROOM_CHARGE";
+    const net = isPackage
+      ? Math.max(0, (order.totalAmount ?? 0) - (order.packageDiscount ?? 0))
+      : order.totalAmount;
+    const forced =
+      policy?.defaultExcessSettlementMode === "DEFER_TO_FOLIO_ONLY"
+        ? "FOLIO"
+        : policy?.defaultExcessSettlementMode === "COLLECT_NOW_ONLY"
+          ? "COLLECT_NOW"
+          : null;
     setSettleTarget(order);
     // When the order is tied to a table, offer every open order on that table
     // so the whole bill can be settled together (checked by default).
@@ -304,7 +411,16 @@ export default function FoodServicePanel({ title }: { title: string }) {
     const candidates = tableOpen.length ? tableOpen : [order];
     setSettleOrders(candidates.map((o) => ({ order: o, checked: true })));
     const total = candidates.reduce((s, o) => s + (o.totalAmount ?? 0) - (o.discount ?? 0), 0);
-    setSettleForm({ paymentMethodId: "", amount: String(total), transactionReference: "" });
+    setSettleForm({
+      paymentMethodId: "",
+      // Package orders settle on their net charge (gross − entitlement coverage);
+      // a standard table bill settles on the summed open-order total.
+      amount: String(isPackage ? net : total),
+      transactionReference: "",
+      netChargeMode: isPackage
+        ? (forced ?? (policy?.enableRoomFolioCharging ? "FOLIO" : "COLLECT_NOW"))
+        : "FOLIO",
+    });
   };
 
   const toggleSettleOrder = (id: number) => {
@@ -325,16 +441,37 @@ export default function FoodServicePanel({ title }: { title: string }) {
     const ids = settleOrders.filter((s) => s.checked).map((s) => s.order.id);
     if (ids.length === 0) return setError(t("orders.selectOrderSettle"));
     try {
-      await api.post("/restaurant/orders/batch-settle", {
-        orderIds: ids,
-        payments: [
-          {
-            amount: Number(settleForm.amount),
-            paymentMethodId: settleForm.paymentMethodId ? Number(settleForm.paymentMethodId) : undefined,
-            transactionReference: settleForm.transactionReference || undefined,
-          },
-        ],
-      });
+      const isPackage =
+        settleTarget.billingType === "PACKAGE" || settleTarget.billingType === "ROOM_CHARGE";
+      if (isPackage) {
+        // Package orders settle individually: the net charge is either deferred
+        // to the guest folio or collected at the POS (per the chosen mode).
+        await api.post(`/restaurant/orders/${settleTarget.id}/settle`, {
+          // Send the explicit PAY_NOW / DEFER_TO_FOLIO aliases (legacy accepted).
+          netChargeMode:
+            settleForm.netChargeMode === "FOLIO" ? "DEFER_TO_FOLIO" : "PAY_NOW",
+          ...(settleForm.netChargeMode === "COLLECT_NOW"
+            ? {
+                paymentMethodId: settleForm.paymentMethodId
+                  ? Number(settleForm.paymentMethodId)
+                  : undefined,
+                transactionReference: settleForm.transactionReference || undefined,
+              }
+            : {}),
+        });
+      } else {
+        // Standard orders: settle the selected table orders in one transaction.
+        await api.post("/restaurant/orders/batch-settle", {
+          orderIds: ids,
+          payments: [
+            {
+              amount: Number(settleForm.amount),
+              paymentMethodId: settleForm.paymentMethodId ? Number(settleForm.paymentMethodId) : undefined,
+              transactionReference: settleForm.transactionReference || undefined,
+            },
+          ],
+        });
+      }
       setSettleTarget(null);
       setSettleOrders([]);
       await load();
@@ -626,14 +763,130 @@ export default function FoodServicePanel({ title }: { title: string }) {
             <h2 className="font-semibold text-gray-800 mb-3">{t("orders.currentOrder", { order: terms.order })}</h2>
             <select
               value={tableId}
-              onChange={(e) => setTableId(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setTableId(v);
+                setHotelReservationId("");
+                if (v === ROOM_TARGET) void loadChargeableRooms();
+              }}
               className="border border-gray-300 rounded p-2 text-sm w-full mb-3"
             >
               <option value="">{t("orders.takeAway")}</option>
               {tables.map((t) => (
                 <option key={t.id} value={t.id}>{t.name} ({tTable(t.status)})</option>
               ))}
+              {policy?.enableRoomFolioCharging && (
+                <option value={ROOM_TARGET}>{t("orders.chargeToRoom")}</option>
+              )}
             </select>
+            {tableId === ROOM_TARGET && (
+              <div className="mb-3">
+                <select
+                  value={hotelReservationId}
+                  onChange={(e) => setHotelReservationId(e.target.value)}
+                  className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
+                >
+                  <option value="">{t("orders.selectRoom")}</option>
+                  {roomTargets.map((r) => (
+                    <option key={r.reservationId} value={r.reservationId}>
+                      {t("orders.roomOption", {
+                        number: r.roomNumber ?? "—",
+                        name: r.guestName,
+                      })}
+                    </option>
+                  ))}
+                </select>
+                {!loadingRooms && roomTargets.length === 0 && (
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    {t("orders.noChargeableRooms")}
+                  </p>
+                )}
+              </div>
+            )}
+            {/* Package/entitlement routing and charge-to-room are exclusive. */}
+            {policy?.enablePackageRouting && tableId !== ROOM_TARGET && (
+              <div className="mb-3 space-y-2">
+                <select
+                  value={billingMode}
+                  onChange={(e) => {
+                    setBillingMode(e.target.value as any);
+                    setBillingGuest(null);
+                    setGuestResults([]);
+                    setEntitlements([]);
+                    setGuestQuery("");
+                  }}
+                  className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
+                >
+                  <option value="STANDARD">Standard billing</option>
+                  <option value="PACKAGE">🎫 Charge to Guest Package</option>
+                  <option value="ROOM_CHARGE">🛏️ Charge to Room</option>
+                </select>
+                {billingMode !== "STANDARD" &&
+                  (billingGuest ? (
+                    <div className="border border-violet-200 bg-violet-50/50 rounded p-2 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium text-gray-800">
+                          {billingGuest.guestName}
+                          {billingGuest.roomNumber && ` · Room ${billingGuest.roomNumber}`}
+                        </span>
+                        <button
+                          onClick={() => {
+                            setBillingGuest(null);
+                            setEntitlements([]);
+                            setGuestQuery("");
+                          }}
+                          className="text-red-600 hover:underline shrink-0"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <p className="text-gray-500">{billingGuest.package?.name}</p>
+                      {entitlements.length > 0 && (
+                        <ul className="mt-1 space-y-0.5">
+                          {entitlements.map((e) => (
+                            <li key={e.id} className="text-[11px] text-gray-600">
+                              • {e.stationName}
+                              {e.menuItemName ? ` · ${e.menuItemName}` : e.menuCategoryName ? ` · ${e.menuCategoryName}` : ""}
+                              {" · "}
+                              {e.allowanceValue > 0 ? `${e.allowanceValue} ETB/unit` : "full coverage"}
+                              {e.remainingQuantity != null ? ` · ${e.remainingQuantity} left today` : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <input
+                        value={guestQuery}
+                        onChange={(e) => searchGuests(e.target.value)}
+                        placeholder="Room # or guest name…"
+                        className="border border-gray-300 rounded p-2 text-sm w-full"
+                      />
+                      {guestResults.length > 0 && (
+                        <ul className="border border-gray-200 rounded mt-1 max-h-32 overflow-y-auto bg-white">
+                          {guestResults.map((g) => (
+                            <li key={g.id}>
+                              <button
+                                onClick={() => selectGuest(g)}
+                                className="w-full text-left px-2 py-1.5 hover:bg-gray-50 text-xs text-gray-700"
+                              >
+                                {g.guestName}
+                                {g.roomNumber && ` · Room ${g.roomNumber}`}
+                                {" · "}
+                                {g.package?.name}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {guestQuery && guestResults.length === 0 && (
+                        <p className="text-[11px] text-gray-400 mt-1">No active package guest found.</p>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            )}
             <ul className="space-y-1.5 mb-3 max-h-64 overflow-y-auto">
               {cart.map((c) => (
                 <li key={c.menuItemId} className="flex items-center justify-between gap-2 text-sm text-gray-700">
@@ -838,6 +1091,11 @@ export default function FoodServicePanel({ title }: { title: string }) {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="font-semibold text-gray-800 truncate">{o.orderNumber}</p>
+                    {o.guestTag && (
+                      <p className="text-[11px] text-violet-700 bg-violet-50 rounded px-1.5 py-0.5 mt-1 w-fit">
+                        {o.guestTag}
+                      </p>
+                    )}
                     <p className="text-[11px] text-gray-400 mt-0.5">
                       {orderTime}
                       {o.table?.name && ` · ${t("orders.tablePrefix", { name: o.table.name })}`}
@@ -1015,13 +1273,18 @@ export default function FoodServicePanel({ title }: { title: string }) {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg p-6 w-full max-w-sm max-h-[90vh] overflow-y-auto">
             <h2 className="font-semibold text-gray-800 mb-1">{t("orders.settleBill")}</h2>
+            {settleTarget.guestTag && (
+              <p className="text-xs text-violet-700 bg-violet-50 rounded px-2 py-1 mb-2 w-fit">
+                {settleTarget.guestTag}
+              </p>
+            )}
             {settleTarget.table?.name && (
               <p className="text-xs text-gray-400 mb-3">
                 {t("orders.tablePrefix", { name: settleTarget.table.name })} · {settleOrders.length} {plural(settleOrders.length, t("orders.openOrderOne"), t("orders.openOrderMany"))}
               </p>
             )}
 
-            {settleOrders.length > 1 && (
+            {settleOrders.length > 1 && !isPackageOrder(settleTarget) && (
               <div className="border border-gray-200 rounded-lg p-2 mb-3">
                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide px-1 pb-1">
                   {t("orders.selectOrdersCollect")}
@@ -1054,40 +1317,90 @@ export default function FoodServicePanel({ title }: { title: string }) {
               </div>
             )}
 
-            {(() => {
-              const { tax, total } = settleBreakdown();
-              return (
-                <>
-                  {defaultOutputRate && (
-                    <p className="text-sm text-gray-500 mb-1">
-                      {t("orders.tax", { rate: defaultOutputRate.rate })}{" "}
-                      <span className="font-semibold text-gray-800">
-                        {tax.toFixed(2)} {t("orders.birr")}
-                      </span>
-                    </p>
+            {isPackageOrder(settleTarget) ? (
+              // Hospitality package billing: gross − entitlement coverage = net charge.
+              <>
+                <p className="text-sm text-gray-500 mb-2">
+                  {settleTarget.totalAmount}
+                  {settleTarget.packageDiscount > 0 && (
+                    <> · Entitlement coverage: -{settleTarget.packageDiscount}</>
                   )}
-                  <p className="text-sm text-gray-500 mb-3">
-                    {t("orders.totalCollect")}{" "}
-                    <span className="font-bold text-gray-800">{total} {t("orders.birr")}</span>
-                  </p>
-                </>
-              );
-            })()}
-            {batchPrint === "printing" ? (
-              <p className="text-xs text-orange-600 mb-2">{t("orders.printingFiscal")}</p>
-            ) : batchPrint === "done" ? (
-              <p className="text-xs text-green-600 mb-2">{t("orders.printedFiscal")}</p>
-            ) : batchPrint === "error" ? (
-              <p className="text-xs text-red-600 mb-2">{t("orders.printFailedRetry")}</p>
-            ) : null}
-            <button
-              onClick={openBatchPreview}
-              disabled={batchPrint === "printing"}
-              className="text-xs bg-gray-800 text-white rounded px-2.5 py-1.5 font-medium mb-2 disabled:opacity-40"
-            >
-              {t("orders.printFiscalInvoice")} (
-              {settleOrders.filter((s) => s.checked).length})
-            </button>
+                  <span className="block font-semibold text-gray-800">
+                    Net charge: {Number(settleForm.amount)}
+                  </span>
+                </p>
+                {policy?.defaultExcessSettlementMode === "FLEXIBLE" && (
+                  <div className="flex gap-2 mb-3">
+                    <button
+                      onClick={() => setSettleForm({ ...settleForm, netChargeMode: "FOLIO" })}
+                      className={`flex-1 rounded p-2 text-sm font-medium border ${
+                        settleForm.netChargeMode === "FOLIO"
+                          ? "border-blue-500 bg-blue-50 text-blue-700"
+                          : "border-gray-200 text-gray-600"
+                      }`}
+                    >
+                      Charge to Folio (DEFER_TO_FOLIO)
+                    </button>
+                    <button
+                      onClick={() => setSettleForm({ ...settleForm, netChargeMode: "COLLECT_NOW" })}
+                      className={`flex-1 rounded p-2 text-sm font-medium border ${
+                        settleForm.netChargeMode === "COLLECT_NOW"
+                          ? "border-blue-500 bg-blue-50 text-blue-700"
+                          : "border-gray-200 text-gray-600"
+                      }`}
+                    >
+                      Collect Now (PAY_NOW)
+                    </button>
+                  </div>
+                )}
+                <p className="text-xs text-gray-400 mb-3">
+                  {settleForm.netChargeMode === "FOLIO"
+                    ? "DEFER_TO_FOLIO — the itemized net charge is appended to the guest's room folio and settled at master checkout."
+                    : "PAY_NOW — the net charge is collected at the terminal now and bypasses the room folio."}
+                </p>
+              </>
+            ) : (
+              (() => {
+                const { tax, total } = settleBreakdown();
+                return (
+                  <>
+                    {defaultOutputRate && (
+                      <p className="text-sm text-gray-500 mb-1">
+                        {t("orders.tax", { rate: defaultOutputRate.rate })}{" "}
+                        <span className="font-semibold text-gray-800">
+                          {tax.toFixed(2)} {t("orders.birr")}
+                        </span>
+                      </p>
+                    )}
+                    <p className="text-sm text-gray-500 mb-3">
+                      {t("orders.totalCollect")}{" "}
+                      <span className="font-bold text-gray-800">{total} {t("orders.birr")}</span>
+                    </p>
+                  </>
+                );
+              })()
+            )}
+            {/* A folio-deferred package charge collects nothing now, so there is
+                no fiscal invoice to print for it. */}
+            {!(isPackageOrder(settleTarget) && settleForm.netChargeMode === "FOLIO") && (
+              <>
+                {batchPrint === "printing" ? (
+                  <p className="text-xs text-orange-600 mb-2">{t("orders.printingFiscal")}</p>
+                ) : batchPrint === "done" ? (
+                  <p className="text-xs text-green-600 mb-2">{t("orders.printedFiscal")}</p>
+                ) : batchPrint === "error" ? (
+                  <p className="text-xs text-red-600 mb-2">{t("orders.printFailedRetry")}</p>
+                ) : null}
+                <button
+                  onClick={openBatchPreview}
+                  disabled={batchPrint === "printing"}
+                  className="text-xs bg-gray-800 text-white rounded px-2.5 py-1.5 font-medium mb-2 disabled:opacity-40"
+                >
+                  {t("orders.printFiscalInvoice")} (
+                  {settleOrders.filter((s) => s.checked).length})
+                </button>
+              </>
+            )}
             {batchPreview && (
               <FiscalPrintPreviewModal
                 payload={batchPreview}
@@ -1096,36 +1409,42 @@ export default function FoodServicePanel({ title }: { title: string }) {
                 printing={batchPrint === "printing"}
               />
             )}
-            <select
-              value={settleForm.paymentMethodId}
-              onChange={(e) => setSettleForm({ ...settleForm, paymentMethodId: e.target.value })}
-              className="border border-gray-300 rounded p-2 text-sm w-full mb-2"
-              required
-            >
-              <option value="">{t("orders.paymentMethod")}</option>
-              {paymentMethods.map((pm) => (
-                <option key={pm.id} value={pm.id}>{pm.name}</option>
-              ))}
-            </select>
-            {settleForm.paymentMethodId && (
-              <p className="text-xs text-gray-500 mb-2">
-                {t("orders.payTo", { account: paymentMethods.find((pm) => String(pm.id) === settleForm.paymentMethodId)?.account || "—" })}
-              </p>
+            {/* A folio-deferred package charge collects nothing at the POS, so the
+                payment fields stay hidden until "Collect Now" is chosen. */}
+            {(settleForm.netChargeMode === "COLLECT_NOW" || !isPackageOrder(settleTarget)) && (
+              <>
+                <select
+                  value={settleForm.paymentMethodId}
+                  onChange={(e) => setSettleForm({ ...settleForm, paymentMethodId: e.target.value })}
+                  className="border border-gray-300 rounded p-2 text-sm w-full mb-2"
+                  required
+                >
+                  <option value="">{t("orders.paymentMethod")}</option>
+                  {paymentMethods.map((pm) => (
+                    <option key={pm.id} value={pm.id}>{pm.name}</option>
+                  ))}
+                </select>
+                {settleForm.paymentMethodId && (
+                  <p className="text-xs text-gray-500 mb-2">
+                    {t("orders.payTo", { account: paymentMethods.find((pm) => String(pm.id) === settleForm.paymentMethodId)?.account || "—" })}
+                  </p>
+                )}
+                <input
+                  type="number"
+                  placeholder={t("orders.amount")}
+                  value={settleForm.amount}
+                  onChange={(e) => setSettleForm({ ...settleForm, amount: e.target.value })}
+                  className="border border-gray-300 rounded p-2 text-sm w-full mb-2"
+                  required
+                />
+                <input
+                  placeholder={t("orders.transactionRef")}
+                  value={settleForm.transactionReference}
+                  onChange={(e) => setSettleForm({ ...settleForm, transactionReference: e.target.value })}
+                  className="border border-gray-300 rounded p-2 text-sm w-full mb-3"
+                />
+              </>
             )}
-            <input
-              type="number"
-              placeholder={t("orders.amount")}
-              value={settleForm.amount}
-              onChange={(e) => setSettleForm({ ...settleForm, amount: e.target.value })}
-              className="border border-gray-300 rounded p-2 text-sm w-full mb-2"
-              required
-            />
-            <input
-              placeholder={t("orders.transactionRef")}
-              value={settleForm.transactionReference}
-              onChange={(e) => setSettleForm({ ...settleForm, transactionReference: e.target.value })}
-              className="border border-gray-300 rounded p-2 text-sm w-full mb-3"
-            />
             <div className="flex gap-2">
               <button
                 onClick={() => {
@@ -1137,7 +1456,9 @@ export default function FoodServicePanel({ title }: { title: string }) {
                 {t("orders.cancel")}
               </button>
               <button onClick={submitSettle} className="flex-1 bg-green-600 text-white rounded p-2 text-sm font-medium">
-                {t("orders.confirmPayment")}
+                {isPackageOrder(settleTarget) && settleForm.netChargeMode === "FOLIO"
+                  ? "Charge to Folio"
+                  : t("orders.confirmPayment")}
               </button>
             </div>
           </div>

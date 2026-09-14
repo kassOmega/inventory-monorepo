@@ -1,49 +1,74 @@
 "use client";
 
 import api from "@/lib/api";
+import CheckInModal from "@/app/components/CheckInModal";
+import CheckoutModal from "@/app/components/CheckoutModal";
+import { useAuth } from "@/context/AuthContext";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useTranslation } from "react-i18next";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 export default function HotelPage() {
   const { t } = useTranslation();
   const confirm = useConfirm();
+  const router = useRouter();
+  const { user, hasPermission } = useAuth();
+  // Capability flags — mirrored 1:1 with the API's @Permissions sets so the UI
+  // never offers an action the backend will reject:
+  //   • room types / rooms / ID types / deleting reservations → hotel.manage
+  //   • reservations, check-in, check-out, ID documents        → hotel.reception
+  //   • room cleanliness (AVAILABLE / DIRTY / MAINTENANCE)     → hotel.housekeeping.update
+  //   • reading a stay ledger                                  → folios.view
+  const canManageRooms = hasPermission("hotel.manage");
+  const canFrontDesk = canManageRooms || hasPermission("hotel.reception");
+  const canHousekeep =
+    canManageRooms || hasPermission("hotel.housekeeping.update");
+  const canReadFolio =
+    canFrontDesk || hasPermission("folios.view") || hasPermission("folios.manage");
   const roomSt = (s: string) =>
     (t(`hotel.st.${s.toLowerCase()}`, { defaultValue: s }) as string) ?? s;
   const resSt = (s: string) =>
     (t(`hotel.resSt.${s.toLowerCase()}`, { defaultValue: s }) as string) ?? s;
-  const folioType = (s: string) =>
-    s === "CHARGE" ? t("hotel.charge") : s === "PAYMENT" ? t("hotel.payment") : s;
   const [roomTypes, setRoomTypes] = useState<any[]>([]);
   const [rooms, setRooms] = useState<any[]>([]);
   const [reservations, setReservations] = useState<any[]>([]);
-  const [folio, setFolio] = useState<any>(null);
+  const [idTypes, setIdTypes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // Front-desk modals.
+  const [checkInFor, setCheckInFor] = useState<any>(null);
+  const [checkoutFor, setCheckoutFor] = useState<number | null>(null);
 
   const [roomTypeForm, setRoomTypeForm] = useState({ name: "", basePrice: "" });
   const [roomForm, setRoomForm] = useState({ number: "", roomTypeId: "" });
   const [resForm, setResForm] = useState({ roomId: "", guestName: "", checkIn: "", checkOut: "" });
-  const [folioForm, setFolioForm] = useState({ description: "", amount: "", type: "CHARGE" });
+
+  // Date-range availability for the reservation form (and the check-in modal).
+  const [availability, setAvailability] = useState<any>(null);
+  const [availLoading, setAvailLoading] = useState(false);
 
   // Edit modals
   const [roomTypeModal, setRoomTypeModal] = useState<any>(null);
   const [roomModal, setRoomModal] = useState<any>(null);
   const [resModal, setResModal] = useState<any>(null);
 
-  // Active tab: Rooms | Reservations | Folio
+  // Active tab: Rooms | Reservations
   const [tab, setTab] = useState("Rooms");
 
   const load = useCallback(async () => {
     try {
-      const [rt, r, res] = await Promise.all([
+      const [rt, r, res, it] = await Promise.all([
         api.get("/hotel/room-types"),
         api.get("/hotel/rooms"),
         api.get("/hotel/reservations"),
+        api.get("/hotel/settings/id-types").catch(() => ({ data: [] })),
       ]);
       setRoomTypes(rt.data);
       setRooms(r.data);
       setReservations(res.data);
+      setIdTypes(Array.isArray(it.data) ? it.data : []);
     } catch (e: any) {
       setError(e?.response?.data?.message ?? e?.message ?? t("hotel.failedLoad"));
     } finally {
@@ -54,6 +79,64 @@ export default function HotelPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Re-resolve availability whenever the requested dates change, so the room
+  // picker only ever offers rooms that are actually free for that window.
+  useEffect(() => {
+    const { checkIn, checkOut } = resForm;
+    if (!checkIn || !checkOut || new Date(checkOut) <= new Date(checkIn)) {
+      setAvailability(null);
+      return;
+    }
+    let cancelled = false;
+    setAvailLoading(true);
+    api
+      .get("/hotel/rooms/available", {
+        params: { checkInDate: checkIn, checkOutDate: checkOut },
+      })
+      .then((r) => {
+        if (!cancelled) setAvailability(r.data);
+      })
+      .catch(() => {
+        if (!cancelled) setAvailability(null);
+      })
+      .finally(() => {
+        if (!cancelled) setAvailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [resForm.checkIn, resForm.checkOut]);
+
+  /** Every room grouped by its type (used when no dates are chosen yet). */
+  const allRoomGroups = () => {
+    const groups: { name: string; rooms: any[] }[] = [];
+    for (const type of roomTypes) {
+      groups.push({
+        name: type.name,
+        rooms: rooms.filter((r) => r.roomTypeId === type.id),
+      });
+    }
+    const unassigned = rooms.filter((r) => !r.roomTypeId);
+    if (unassigned.length) groups.push({ name: "—", rooms: unassigned });
+    return groups;
+  };
+
+  /**
+   * Room options for the reservation forms. With dates chosen we only offer
+   * rooms that are free for that window (grouped by room type); otherwise every
+   * room is listed so the form is still usable.
+   */
+  const roomOptions = () => {
+    if (availability) {
+      return (availability.roomTypes ?? []).map((g: any) => ({
+        name: g.roomTypeName,
+        rooms: g.rooms,
+      }));
+    }
+    return allRoomGroups();
+  };
+
 
   const addRoomType = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -193,40 +276,26 @@ export default function HotelPage() {
     }
   };
 
-  const openFolio = async (reservationId: number) => {
-    try {
-      const res = await api.get(`/hotel/reservations/${reservationId}/folio`);
-      setFolio(res.data);
-    } catch (e: any) {
-      setError(e?.response?.data?.message ?? t("hotel.failedLoadFolio"));
-    }
+  /** The consolidated folio/receipt lives on the unified folios surface. */
+  const openFolio = (reservationId: number) =>
+    router.push(`/dashboard/hospitality/folios?reservation=${reservationId}`);
+
+  // --- Guest ID types ---
+  // The registry is configured on the Hospitality Services settings page (one
+  // place for every hospitality setting); this page only READS the active types
+  // to populate the check-in modal.
+  const manageIdTypes = () =>
+    router.push("/dashboard/settings/hospitality-services");
+
+  // --- Front desk: check-in / checkout run through their own modals ---
+  const startCheckIn = (r: any) => {
+    setError("");
+    setCheckInFor(r);
   };
 
-  const addFolioEntry = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!folio) return;
-    try {
-      await api.post(`/hotel/reservations/${folio.reservationId}/folio`, {
-        description: folioForm.description,
-        amount: Number(folioForm.amount),
-        type: folioForm.type,
-      });
-      setFolioForm({ description: "", amount: "", type: "CHARGE" });
-      await openFolio(folio.reservationId);
-      await load();
-    } catch (err: any) {
-      setError(err?.response?.data?.message ?? t("hotel.failedAddFolioEntry"));
-    }
-  };
-
-  const checkIn = async (id: number) => {
-    await api.post(`/hotel/reservations/${id}/check-in`);
-    await load();
-  };
-
-  const checkOut = async (id: number) => {
-    await api.post(`/hotel/reservations/${id}/check-out`);
-    await load();
+  const startCheckout = (r: any) => {
+    setError("");
+    setCheckoutFor(r.id);
   };
 
   if (loading) return <p className="text-gray-500">{t("hotel.loading")}</p>;
@@ -254,14 +323,6 @@ export default function HotelPage() {
         >
           📅 {t("hotel.tabs.reservations")}
         </button>
-        <button
-          onClick={() => setTab("Folio")}
-          className={`px-4 sm:px-6 py-2 text-sm font-medium transition ${
-            tab === "Folio" ? "bg-blue-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"
-          }`}
-        >
-          🧾 {t("hotel.tabs.folio")}
-        </button>
       </div>
 
       {/* Rooms */}
@@ -282,18 +343,27 @@ export default function HotelPage() {
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium text-gray-800">{t("hotel.roomPrefix", { number: r.number })}</span>
                   <div className="flex items-center gap-1.5">
-                    <select
-                      value={r.status}
-                      onChange={(e) => setRoomStatus(r.id, e.target.value)}
-                      className="text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-gray-50"
-                      aria-label={t("hotel.statusAria", { number: r.number })}
-                    >
-                      {["AVAILABLE", "OCCUPIED", "DIRTY", "MAINTENANCE"].map((s) => (
-                        <option key={s} value={s}>{roomSt(s)}</option>
-                      ))}
-                    </select>
-                    <button onClick={() => openEditRoom(r)} className="text-xs text-blue-600 hover:underline">{t("common.edit")}</button>
-                    <button onClick={() => deleteRoom(r)} className="text-xs text-red-600 hover:underline">{t("common.del")}</button>
+                    {/* Housekeeping owns cleanliness; managers keep the switch. */}
+                    {canHousekeep ? (
+                      <select
+                        value={r.status}
+                        onChange={(e) => setRoomStatus(r.id, e.target.value)}
+                        className="text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-gray-50"
+                        aria-label={t("hotel.statusAria", { number: r.number })}
+                      >
+                        {["AVAILABLE", "OCCUPIED", "DIRTY", "MAINTENANCE"].map((s) => (
+                          <option key={s} value={s}>{roomSt(s)}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-[11px] text-gray-500">{roomSt(r.status)}</span>
+                    )}
+                    {canManageRooms && (
+                      <>
+                        <button onClick={() => openEditRoom(r)} className="text-xs text-blue-600 hover:underline">{t("common.edit")}</button>
+                        <button onClick={() => deleteRoom(r)} className="text-xs text-red-600 hover:underline">{t("common.del")}</button>
+                      </>
+                    )}
                   </div>
                 </div>
                 <p className="text-xs text-gray-400 mt-0.5">{r.roomType?.name} · {roomSt(r.status)}</p>
@@ -306,6 +376,7 @@ export default function HotelPage() {
             <div>
               <h3 className="font-semibold text-gray-800 text-sm mb-2">{t("hotel.addRoomHeading")}</h3>
 
+          {canManageRooms && (
           <form onSubmit={addRoom} className="flex gap-2 mb-3">
             <input
               placeholder={t("hotel.roomNumber")}
@@ -327,6 +398,7 @@ export default function HotelPage() {
             </select>
             <button type="submit" className="bg-gray-800 text-white rounded px-3 text-sm">{t("common.add")}</button>
           </form>
+          )}
 
               <h3 className="font-semibold text-gray-800 text-sm mb-2">{t("hotel.roomTypesHeading")}</h3>
             <ul className="space-y-1.5 text-sm mb-3">
@@ -336,15 +408,18 @@ export default function HotelPage() {
                     {rt.name}
                     <span className="text-xs text-gray-400"> · {rt.basePrice}{t("hotel.perNight")}</span>
                   </span>
+                  {canManageRooms && (
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button onClick={() => openEditRoomType(rt)} className="text-xs text-blue-600 hover:underline">{t("common.edit")}</button>
                     <button onClick={() => deleteRoomType(rt)} className="text-xs text-red-600 hover:underline">{t("common.del")}</button>
                   </div>
+                  )}
                 </li>
               ))}
               {roomTypes.length === 0 && <li className="text-gray-400">{t("hotel.noRoomTypes")}</li>}
             </ul>
 
+            {canManageRooms && (
             <form onSubmit={addRoomType} className="flex gap-2">
               <input
                 placeholder={t("hotel.roomTypeName")}
@@ -363,7 +438,36 @@ export default function HotelPage() {
               />
               <button type="submit" className="bg-blue-600 text-white rounded px-3 text-sm">{t("hotel.addType")}</button>
               </form>
+            )}
             </div>
+          </div>
+
+          {/* Guest ID Types live in Hospitality Services settings — one place for
+              every hospitality setting. This page only reads the active types for
+              the check-in modal, so here we just point the way. */}
+          <div className="mt-6 border-t border-gray-100 pt-4">
+            <h3 className="font-semibold text-gray-800 text-sm mb-1">
+              {t("hotel.idTypesHeading")}
+            </h3>
+            <p className="text-xs text-gray-400 mb-2">
+              {t("hotel.idTypesMovedHint", {
+                count: idTypes.filter((x) => x.isActive).length,
+              })}
+            </p>
+            {canManageRooms && user?.isOwnerAccount ? (
+              <button
+                onClick={manageIdTypes}
+                className="text-xs text-blue-600 hover:underline"
+              >
+                {t("hotel.manageIdTypesLink")}
+              </button>
+            ) : (
+              /* The settings page is owner-only, so a manager/receptionist gets an
+                 explanation instead of a link that would bounce them back. */
+              <p className="text-xs text-gray-400">
+                {t("hotel.idTypesReadOnly")}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -373,6 +477,7 @@ export default function HotelPage() {
         <div className="bg-white p-4 rounded-lg border border-gray-200">
           <h2 className="font-semibold text-gray-800 mb-3">{t("hotel.reservationsHeading")}</h2>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {canFrontDesk ? (
             <form onSubmit={createReservation} className="space-y-2">
               <p className="text-sm font-medium text-gray-700 mb-1">{t("hotel.newReservation")}</p>
             <select
@@ -382,10 +487,29 @@ export default function HotelPage() {
               required
             >
               <option value="">{t("hotel.selectRoom")}</option>
-              {rooms.map((r) => (
-                <option key={r.id} value={r.id}>{r.number} ({r.roomType?.name})</option>
+              {roomOptions().map((group: any) => (
+                <optgroup key={group.name} label={group.name}>
+                  {group.rooms.map((r: any) => (
+                    <option key={r.id} value={r.id}>
+                      {r.number}
+                      {r.totalForStay != null ? ` — ${r.totalForStay}` : ""}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
+            {availLoading && (
+              <p className="text-xs text-gray-400">
+                {t("hotel.checkingAvailability")}
+              </p>
+            )}
+            {availability && !availLoading && (
+              <p className="text-xs text-gray-400">
+                {availability.totalAvailable > 0
+                  ? t("hotel.availableHint")
+                  : t("hotel.noAvailability")}
+              </p>
+            )}
             <input
               placeholder={t("hotel.guestName")}
               value={resForm.guestName}
@@ -411,6 +535,11 @@ export default function HotelPage() {
                 {t("hotel.createReservation")}
               </button>
             </form>
+            ) : (
+              <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded p-2">
+                {t("hotel.frontDeskOnly")}
+              </p>
+            )}
 
             <div className="lg:col-span-2">
               <p className="text-sm font-medium text-gray-700 mb-2">{t("hotel.allReservations")}</p>
@@ -423,14 +552,20 @@ export default function HotelPage() {
                 </div>
                 <p className="text-gray-500 text-xs">{t("hotel.roomPrefix", { number: r.room?.number })} · {r.checkIn?.slice(0, 10)} → {r.checkOut?.slice(0, 10)}</p>
                 <div className="flex gap-2 mt-1 flex-wrap">
-                  <button onClick={() => openFolio(r.id)} className="text-blue-600 text-xs hover:underline">{t("hotel.folioHeading")}</button>
-                  <button onClick={() => openEditRes(r)} className="text-blue-600 text-xs hover:underline">{t("common.edit")}</button>
-                  <button onClick={() => deleteRes(r)} className="text-red-600 text-xs hover:underline">{t("common.del")}</button>
-                  {r.status === "CONFIRMED" && (
-                    <button onClick={() => checkIn(r.id)} className="text-green-600 text-xs hover:underline">{t("hotel.checkin")}</button>
+                  {canReadFolio && (
+                    <button onClick={() => openFolio(r.id)} className="text-blue-600 text-xs hover:underline">{t("hotel.folioLink")}</button>
                   )}
-                  {r.status === "CHECKED_IN" && (
-                    <button onClick={() => checkOut(r.id)} className="text-amber-600 text-xs hover:underline">{t("hotel.checkOut")}</button>
+                  {canFrontDesk && (
+                    <button onClick={() => openEditRes(r)} className="text-blue-600 text-xs hover:underline">{t("common.edit")}</button>
+                  )}
+                  {canManageRooms && (
+                    <button onClick={() => deleteRes(r)} className="text-red-600 text-xs hover:underline">{t("common.del")}</button>
+                  )}
+                  {canFrontDesk && r.status === "CONFIRMED" && (
+                    <button onClick={() => startCheckIn(r)} className="text-green-600 text-xs hover:underline">{t("hotel.checkin")}</button>
+                  )}
+                  {canFrontDesk && r.status === "CHECKED_IN" && (
+                    <button onClick={() => startCheckout(r)} className="text-amber-600 text-xs hover:underline">{t("hotel.checkOut")}</button>
                   )}
                 </div>
               </li>
@@ -442,75 +577,33 @@ export default function HotelPage() {
         </div>
       )}
 
-      {/* Folio */}
-      {tab === "Folio" && (
-        <div className="bg-white p-4 rounded-lg border border-gray-200">
-          <h2 className="font-semibold text-gray-800 mb-3">{t("hotel.folioHeading")}</h2>
-          <div className="flex flex-wrap gap-1.5 mb-4">
-            {reservations.map((r) => (
-              <button
-                key={r.id}
-                onClick={() => openFolio(r.id)}
-                className={`px-2.5 py-1 rounded-full text-xs border transition ${
-                  folio?.reservationId === r.id
-                    ? "bg-blue-600 text-white border-blue-600"
-                    : "bg-white text-gray-600 border-gray-300 hover:border-blue-400"
-                }`}
-              >
-                {r.guestName} · {t("hotel.roomPrefix", { number: r.room?.number })}
-              </button>
-            ))}
-            {reservations.length === 0 && <p className="text-gray-400 text-sm">{t("hotel.noReservations")}</p>}
-          </div>
-          {!folio ? (
-            <p className="text-gray-400 text-sm">{t("hotel.selectFolio")}</p>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div>
-                <p className="text-sm text-gray-700 mb-2">
-                  {folio.guestName} {t("hotel.balance")} <span className="font-semibold">{folio.balance}</span>
-                </p>
-                <ul className="space-y-1 text-sm mb-3">
-                  {folio.entries.map((e: any) => (
-                    <li key={e.id} className="flex justify-between text-gray-700">
-                      <span>{e.description} <span className="text-xs text-gray-400">({folioType(e.type)})</span></span>
-                      <span>{e.amount}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <form onSubmit={addFolioEntry} className="space-y-2">
-                <p className="text-sm font-medium text-gray-700">{t("hotel.addEntry")}</p>
-                <input
-                  placeholder={t("hotel.description")}
-                  value={folioForm.description}
-                  onChange={(e) => setFolioForm({ ...folioForm, description: e.target.value })}
-                  className="border border-gray-300 rounded p-2 text-sm w-full"
-                  required
-                />
-                <input
-                  type="number"
-                  placeholder={t("orders.amount")}
-                  value={folioForm.amount}
-                  onChange={(e) => setFolioForm({ ...folioForm, amount: e.target.value })}
-                  className="border border-gray-300 rounded p-2 text-sm w-full"
-                  required
-                />
-                <select
-                  value={folioForm.type}
-                  onChange={(e) => setFolioForm({ ...folioForm, type: e.target.value })}
-                  className="border border-gray-300 rounded p-2 text-sm w-full"
-                >
-                  <option value="CHARGE">{t("hotel.charge")}</option>
-                  <option value="PAYMENT">{t("hotel.payment")}</option>
-                </select>
-                <button type="submit" className="bg-gray-800 text-white rounded p-2 text-sm w-full">{t("hotel.addEntry")}</button>
-              </form>
-            </div>
-          )}
-        </div>
+      {/* Guest check-in (registration + room + atomic submit) */}
+      {checkInFor && (
+        <CheckInModal
+          reservation={checkInFor}
+          idTypes={idTypes.filter((x) => x.isActive)}
+          onClose={() => setCheckInFor(null)}
+          onDone={async () => {
+            setCheckInFor(null);
+            await load();
+          }}
+          onError={setError}
+        />
       )}
 
+      {/* Atomic checkout: summary → split payments → confirm & receipt */}
+      {checkoutFor != null && (
+        <CheckoutModal
+          reservationId={checkoutFor}
+          onClose={() => setCheckoutFor(null)}
+          onDone={async () => {
+            await load();
+          }}
+          onError={setError}
+        />
+      )}
+
+      {/* Edit Room Type modal */}
       {/* Edit Room Type modal */}
       {roomTypeModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -607,8 +700,14 @@ export default function HotelPage() {
                 required
               >
                 <option value="">{t("hotel.selectRoom")}</option>
-                {rooms.map((r) => (
-                  <option key={r.id} value={r.id}>{r.number} ({r.roomType?.name})</option>
+                {allRoomGroups().map((group) => (
+                  <optgroup key={group.name} label={group.name}>
+                    {group.rooms.map((r: any) => (
+                      <option key={r.id} value={r.id}>
+                        {r.number}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
               <input

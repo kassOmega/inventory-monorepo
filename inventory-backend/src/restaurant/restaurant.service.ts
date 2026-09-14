@@ -6,6 +6,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  BusinessType,
+  HotelReservationStatus,
   MenuItemTrackingMode,
   OrderItemStatus,
   OrderStatus,
@@ -16,14 +18,20 @@ import {
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { tr } from '../i18n/i18n.service';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
+import {
+  normalizeNetChargeMode,
+  readHospitalityPolicy,
+} from '../common/hospitality-settings';
 import { DEFAULT_MENU_CATEGORIES } from '../common/verticals';
 import { assertNotDuplicate } from '../common/duplicate.util';
 import { resolveTax, splitTax } from '../common/tax.util';
 import { FinanceService } from '../finance/finance.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PackagesService } from '../packages/packages.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MenuRecipeService } from './menu-recipe.service';
 import {
+  BillingInputDto,
   CreateMenuCategoryDto,
   CreateMenuItemDto,
   CreateMenuItemOptionDto,
@@ -57,13 +65,15 @@ export class RestaurantService {
     private prisma: PrismaService,
     private notifications: NotificationsService,
     private finance: FinanceService,
+    private packages: PackagesService,
     private recipes: MenuRecipeService,
   ) {}
 
   /** Active organization id for the current request (throws when absent). */
   tenant(): number {
     const id = getCurrentTenantId();
-    if (id == null) throw new BadRequestException(tr('errors.noActiveOrganization'));
+    if (id == null)
+      throw new BadRequestException(tr('errors.noActiveOrganization'));
     return id;
   }
 
@@ -83,8 +93,7 @@ export class RestaurantService {
 
   private stationViewPermission(key: string): string {
     return (
-      RestaurantService.STATION_PERMISSIONS[key]?.view ??
-      `station.${key}.view`
+      RestaurantService.STATION_PERMISSIONS[key]?.view ?? `station.${key}.view`
     );
   }
 
@@ -93,6 +102,50 @@ export class RestaurantService {
       RestaurantService.STATION_PERMISSIONS[key]?.update ??
       `station.${key}.update`
     );
+  }
+
+  /**
+   * Immutable notification key for a station's role. Built-in stations map to
+   * their preset keys (kitchen→CHEF, bar→BARMAN, barista→BARISTA); custom
+   * stations get STATION_<KEY>. Alerts target this instead of the role name,
+   * which the owner is free to rename.
+   */
+  private stationSystemKey(key: string): string {
+    const builtIn: Record<string, string> = {
+      kitchen: 'CHEF',
+      bar: 'BARMAN',
+      barista: 'BARISTA',
+    };
+    return builtIn[key] ?? `STATION_${key.toUpperCase()}`;
+  }
+
+  /**
+   * Standalone pension: a hospitality business that ONLY offers Accommodation.
+   * Its billing is strictly room rates + front-desk folio add-ons — no food &
+   * beverage ordering or cross-service folio posting is allowed.
+   */
+  private async isAccommodationOnly(tenantId: number): Promise<boolean> {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: tenantId },
+      select: { businessType: true, enabledHospitalityServices: true },
+    });
+    if (!org || org.businessType !== BusinessType.HOSPITALITY) return false;
+    let enabled = (org.enabledHospitalityServices ?? []).filter(
+      (s) => s !== 'CUSTOM',
+    );
+    // Legacy orgs without the denormalized array fall back to their rows.
+    if (!enabled.length) {
+      const rows = await this.prisma.hospitalityService.findMany({
+        where: {
+          organizationId: tenantId,
+          isEnabled: true,
+          serviceType: { not: 'CUSTOM' },
+        },
+        select: { serviceType: true },
+      });
+      enabled = rows.map((r) => r.serviceType);
+    }
+    return enabled.length === 1 && enabled[0] === 'ACCOMMODATION';
   }
 
   private stationWithAccess(st: any) {
@@ -122,10 +175,13 @@ export class RestaurantService {
     const viewKey = this.stationViewPermission(station.key);
     const updateKey = this.stationUpdatePermission(station.key);
     const roleName = station.roleName?.trim() || station.name;
+    const systemKey = this.stationSystemKey(station.key);
 
     const permView = await this.prisma.permission.upsert({
       where: { key: viewKey },
-      update: builtIn ? {} : { label: `View ${station.name} Board`, group: 'Stations' },
+      update: builtIn
+        ? {}
+        : { label: `View ${station.name} Board`, group: 'Stations' },
       create: {
         key: viewKey,
         label: `View ${station.name} Board`,
@@ -134,7 +190,9 @@ export class RestaurantService {
     });
     const permUpdate = await this.prisma.permission.upsert({
       where: { key: updateKey },
-      update: builtIn ? {} : { label: `Update ${station.name} Items`, group: 'Stations' },
+      update: builtIn
+        ? {}
+        : { label: `Update ${station.name} Items`, group: 'Stations' },
       create: {
         key: updateKey,
         label: `Update ${station.name} Items`,
@@ -157,6 +215,7 @@ export class RestaurantService {
       role = await this.prisma.role.create({
         data: {
           name: roleName,
+          systemKey,
           description: `Prepares items at the ${station.name} station.`,
           organizationId: tenantId,
           permissions: {
@@ -175,10 +234,10 @@ export class RestaurantService {
         ],
         skipDuplicates: true,
       });
-      if (role.name !== roleName) {
+      if (role.name !== roleName || role.systemKey !== systemKey) {
         role = await this.prisma.role.update({
           where: { id: role.id },
-          data: { name: roleName },
+          data: { name: roleName, systemKey },
         });
       }
     }
@@ -365,9 +424,7 @@ export class RestaurantService {
     });
     if (!station) throw new NotFoundException(tr('errors.stationNotFound'));
     if (!station.roleId) {
-      throw new BadRequestException(
-        tr('errors.resStationNoRole'),
-      );
+      throw new BadRequestException(tr('errors.resStationNoRole'));
     }
 
     const membership = await this.prisma.membership.findFirst({
@@ -378,9 +435,7 @@ export class RestaurantService {
       throw new NotFoundException(tr('errors.userNotPartOfBusiness'));
     }
     if (membership.role?.isSystem) {
-      throw new BadRequestException(
-        tr('errors.resCannotChangeOwnerRole'),
-      );
+      throw new BadRequestException(tr('errors.resCannotChangeOwnerRole'));
     }
 
     const roleId = body.assign ? station.roleId : null;
@@ -438,7 +493,10 @@ export class RestaurantService {
     const byId = new Map(stations.map((s) => [s.id, s]));
     return stationIds.map((sid) => {
       const s = byId.get(sid);
-      if (!s) throw new BadRequestException(tr('errors.resStationIdNotFound', { id: sid }));
+      if (!s)
+        throw new BadRequestException(
+          tr('errors.resStationIdNotFound', { id: sid }),
+        );
       return { id: s.id, name: s.name, key: s.key };
     });
   }
@@ -461,7 +519,7 @@ export class RestaurantService {
       ...item,
       hasRecipe,
       recipeCost: rounded,
-      effectiveCost: hasRecipe ? rounded : item.cost ?? 0,
+      effectiveCost: hasRecipe ? rounded : (item.cost ?? 0),
     };
   }
 
@@ -493,7 +551,9 @@ export class RestaurantService {
       : dto.stationId != null
         ? [dto.stationId]
         : [];
-    const route = routeIds.length ? await this.resolveRoute(tenantId, routeIds) : [];
+    const route = routeIds.length
+      ? await this.resolveRoute(tenantId, routeIds)
+      : [];
     return this.prisma.menuCategory.create({
       data: {
         tenantId,
@@ -515,7 +575,9 @@ export class RestaurantService {
       select: { name: true },
     });
     const existingNames = new Set(existing.map((c) => c.name));
-    const toCreate = DEFAULT_MENU_CATEGORIES.filter((c) => !existingNames.has(c.name));
+    const toCreate = DEFAULT_MENU_CATEGORIES.filter(
+      (c) => !existingNames.has(c.name),
+    );
     for (const c of toCreate) {
       const st = byKey.get(c.stationKey);
       if (!st) continue;
@@ -538,9 +600,7 @@ export class RestaurantService {
     const trackingMode = dto.trackingMode ?? MenuItemTrackingMode.SIMPLE;
     if (trackingMode === MenuItemTrackingMode.BENCHMARK) {
       if (!(dto.estimatedCogs != null && dto.estimatedCogs > 0)) {
-        throw new BadRequestException(
-          tr('errors.resEstCostRequired'),
-        );
+        throw new BadRequestException(tr('errors.resEstCostRequired'));
       }
     }
     const data: Prisma.MenuItemUncheckedCreateInput = {
@@ -563,8 +623,15 @@ export class RestaurantService {
           ? dto.estimatedCogs
           : null,
       isAvailable: dto.isAvailable ?? true,
+      durationMins: dto.durationMins ?? null,
       options: dto.options?.length
-        ? { create: dto.options.map((o) => ({ tenantId, name: o.name, extraPrice: o.extraPrice ?? 0 })) }
+        ? {
+            create: dto.options.map((o) => ({
+              tenantId,
+              name: o.name,
+              extraPrice: o.extraPrice ?? 0,
+            })),
+          }
         : undefined,
     };
     if (dto.stationRoute?.length) {
@@ -586,7 +653,8 @@ export class RestaurantService {
     const existing = await this.prisma.menuCategory.findFirst({
       where: { id, tenantId },
     });
-    if (!existing) throw new NotFoundException(tr('errors.menuCategoryNotFound'));
+    if (!existing)
+      throw new NotFoundException(tr('errors.menuCategoryNotFound'));
 
     const data: Prisma.MenuCategoryUncheckedUpdateInput = {};
     if (dto.name != null) data.name = dto.name;
@@ -627,6 +695,7 @@ export class RestaurantService {
     if (dto.sortOrder != null) data.sortOrder = dto.sortOrder;
     if (dto.menuCategoryId != null) data.menuCategoryId = dto.menuCategoryId;
     if (dto.trackingMode != null) data.trackingMode = dto.trackingMode;
+    if (dto.durationMins != null) data.durationMins = dto.durationMins;
     if (dto.stationRoute) {
       data.stationRoute = (await this.resolveRoute(
         tenantId,
@@ -644,9 +713,7 @@ export class RestaurantService {
     if (trackingMode === MenuItemTrackingMode.BENCHMARK) {
       const est = dto.estimatedCogs ?? existing.estimatedCogs;
       if (!(est != null && est > 0)) {
-        throw new BadRequestException(
-          tr('errors.resEstCostRequired'),
-        );
+        throw new BadRequestException(tr('errors.resEstCostRequired'));
       }
       data.estimatedCogs = est;
       data.cost = est;
@@ -683,15 +750,25 @@ export class RestaurantService {
 
   async addMenuItemOption(menuItemId: number, dto: CreateMenuItemOptionDto) {
     const tenantId = this.tenant();
-    await this.prisma.menuItem.findFirstOrThrow({ where: { id: menuItemId, tenantId } });
+    await this.prisma.menuItem.findFirstOrThrow({
+      where: { id: menuItemId, tenantId },
+    });
     return this.prisma.menuItemOption.create({
-      data: { tenantId, menuItemId, name: dto.name, extraPrice: dto.extraPrice ?? 0 },
+      data: {
+        tenantId,
+        menuItemId,
+        name: dto.name,
+        extraPrice: dto.extraPrice ?? 0,
+      },
     });
   }
 
   async updateMenuItemOption(id: number, dto: UpdateMenuItemOptionDto) {
     const tenantId = this.tenant();
-    await this.prisma.menuItemOption.updateMany({ where: { id, tenantId }, data: { ...dto } });
+    await this.prisma.menuItemOption.updateMany({
+      where: { id, tenantId },
+      data: { ...dto },
+    });
     return this.prisma.menuItemOption.findFirst({ where: { id, tenantId } });
   }
 
@@ -706,7 +783,12 @@ export class RestaurantService {
     const tenantId = this.tenant();
     return this.prisma.diningTable.findMany({
       where: { tenantId },
-      include: { orders: { where: { status: { in: OPEN_ORDER_STATUSES } }, select: { id: true, orderNumber: true, totalAmount: true } } },
+      include: {
+        orders: {
+          where: { status: { in: OPEN_ORDER_STATUSES } },
+          select: { id: true, orderNumber: true, totalAmount: true },
+        },
+      },
       orderBy: { name: 'asc' },
     });
   }
@@ -714,7 +796,12 @@ export class RestaurantService {
   async createTable(dto: CreateTableDto) {
     const tenantId = this.tenant();
     return this.prisma.diningTable.create({
-      data: { tenantId, name: dto.name, zone: dto.zone, capacity: dto.capacity ?? 4 },
+      data: {
+        tenantId,
+        name: dto.name,
+        zone: dto.zone,
+        capacity: dto.capacity ?? 4,
+      },
     });
   }
 
@@ -727,7 +814,12 @@ export class RestaurantService {
   async listOrders(
     user: JwtPayload,
     status?: string,
-    filters?: { waiterId?: number; tableId?: number; dateFrom?: string; dateTo?: string },
+    filters?: {
+      waiterId?: number;
+      tableId?: number;
+      dateFrom?: string;
+      dateTo?: string;
+    },
   ) {
     const tenantId = this.tenant();
     const where: Record<string, unknown> = { tenantId };
@@ -736,7 +828,8 @@ export class RestaurantService {
     // by a specific waiter. This is enforced server-side so the scope cannot
     // be widened by query params.
     const canSeeAllOrders =
-      user.isSuperuser || (user.permissions ?? []).includes('restaurant.manage');
+      user.isSuperuser ||
+      (user.permissions ?? []).includes('restaurant.manage');
     if (canSeeAllOrders) {
       if (status) where.status = status as OrderStatus;
       if (filters?.waiterId) where.createdById = filters.waiterId;
@@ -746,8 +839,10 @@ export class RestaurantService {
     if (filters?.tableId) where.tableId = filters.tableId;
     if (filters?.dateFrom || filters?.dateTo) {
       const createdAt: Record<string, Date> = {};
-      if (filters.dateFrom) createdAt.gte = new Date(`${filters.dateFrom}T00:00:00`);
-      if (filters.dateTo) createdAt.lte = new Date(`${filters.dateTo}T23:59:59`);
+      if (filters.dateFrom)
+        createdAt.gte = new Date(`${filters.dateFrom}T00:00:00`);
+      if (filters.dateTo)
+        createdAt.lte = new Date(`${filters.dateTo}T23:59:59`);
       where.createdAt = createdAt;
     }
     return this.prisma.order.findMany({
@@ -812,18 +907,201 @@ export class RestaurantService {
     });
   }
 
+  /**
+   * Resolve a charge-to-room target for an order:
+   *  - an explicit package guest keeps its entitlement-backed folio;
+   *  - ROOM_CHARGE + hotelReservationId charges the stay directly. When the stay
+   *    has a CHECKED_IN package guest we still route through it (entitlements);
+   *    a standard stay posts itemized lines to the reservation folio.
+   * Returns null when the order is not billed to a room.
+   */
+  private async resolveRoomCharge(
+    tenantId: number,
+    billing?: BillingInputDto,
+  ): Promise<{
+    reservationId: number;
+    roomNumber: string | null;
+    guestName: string;
+    packageGuestId: string | null;
+  } | null> {
+    if (
+      !billing ||
+      (billing.type !== 'ROOM_CHARGE' && billing.type !== 'PACKAGE')
+    ) {
+      return null;
+    }
+
+    // Explicit package guest (existing flow; the stay must be active).
+    if (billing.packageGuestId) {
+      const guest = await this.prisma.packageGuest.findFirst({
+        where: {
+          id: billing.packageGuestId,
+          organizationId: tenantId,
+          status: 'CHECKED_IN',
+        },
+        select: {
+          guestName: true,
+          roomNumber: true,
+          hotelReservation: {
+            select: {
+              id: true,
+              status: true,
+              room: { select: { number: true } },
+            },
+          },
+        },
+      });
+      if (!guest) {
+        throw new BadRequestException(
+          'Package guest not found for this business.',
+        );
+      }
+      const stay = guest.hotelReservation;
+      if (
+        !stay ||
+        (stay.status !== HotelReservationStatus.CONFIRMED &&
+          stay.status !== HotelReservationStatus.CHECKED_IN)
+      ) {
+        throw new BadRequestException(
+          'Room charges require the guest to be linked to a confirmed or checked-in hotel reservation.',
+        );
+      }
+      return {
+        reservationId: stay.id,
+        roomNumber: guest.roomNumber ?? stay.room?.number ?? null,
+        guestName: guest.guestName,
+        packageGuestId: billing.packageGuestId,
+      };
+    }
+
+    // Standard stay: charge the reservation folio directly.
+    if (billing.type === 'ROOM_CHARGE' && billing.hotelReservationId != null) {
+      const reservation = await this.prisma.hotelReservation.findFirst({
+        where: {
+          id: billing.hotelReservationId,
+          tenantId,
+          status: {
+            in: [
+              HotelReservationStatus.CONFIRMED,
+              HotelReservationStatus.CHECKED_IN,
+            ],
+          },
+        },
+        select: {
+          id: true,
+          guestName: true,
+          room: { select: { number: true } },
+          packageGuests: {
+            where: { status: 'CHECKED_IN' },
+            select: { id: true },
+            orderBy: { checkInAt: 'asc' },
+            take: 1,
+          },
+        },
+      });
+      if (!reservation) {
+        throw new BadRequestException(
+          'Charge-to-room requires a confirmed or checked-in hotel reservation.',
+        );
+      }
+      return {
+        reservationId: reservation.id,
+        roomNumber: reservation.room?.number ?? null,
+        guestName: reservation.guestName,
+        packageGuestId: reservation.packageGuests[0]?.id ?? null,
+      };
+    }
+
+    if (billing.type === 'ROOM_CHARGE') {
+      throw new BadRequestException(
+        'Charge-to-room requires a package guest or a hotel reservation.',
+      );
+    }
+    return null;
+  }
+
+  /** Find (or create) the stay folio a charge-to-room order posts to. */
+  private async ensureStayFolio(
+    tx: Prisma.TransactionClient,
+    tenantId: number,
+    reservationId: number,
+    guestName: string,
+  ) {
+    const existing = await tx.folio.findFirst({
+      where: { tenantId, reservationId },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (existing) return existing;
+    return tx.folio.create({
+      data: { tenantId, reservationId, guestName },
+    });
+  }
+
   async createOrder(dto: CreateOrderDto, user: JwtPayload) {
     const tenantId = this.tenant();
-    const created = await this.prisma.$transaction(async (tx) => {
+    // Standalone pension (Accommodation-only): billing is strictly room rates
+    // and front-desk folio add-ons — no F&B ordering at all.
+    if (await this.isAccommodationOnly(tenantId)) {
+      throw new BadRequestException(
+        'This business is a rooms-only pension — food & beverage ordering is disabled. Use room rates and front-desk add-ons.',
+      );
+    }
+    // --- Zero Policy: package & entitlement routing ONLY runs when enabled.
+    // Unset/false => the standard POS order path is used unchanged. ---
+    const org = await this.prisma.organization.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    const policy = readHospitalityPolicy(
+      org?.settings as Record<string, unknown> | null,
+    );
+    const billing = dto.billing;
+    const wantsPackageBilling = !!billing?.type && billing.type !== 'STANDARD';
+
+    // Resolve the charge-to-room target first: it either routes through a linked
+    // package guest (entitlements) or posts itemized lines to the stay folio.
+    const roomCharge = await this.resolveRoomCharge(tenantId, billing);
+
+    // Zero Policy: entitlements need enablePackageRouting; a plain charge-to-room
+    // only needs enableRoomFolioCharging.
+    if (
+      (billing?.type === 'PACKAGE' || roomCharge?.packageGuestId) &&
+      !policy.enablePackageRouting
+    ) {
+      throw new BadRequestException(
+        'Package & entitlement billing is not enabled for this business.',
+      );
+    }
+    if (roomCharge && !policy.enableRoomFolioCharging) {
+      throw new BadRequestException(
+        'Room folio charging is disabled for this business.',
+      );
+    }
+
+    const created = await this.prisma
+      .$transaction(async (tx) => {
         let totalAmount = 0;
         const itemsData: any[] = [];
+        const billingItems: {
+          index: number;
+          name: string;
+          menuItemId: number;
+          menuCategoryId: number | null;
+          quantity: number;
+          unitPrice: number;
+          firstStationId: number | null;
+          firstStationName: string | null;
+        }[] = [];
 
-        for (const it of dto.items) {
+        for (const [index, it] of dto.items.entries()) {
           const mi = await tx.menuItem.findUnique({
             where: { id: it.menuItemId },
             include: { menuCategory: true },
           });
-          if (!mi) throw new BadRequestException(tr('errors.resMenuItemIdNotFound', { id: it.menuItemId }));
+          if (!mi)
+            throw new BadRequestException(
+              tr('errors.resMenuItemIdNotFound', { id: it.menuItemId }),
+            );
           totalAmount += mi.price * it.quantity;
 
           // Dynamic recipe costing: when the menu item has a recipe, the cost
@@ -844,8 +1122,18 @@ export class RestaurantService {
           const itemCost = liveCost ?? mi.cost ?? 0;
 
           // Resolve the station route: item override > category route > none.
-          const catRoute = (mi.menuCategory?.stationRoute as Array<{ id: number; name: string; key: string }>) ?? [];
-          const itemRoute = (mi.stationRoute as Array<{ id: number; name: string; key: string }> | null) ?? null;
+          const catRoute =
+            (mi.menuCategory?.stationRoute as Array<{
+              id: number;
+              name: string;
+              key: string;
+            }>) ?? [];
+          const itemRoute =
+            (mi.stationRoute as Array<{
+              id: number;
+              name: string;
+              key: string;
+            }> | null) ?? null;
           const route =
             itemRoute && itemRoute.length
               ? itemRoute
@@ -867,13 +1155,53 @@ export class RestaurantService {
             stationName: first?.name ?? null,
             notes: it.notes,
           });
+          billingItems.push({
+            index,
+            name: mi.name,
+            menuItemId: mi.id,
+            menuCategoryId: mi.menuCategoryId ?? null,
+            quantity: it.quantity,
+            unitPrice: mi.price,
+            firstStationId: first?.id ?? null,
+            firstStationName: first?.name ?? null,
+          });
         }
+
+        // Apply package/entitlement coverage (deducted from gross per item).
+        let packageBilling: Awaited<
+          ReturnType<PackagesService['computePackageOrderBilling']>
+        > | null = null;
+        // Charge-to-room may resolve a package guest from the stay itself.
+        const packageGuestId =
+          roomCharge?.packageGuestId ?? billing?.packageGuestId ?? null;
+        if (wantsPackageBilling && packageGuestId) {
+          const staff = await tx.user.findUnique({
+            where: { id: user.sub },
+            select: { name: true },
+          });
+          packageBilling = await this.packages.computePackageOrderBilling(tx, {
+            packageGuestId,
+            organizationId: tenantId,
+            items: billingItems,
+            allowCompensation: policy.allowPackagePriceCompensation,
+            servedByName: staff?.name ?? null,
+          });
+          for (const r of packageBilling.results) {
+            const it = itemsData[r.index];
+            it.packageDiscount = r.packageDiscount;
+            it.netCharge = r.netCharge;
+          }
+        }
+
+        // A standard-stay charge has no table: the room is the billing target.
+        const effectiveTableId =
+          roomCharge && !packageBilling ? null : (dto.tableId ?? null);
 
         const order = await tx.order.create({
           data: {
             tenantId,
             orderNumber: `ORD-${Date.now()}`,
-            tableId: dto.tableId,
+            tableId: effectiveTableId,
             customerName: dto.customerName,
             // Auto-dispatched: the order goes straight to its stations when it
             // is placed, so waiters have no separate "send to station" step.
@@ -882,24 +1210,120 @@ export class RestaurantService {
             clientRef: dto.clientRef ?? null,
             createdById: user.sub,
             items: { create: itemsData },
+            ...(packageBilling
+              ? {
+                  billingType:
+                    billing?.type === 'ROOM_CHARGE' ? 'ROOM_CHARGE' : 'PACKAGE',
+                  packageGuestId,
+                  packageId: packageBilling.packageId,
+                  guestTag: `[${packageBilling.roomNumber ?? packageBilling.guestName} / ${packageBilling.packageName}]`,
+                  packageDiscount: packageBilling.totalPackageDiscount,
+                  ...(roomCharge
+                    ? {
+                        hotelReservationId: roomCharge.reservationId,
+                        netChargeMode:
+                          normalizeNetChargeMode(billing?.netChargeMode) ??
+                          'FOLIO',
+                      }
+                    : {}),
+                }
+              : roomCharge
+                ? {
+                    // Standard stay: the whole net charge is deferred to the
+                    // reservation folio (itemized lines posted below).
+                    billingType: 'ROOM_CHARGE',
+                    hotelReservationId: roomCharge.reservationId,
+                    netChargeMode:
+                      normalizeNetChargeMode(billing?.netChargeMode) ?? 'FOLIO',
+                    guestTag: `[${roomCharge.roomNumber ? `Room ${roomCharge.roomNumber}` : roomCharge.guestName}]`,
+                  }
+                : {}),
           },
           include: { items: true },
         });
 
-        if (dto.tableId) {
-          await tx.diningTable.update({ where: { id: dto.tableId }, data: { status: TableStatus.OCCUPIED } });
+        // Itemized ledger rows for the guest folio.
+        if (packageBilling && packageBilling.folioEntries.length) {
+          const folio = await tx.guestFolio.findFirst({
+            where: { packageGuestId: billing?.packageGuestId ?? '' },
+            select: { id: true },
+          });
+          if (folio) {
+            for (let k = 0; k < packageBilling.folioEntries.length; k++) {
+              const fe = packageBilling.folioEntries[k];
+              await tx.guestFolioEntry.create({
+                data: {
+                  folioId: folio.id,
+                  orderId: order.id,
+                  orderItemId: order.items[k]?.id ?? null,
+                  stationName: fe.stationName,
+                  servedByName: fe.servedByName,
+                  itemName: fe.itemName,
+                  quantity: fe.quantity,
+                  sourceService: packageBilling.sourceService,
+                  unitPrice: fe.unitPrice,
+                  grossPrice: fe.grossPrice,
+                  packageDiscount: fe.packageDiscount,
+                  netCharge: fe.netCharge,
+                  // Who actually posted the line (staff accountability on the bill).
+                  createdById: user.sub,
+                },
+              });
+            }
+          }
+        }
+
+        // Standard-stay charge-to-room: post itemized lines to the stay folio so
+        // the front desk collects them at checkout (mirrors GuestFolioEntry).
+        if (roomCharge && !packageBilling) {
+          const folio = await this.ensureStayFolio(
+            tx,
+            tenantId,
+            roomCharge.reservationId,
+            roomCharge.guestName,
+          );
+          for (const bi of billingItems) {
+            await tx.folioEntry.create({
+              data: {
+                tenantId,
+                folioId: folio.id,
+                description: `${bi.name} × ${bi.quantity}`,
+                amount: bi.unitPrice * bi.quantity,
+                type: 'CHARGE',
+                sourceService: 'FOOD_AND_BEVERAGE',
+                unitPrice: bi.unitPrice,
+                // Link the ledger line back to the POS order that produced it.
+                orderId: order.id,
+                createdById: user.sub,
+              },
+            });
+          }
+        }
+
+        if (effectiveTableId) {
+          await tx.diningTable.update({
+            where: { id: effectiveTableId },
+            data: { status: TableStatus.OCCUPIED },
+          });
         }
 
         return order;
       })
       .catch((err: unknown) =>
-        assertNotDuplicate(err, 'This order was already submitted. Please refresh and try again.'),
+        assertNotDuplicate(
+          err,
+          'This order was already submitted. Please refresh and try again.',
+        ),
       );
 
     // Dispatch = placing the order. Notify the stations that receive work and
     // start the order's audit timeline.
     await this.notifyFirstHopStations(created);
-    await this.recordOrderStatusHistory(created.id, OrderStatus.DISPATCHED, user);
+    await this.recordOrderStatusHistory(
+      created.id,
+      OrderStatus.DISPATCHED,
+      user,
+    );
     return created;
   }
 
@@ -912,8 +1336,12 @@ export class RestaurantService {
     if (!order) throw new NotFoundException(tr('errors.orderNotFound'));
     // Orders are auto-dispatched on creation, so editing stays possible while
     // the order is OPEN or DISPATCHED and no station has started any item yet.
-    const editable = order.status === OrderStatus.OPEN || order.status === OrderStatus.DISPATCHED;
-    const started = (order.items ?? []).some((it) => it.status !== OrderItemStatus.QUEUED);
+    const editable =
+      order.status === OrderStatus.OPEN ||
+      order.status === OrderStatus.DISPATCHED;
+    const started = (order.items ?? []).some(
+      (it) => it.status !== OrderItemStatus.QUEUED,
+    );
     if (!editable || started) {
       throw new BadRequestException(tr('errors.paidOrderCannotBeEdited'));
     }
@@ -929,11 +1357,24 @@ export class RestaurantService {
             where: { id: it.menuItemId },
             include: { menuCategory: true },
           });
-          if (!mi) throw new BadRequestException(tr('errors.resMenuItemIdNotFound', { id: it.menuItemId }));
+          if (!mi)
+            throw new BadRequestException(
+              tr('errors.resMenuItemIdNotFound', { id: it.menuItemId }),
+            );
           totalAmount += mi.price * it.quantity;
           // Resolve the station route: item override > category route > none.
-          const catRoute = (mi.menuCategory?.stationRoute as Array<{ id: number; name: string; key: string }>) ?? [];
-          const itemRoute = (mi.stationRoute as Array<{ id: number; name: string; key: string }> | null) ?? null;
+          const catRoute =
+            (mi.menuCategory?.stationRoute as Array<{
+              id: number;
+              name: string;
+              key: string;
+            }>) ?? [];
+          const itemRoute =
+            (mi.stationRoute as Array<{
+              id: number;
+              name: string;
+              key: string;
+            }> | null) ?? null;
           const route =
             itemRoute && itemRoute.length
               ? itemRoute
@@ -971,29 +1412,43 @@ export class RestaurantService {
           tableId: dto.tableId,
           customerName: dto.customerName,
           totalAmount,
-          ...(dto.items ? { items: { deleteMany: {}, create: itemsData } } : {}),
+          ...(dto.items
+            ? { items: { deleteMany: {}, create: itemsData } }
+            : {}),
         },
       });
 
-      return tx.order.findFirst({ where: { id: orderId }, include: { items: true, table: true } });
+      return tx.order.findFirst({
+        where: { id: orderId },
+        include: { items: true, table: true },
+      });
     });
   }
 
   async cancelOrder(orderId: number, user: JwtPayload) {
     const tenantId = this.tenant();
-    const order = await this.prisma.order.findFirst({ where: { id: orderId, tenantId } });
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, tenantId },
+    });
     if (!order) throw new NotFoundException(tr('errors.orderNotFound'));
-    if (order.status === OrderStatus.PAID) throw new BadRequestException(tr('errors.paidOrdersCannotBeCancelled'));
-    await this.prisma.order.update({ where: { id: orderId }, data: { status: OrderStatus.CANCELLED } });
+    if (order.status === OrderStatus.PAID)
+      throw new BadRequestException(tr('errors.paidOrdersCannotBeCancelled'));
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { status: OrderStatus.CANCELLED },
+    });
     await this.recordOrderStatusHistory(orderId, OrderStatus.CANCELLED, user);
     return { id: orderId, status: OrderStatus.CANCELLED };
   }
 
   async deleteOrder(orderId: number) {
     const tenantId = this.tenant();
-    const order = await this.prisma.order.findFirst({ where: { id: orderId, tenantId } });
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, tenantId },
+    });
     if (!order) throw new NotFoundException(tr('errors.orderNotFound'));
-    if (order.status === OrderStatus.PAID) throw new BadRequestException(tr('errors.paidOrdersCannotBeDeleted'));
+    if (order.status === OrderStatus.PAID)
+      throw new BadRequestException(tr('errors.paidOrdersCannotBeDeleted'));
     await this.prisma.order.deleteMany({ where: { id: orderId, tenantId } });
     return { id: orderId };
   }
@@ -1008,7 +1463,12 @@ export class RestaurantService {
   }) {
     const firstHopKeys = new Set<string>();
     for (const item of order.items ?? []) {
-      const route = (item.stationRoute as Array<{ id: number; name: string; key: string }>) ?? [];
+      const route =
+        (item.stationRoute as Array<{
+          id: number;
+          name: string;
+          key: string;
+        }>) ?? [];
       if (route.length) firstHopKeys.add(route[0].key);
     }
 
@@ -1017,11 +1477,24 @@ export class RestaurantService {
       where: { tenantId, key: { in: [...firstHopKeys].filter(Boolean) } },
     });
     for (const st of stationRows) {
-      if (st.roleName) {
+      const title = `New ${st.name} Order`;
+      const body = `Order ${order.orderNumber} has items to prepare at ${st.name}.`;
+      // Prefer the immutable role link (station.roleId) so renaming the role
+      // can never misroute station alerts; fall back to the role name for
+      // stations created before roleId was linked.
+      if (st.roleId) {
+        await this.notifications.notifyRoleId(
+          st.roleId,
+          title,
+          body,
+          'ORDER_STATUS',
+          RESTAURANT_LINK,
+        );
+      } else if (st.roleName) {
         await this.notifications.notifyRole(
           st.roleName,
-          `New ${st.name} Order`,
-          `Order ${order.orderNumber} has items to prepare at ${st.name}.`,
+          title,
+          body,
           'ORDER_STATUS',
           RESTAURANT_LINK,
         );
@@ -1044,17 +1517,15 @@ export class RestaurantService {
       throw new ForbiddenException(tr('errors.stationItemUpdateDenied'));
     }
     if (item.status !== OrderItemStatus.READY) {
-      throw new BadRequestException(
-        tr('errors.resMakeItemReady'),
-      );
+      throw new BadRequestException(tr('errors.resMakeItemReady'));
     }
 
-    const route = (item.stationRoute as Array<{ id: number; name: string; key: string }>) ?? [];
+    const route =
+      (item.stationRoute as Array<{ id: number; name: string; key: string }>) ??
+      [];
     const nextIndex = item.stationIndex + 1;
     if (nextIndex >= route.length) {
-      throw new BadRequestException(
-        tr('errors.resNoNextStation'),
-      );
+      throw new BadRequestException(tr('errors.resNoNextStation'));
     }
     const next = route[nextIndex];
 
@@ -1073,18 +1544,30 @@ export class RestaurantService {
       const st = await this.prisma.restaurantStation.findFirst({
         where: { tenantId, key: next.key },
       });
-      if (st?.roleName) {
+      if (st?.roleName || st?.roleId) {
         const order = await this.prisma.order.findUnique({
           where: { id: orderId },
           select: { orderNumber: true },
         });
-        await this.notifications.notifyRole(
-          st.roleName,
-          `New ${st.name} Order`,
-          `Order ${order?.orderNumber ?? ''} has an item handed off to ${st.name}.`,
-          'ORDER_STATUS',
-          RESTAURANT_LINK,
-        );
+        const title = `New ${st.name} Order`;
+        const body = `Order ${order?.orderNumber ?? ''} has an item handed off to ${st.name}.`;
+        if (st.roleId) {
+          await this.notifications.notifyRoleId(
+            st.roleId,
+            title,
+            body,
+            'ORDER_STATUS',
+            RESTAURANT_LINK,
+          );
+        } else {
+          await this.notifications.notifyRole(
+            st.roleName!,
+            title,
+            body,
+            'ORDER_STATUS',
+            RESTAURANT_LINK,
+          );
+        }
       }
     }
 
@@ -1100,16 +1583,32 @@ export class RestaurantService {
     };
   }
 
-  async updateOrderStatus(orderId: number, status: OrderStatus, user: JwtPayload) {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId }, include: { table: true } });
+  async updateOrderStatus(
+    orderId: number,
+    status: OrderStatus,
+    user: JwtPayload,
+  ) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { table: true },
+    });
     if (!order) throw new NotFoundException(tr('errors.orderNotFound'));
 
-    await this.prisma.order.update({ where: { id: orderId }, data: { status } });
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { status },
+    });
     await this.recordOrderStatusHistory(orderId, status, user);
 
     // Free the table when the order is paid or cancelled.
-    if ((status === OrderStatus.PAID || status === OrderStatus.CANCELLED) && order.tableId) {
-      await this.prisma.diningTable.update({ where: { id: order.tableId }, data: { status: TableStatus.FREE } });
+    if (
+      (status === OrderStatus.PAID || status === OrderStatus.CANCELLED) &&
+      order.tableId
+    ) {
+      await this.prisma.diningTable.update({
+        where: { id: order.tableId },
+        data: { status: TableStatus.FREE },
+      });
     }
 
     return { id: orderId, status };
@@ -1128,12 +1627,20 @@ export class RestaurantService {
     if (!this.allowedItemStatusChange(item, status, user)) {
       throw new ForbiddenException(tr('errors.cannotChangeItemToThatStatus'));
     }
-    await this.prisma.orderItem.update({ where: { id: itemId }, data: { status } });
+    await this.prisma.orderItem.update({
+      where: { id: itemId },
+      data: { status },
+    });
 
     if (status === OrderItemStatus.READY) {
       // Only notify the waiter when the item is ready at its FINAL station
       // (multi-hop items are handed to the next station instead).
-      const route = (item.stationRoute as Array<{ id: number; name: string; key: string }>) ?? [];
+      const route =
+        (item.stationRoute as Array<{
+          id: number;
+          name: string;
+          key: string;
+        }>) ?? [];
       const isFinalHop = item.stationIndex + 1 >= route.length;
       if (isFinalHop) {
         const order = await this.prisma.order.findUnique({
@@ -1173,14 +1680,22 @@ export class RestaurantService {
     const perms = user.permissions ?? [];
     if (perms.includes('restaurant.manage')) return true;
 
-    if (item.stationKey && perms.includes(this.stationUpdatePermission(item.stationKey))) {
+    if (
+      item.stationKey &&
+      perms.includes(this.stationUpdatePermission(item.stationKey))
+    ) {
       // The station prepares and makes ready — it does not serve.
-      return status === OrderItemStatus.PREPARING || status === OrderItemStatus.READY;
+      return (
+        status === OrderItemStatus.PREPARING || status === OrderItemStatus.READY
+      );
     }
 
     if (perms.includes('restaurant.serve')) {
       // The waiter serves the order once the station has made it ready.
-      return status === OrderItemStatus.SERVED && item.status === OrderItemStatus.READY;
+      return (
+        status === OrderItemStatus.SERVED &&
+        item.status === OrderItemStatus.READY
+      );
     }
 
     return false;
@@ -1231,7 +1746,11 @@ export class RestaurantService {
       include: { items: true },
     });
     if (!order) return;
-    if (order.status === OrderStatus.PAID || order.status === OrderStatus.CANCELLED) return;
+    if (
+      order.status === OrderStatus.PAID ||
+      order.status === OrderStatus.CANCELLED
+    )
+      return;
     const items = order.items ?? [];
     if (!items.length) return;
 
@@ -1257,13 +1776,18 @@ export class RestaurantService {
 
     if (next === order.status) return;
 
-    await this.prisma.order.update({ where: { id: orderId }, data: { status: next } });
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { status: next },
+    });
 
     // READY is only a real "ready to serve" milestone when every item is at
     // its FINAL station (multi-hop items are handed to the next station and
     // reset to QUEUED instead of being served).
     const allAtFinalHop = items.every((it) => {
-      const route = (it.stationRoute as Array<{ id: number; name: string; key: string }>) ?? [];
+      const route =
+        (it.stationRoute as Array<{ id: number; name: string; key: string }>) ??
+        [];
       return it.stationIndex + 1 >= route.length;
     });
 
@@ -1301,15 +1825,16 @@ export class RestaurantService {
     }
 
     if (next === OrderStatus.SERVED) {
+      // Immutable system keys → alerts survive role renames.
       await this.notifications.notifyRole(
-        'Cashier',
+        'CASHIER',
         'Order Served',
         `Order ${order.orderNumber} has been served to the customer.`,
         'ORDER_STATUS',
         CASHIER_LINK,
       );
       await this.notifications.notifyRole(
-        'Receptionist',
+        'RECEPTIONIST',
         'Order Served',
         `Order ${order.orderNumber} has been served to the customer.`,
         'ORDER_STATUS',
@@ -1329,7 +1854,10 @@ export class RestaurantService {
       include: { items: true },
     });
     if (!order) throw new NotFoundException(tr('errors.orderNotFound'));
-    if (order.status === OrderStatus.PAID || order.status === OrderStatus.CANCELLED) {
+    if (
+      order.status === OrderStatus.PAID ||
+      order.status === OrderStatus.CANCELLED
+    ) {
       throw new BadRequestException(tr('errors.orderAlreadyClosed'));
     }
 
@@ -1342,7 +1870,9 @@ export class RestaurantService {
       throw new ForbiddenException(tr('errors.noPermissionToServe'));
     }
 
-    const readyItems = (order.items ?? []).filter((it) => it.status === OrderItemStatus.READY);
+    const readyItems = (order.items ?? []).filter(
+      (it) => it.status === OrderItemStatus.READY,
+    );
     if (!readyItems.length) {
       throw new BadRequestException(tr('errors.noItemsReadyToServe'));
     }
@@ -1363,7 +1893,18 @@ export class RestaurantService {
    */
   private async settleOrderInTransaction(
     tx: Prisma.TransactionClient,
-    order: { id: number; orderNumber: string; totalAmount: number; tableId: number | null },
+    order: {
+      id: number;
+      orderNumber: string;
+      totalAmount: number;
+      tableId: number | null;
+      billingType: string;
+      packageDiscount: number;
+      // Charge-to-room linkage (set by createOrder).
+      hotelReservationId?: number | null;
+      packageGuestId?: string | null;
+      netChargeMode?: string | null;
+    },
     dto: SettleOrderDto,
     tenantId: number,
     initialStatus: string,
@@ -1384,13 +1925,173 @@ export class RestaurantService {
       tax = splitTax(base, taxCtx.rate, taxCtx.inclusive).tax;
       taxRateId = taxCtx.rateId;
     }
-    const finalTotal = configuredTax && taxCtx.inclusive
-      ? base + serviceCharge // tax already inside the item totals
-      : base + serviceCharge + tax;
+    const finalTotal =
+      configuredTax && taxCtx.inclusive
+        ? base + serviceCharge // tax already inside the item totals
+        : base + serviceCharge + tax;
 
+    // Hospitality policy: drives package / excess routing for package-billed orders.
+    const orgSettings = await tx.organization.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    const policy = readHospitalityPolicy(
+      orgSettings?.settings as Record<string, unknown> | null,
+    );
+
+    const isPackageBilled =
+      order.billingType === 'PACKAGE' || order.billingType === 'ROOM_CHARGE';
+
+    // --- STANDARD orders: 100% unchanged classic POS settle ---
+    if (!isPackageBilled) {
+      const payments = dto.payments?.length
+        ? dto.payments
+        : [{ amount: finalTotal, paymentMethodId: dto.paymentMethodId }];
+      const totalPaid = payments.reduce((s, p) => s + (p.amount ?? 0), 0);
+
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          status: OrderStatus.PAID,
+          discount,
+          serviceCharge,
+          tax,
+          taxRateId,
+          taxInclusive: configuredTax ? taxCtx.inclusive : true,
+          paidAmount: totalPaid,
+        },
+      });
+
+      for (const p of payments) {
+        await tx.orderPayment.create({
+          data: {
+            tenantId,
+            orderId: order.id,
+            amount: p.amount ?? 0,
+            paymentMethodId: p.paymentMethodId,
+            transactionReference: p.transactionReference,
+            collectedById: user.sub,
+            status: initialStatus,
+          },
+        });
+      }
+
+      if (order.tableId) {
+        await tx.diningTable.update({
+          where: { id: order.tableId },
+          data: { status: TableStatus.FREE },
+        });
+      }
+
+      await tx.orderStatusHistory.create({
+        data: {
+          tenantId,
+          orderId: order.id,
+          status: OrderStatus.PAID,
+          actorId: user.sub,
+          actorName,
+          actorRole: user.roleName ?? null,
+        },
+      });
+
+      return {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        finalTotal,
+        totalPaid,
+      };
+    }
+
+    // --- PACKAGE / ROOM_CHARGE orders: excess (net charge) routed by policy ---
+    // A stay-linked order needs room-folio charging; entitlements (package
+    // guests) additionally need package routing. A standard-stay charge has no
+    // package guest: its itemized lines are already on the reservation folio, so
+    // it must always settle as deferred (the front desk collects at checkout).
+    const isRoomCharge = order.hotelReservationId != null;
+    const isStayFolioCharge = isRoomCharge && !order.packageGuestId;
+    if (!isRoomCharge && !policy.enablePackageRouting) {
+      throw new BadRequestException(
+        'Package & entitlement billing is not enabled for this business.',
+      );
+    }
+    if (isRoomCharge && !policy.enableRoomFolioCharging) {
+      throw new BadRequestException(
+        'Room folio charging is disabled for this business.',
+      );
+    }
+    // Pension guard: rooms-only businesses cannot post F&B/package charges.
+    if (await this.isAccommodationOnly(tenantId)) {
+      throw new BadRequestException(
+        'This business is a rooms-only pension — package & folio billing is disabled.',
+      );
+    }
+    const netAmount = Math.max(0, finalTotal - (order.packageDiscount ?? 0));
+
+    // PAY_NOW / DEFER_TO_FOLIO (and legacy COLLECT_NOW / FOLIO) are all accepted.
+    const requestedMode = normalizeNetChargeMode(
+      dto.netChargeMode ?? order.netChargeMode,
+    );
+    let mode: 'FOLIO' | 'COLLECT_NOW';
+    if (isStayFolioCharge) {
+      // Already posted to the stay folio — never collect a second time.
+      mode = 'FOLIO';
+    } else if (policy.defaultExcessSettlementMode === 'DEFER_TO_FOLIO_ONLY')
+      mode = 'FOLIO';
+    else if (policy.defaultExcessSettlementMode === 'COLLECT_NOW_ONLY')
+      mode = 'COLLECT_NOW';
+    else
+      mode =
+        requestedMode ??
+        (policy.enableRoomFolioCharging ? 'FOLIO' : 'COLLECT_NOW');
+
+    if (mode === 'FOLIO' && !policy.enableRoomFolioCharging) {
+      throw new BadRequestException(
+        'Room folio charging is disabled for this business.',
+      );
+    }
+
+    if (mode === 'FOLIO') {
+      // Defer the net charge to the guest folio — settled at master checkout.
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          status: OrderStatus.PAID,
+          discount,
+          serviceCharge,
+          tax,
+          taxRateId,
+          taxInclusive: configuredTax ? taxCtx.inclusive : true,
+          paidAmount: netAmount,
+        },
+      });
+      if (order.tableId) {
+        await tx.diningTable.update({
+          where: { id: order.tableId },
+          data: { status: TableStatus.FREE },
+        });
+      }
+      await tx.orderStatusHistory.create({
+        data: {
+          tenantId,
+          orderId: order.id,
+          status: OrderStatus.PAID,
+          actorId: user.sub,
+          actorName,
+          actorRole: user.roleName ?? null,
+        },
+      });
+      return {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        finalTotal,
+        totalPaid: 0,
+      };
+    }
+
+    // COLLECT_NOW — collect the net charge at the POS (cashier flow as usual).
     const payments = dto.payments?.length
       ? dto.payments
-      : [{ amount: finalTotal, paymentMethodId: dto.paymentMethodId }];
+      : [{ amount: netAmount, paymentMethodId: dto.paymentMethodId }];
     const totalPaid = payments.reduce((s, p) => s + (p.amount ?? 0), 0);
 
     await tx.order.update({
@@ -1405,7 +2106,6 @@ export class RestaurantService {
         paidAmount: totalPaid,
       },
     });
-
     for (const p of payments) {
       await tx.orderPayment.create({
         data: {
@@ -1419,11 +2119,12 @@ export class RestaurantService {
         },
       });
     }
-
     if (order.tableId) {
-      await tx.diningTable.update({ where: { id: order.tableId }, data: { status: TableStatus.FREE } });
+      await tx.diningTable.update({
+        where: { id: order.tableId },
+        data: { status: TableStatus.FREE },
+      });
     }
-
     await tx.orderStatusHistory.create({
       data: {
         tenantId,
@@ -1434,28 +2135,49 @@ export class RestaurantService {
         actorRole: user.roleName ?? null,
       },
     });
-
-    return { orderId: order.id, orderNumber: order.orderNumber, finalTotal, totalPaid };
+    return {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      finalTotal,
+      totalPaid,
+    };
   }
 
   async settleOrder(orderId: number, dto: SettleOrderDto, user: JwtPayload) {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId }, include: { table: true } });
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { table: true },
+    });
     if (!order) throw new NotFoundException(tr('errors.orderNotFound'));
 
     const tenantId = this.tenant();
-    const org = await this.prisma.organization.findUnique({ where: { id: tenantId }, select: { settings: true } });
+    const org = await this.prisma.organization.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
     const settings = (org?.settings as Record<string, unknown>) ?? {};
-    const requireCashierConfirmation = settings.requireCashierConfirmation !== false;
-    const initialStatus = requireCashierConfirmation ? 'PENDING_CONFIRMATION' : 'CONFIRMED';
+    const requireCashierConfirmation =
+      settings.requireCashierConfirmation !== false;
+    const initialStatus = requireCashierConfirmation
+      ? 'PENDING_CONFIRMATION'
+      : 'CONFIRMED';
     const actorName = await this.userDisplayName(user);
 
     const result = await this.prisma.$transaction((tx) =>
-      this.settleOrderInTransaction(tx, order, dto, tenantId, initialStatus, user, actorName),
+      this.settleOrderInTransaction(
+        tx,
+        order,
+        dto,
+        tenantId,
+        initialStatus,
+        user,
+        actorName,
+      ),
     );
 
     if (requireCashierConfirmation) {
       await this.notifications.notifyRole(
-        'Cashier',
+        'CASHIER',
         'Payment Pending Confirmation',
         `Order ${order.orderNumber} has a payment awaiting confirmation.`,
         'ORDER_STATUS',
@@ -1478,7 +2200,11 @@ export class RestaurantService {
    * Batch-settle several open orders (e.g. every open order on the same table)
    * in a single transaction so the whole bill is closed atomically.
    */
-  async batchSettleOrders(orderIds: number[], dto: SettleOrderDto, user: JwtPayload) {
+  async batchSettleOrders(
+    orderIds: number[],
+    dto: SettleOrderDto,
+    user: JwtPayload,
+  ) {
     const tenantId = this.tenant();
     const orders = await this.prisma.order.findMany({
       where: {
@@ -1487,19 +2213,34 @@ export class RestaurantService {
         status: { notIn: [OrderStatus.PAID, OrderStatus.CANCELLED] },
       },
     });
-    if (!orders.length) throw new NotFoundException(tr('errors.noOpenOrdersToSettle'));
+    if (!orders.length)
+      throw new NotFoundException(tr('errors.noOpenOrdersToSettle'));
 
-    const org = await this.prisma.organization.findUnique({ where: { id: tenantId }, select: { settings: true } });
+    const org = await this.prisma.organization.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
     const settings = (org?.settings as Record<string, unknown>) ?? {};
-    const requireCashierConfirmation = settings.requireCashierConfirmation !== false;
-    const initialStatus = requireCashierConfirmation ? 'PENDING_CONFIRMATION' : 'CONFIRMED';
+    const requireCashierConfirmation =
+      settings.requireCashierConfirmation !== false;
+    const initialStatus = requireCashierConfirmation
+      ? 'PENDING_CONFIRMATION'
+      : 'CONFIRMED';
     const actorName = await this.userDisplayName(user);
 
     const results = await this.prisma.$transaction(async (tx) => {
       const out: any[] = [];
       for (const order of orders) {
         out.push(
-          await this.settleOrderInTransaction(tx, order, dto, tenantId, initialStatus, user, actorName),
+          await this.settleOrderInTransaction(
+            tx,
+            order,
+            dto,
+            tenantId,
+            initialStatus,
+            user,
+            actorName,
+          ),
         );
       }
       return out;
@@ -1507,7 +2248,7 @@ export class RestaurantService {
 
     if (requireCashierConfirmation) {
       await this.notifications.notifyRole(
-        'Cashier',
+        'CASHIER',
         'Payment Pending Confirmation',
         `${orders.length} order(s) have payments awaiting confirmation.`,
         'ORDER_STATUS',
@@ -1519,7 +2260,11 @@ export class RestaurantService {
       }
     }
 
-    return { ids: orders.map((o) => o.id), status: OrderStatus.PAID, settled: results };
+    return {
+      ids: orders.map((o) => o.id),
+      status: OrderStatus.PAID,
+      settled: results,
+    };
   }
 
   // --- Reservations ---
@@ -1562,4 +2307,3 @@ export class RestaurantService {
     return { id, status };
   }
 }
-

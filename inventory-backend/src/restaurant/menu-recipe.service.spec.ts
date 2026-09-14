@@ -3,6 +3,7 @@ import { MenuRecipeService } from './menu-recipe.service';
 
 jest.mock('../common/tenant/tenant.context', () => ({
   getCurrentTenantId: jest.fn(() => 1),
+  requireTenantId: jest.fn(() => 1),
 }));
 
 describe('MenuRecipeService — dynamic recipe costing', () => {

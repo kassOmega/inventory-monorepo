@@ -82,6 +82,11 @@ export default function StationBoard({ station }: { station: string }) {
               <span className="font-medium text-sm text-gray-800">
                 {o.orderNumber}
                 {o.table ? ` · ${o.table.name}` : ""}
+                {o.guestTag && (
+                  <span className="ml-2 inline-block bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded text-[10px] font-medium align-middle">
+                    {o.guestTag}
+                  </span>
+                )}
               </span>
               <span className="text-xs text-gray-400">{statusWord(o.status)}</span>
             </div>

@@ -44,7 +44,8 @@ export async function inventoryUpsert(
     locationId: number;
     variantId?: number | null;
     increment: number;
-    tenantId?: number | null;
+    // Required: Inventory.tenantId is a NOT NULL FK to Organization.
+    tenantId: number;
     unitCost?: number | null;
   },
 ) {
@@ -68,7 +69,7 @@ export async function inventoryUpsert(
   }
   return tx.inventory.create({
     data: {
-      ...(input.tenantId != null ? { tenantId: input.tenantId } : {}),
+      tenantId: input.tenantId,
       productId: input.productId,
       variantId: input.variantId ?? null,
       locationId: input.locationId,
@@ -88,7 +89,8 @@ export async function inventorySet(
     locationId: number;
     variantId?: number | null;
     quantity: number;
-    tenantId?: number | null;
+    // Required: Inventory.tenantId is a NOT NULL FK to Organization.
+    tenantId: number;
   },
 ) {
   const row = await tx.inventory.findFirst({
@@ -106,7 +108,7 @@ export async function inventorySet(
   }
   return tx.inventory.create({
     data: {
-      ...(input.tenantId != null ? { tenantId: input.tenantId } : {}),
+      tenantId: input.tenantId,
       productId: input.productId,
       variantId: input.variantId ?? null,
       locationId: input.locationId,

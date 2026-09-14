@@ -760,7 +760,7 @@ export class FinanceService {
    */
   async postOrderIncome(
     orderId: number,
-    tenantId: number | null,
+    tenantId: number,
     tx?: Prisma.TransactionClient,
   ): Promise<number> {
     const run = (db: Prisma.TransactionClient) =>
@@ -773,7 +773,7 @@ export class FinanceService {
   private async postOrderIncomeCore(
     db: Prisma.TransactionClient,
     orderId: number,
-    tenantId: number | null,
+    tenantId: number,
   ): Promise<number> {
     const existing = await db.otherIncome.findFirst({
       where: { tenantId, source: 'ORDER', sourceId: orderId },
@@ -887,7 +887,7 @@ export class FinanceService {
         cost: 0,
         qty: 0,
       };
-      entry.amount += (item.unitPrice ?? 0) * item.quantity;
+      entry.amount += (item.unitPrice ?? 0) * item.quantity - (item.packageDiscount ?? 0);
       // Per-mode COGS per unit:
       //  PERPETUAL -> live recipe cost; BENCHMARK -> estimatedCogs;
       //  SIMPLE    -> 0 (revenue only); legacy raw rows -> snapshot item.cost.
@@ -1045,6 +1045,120 @@ export class FinanceService {
     return created;
   }
 
+  /** Post facility day-pass income to the ledger once the cashier confirms it. */
+  async postFacilityIncome(paymentId: number, tenantId: number): Promise<number> {
+    const existing = await this.prisma.otherIncome.findFirst({
+      where: { tenantId, source: 'FACILITY', sourceId: paymentId },
+    });
+    if (existing) return 0;
+
+    const payment = await this.prisma.facilityPayment.findUnique({
+      where: { id: paymentId },
+    });
+    if (!payment || payment.status !== 'CONFIRMED') return 0;
+
+    const accounts = await this.prisma.account.findMany({
+      where: { tenantId, type: AccountType.INCOME },
+    });
+    const find = (name: string) => accounts.find((a) => a.name === name);
+    const account =
+      find('Sales Revenue') ??
+      find('Service Revenue') ??
+      find('Other Income') ??
+      accounts[0];
+    if (!account) return 0;
+
+    await this.prisma.otherIncome.create({
+      data: {
+        tenantId,
+        accountId: account.id,
+        source: 'FACILITY',
+        sourceId: paymentId,
+        description: payment.notes ?? 'Facility day pass',
+        amount: payment.amount,
+        incomeDate: payment.confirmedAt ?? new Date(),
+        createdById: payment.confirmedById,
+      },
+    });
+    return payment.amount;
+  }
+
+  /** Book the upfront hospitality package value as income at guest check-in. */
+  async postPackageIncome(
+    guestId: string,
+    tenantId: number,
+    amount: number,
+    description: string,
+  ): Promise<number> {
+    if (amount <= 0) return 0;
+    const existing = await this.prisma.otherIncome.findFirst({
+      where: { tenantId, source: 'PACKAGE', sourceRef: guestId },
+    });
+    if (existing) return 0;
+
+    const accounts = await this.prisma.account.findMany({
+      where: { tenantId, type: AccountType.INCOME },
+    });
+    const find = (name: string) => accounts.find((a) => a.name === name);
+    const account =
+      find('Sales Revenue') ??
+      find('Service Revenue') ??
+      find('Other Income') ??
+      accounts[0];
+    if (!account) return 0;
+
+    await this.prisma.otherIncome.create({
+      data: {
+        tenantId,
+        accountId: account.id,
+        source: 'PACKAGE',
+        sourceRef: guestId,
+        description,
+        amount,
+        incomeDate: new Date(),
+      },
+    });
+    return amount;
+  }
+
+  /** Post the guest folio net balance (add-on charges) at master checkout. */
+  async postPackageFolioIncome(
+    guestId: string,
+    tenantId: number,
+    amount: number,
+    description: string,
+  ): Promise<number> {
+    if (amount <= 0) return 0;
+    const existing = await this.prisma.otherIncome.findFirst({
+      where: { tenantId, source: 'FOLIO', sourceRef: guestId },
+    });
+    if (existing) return 0;
+
+    const accounts = await this.prisma.account.findMany({
+      where: { tenantId, type: AccountType.INCOME },
+    });
+    const find = (name: string) => accounts.find((a) => a.name === name);
+    const account =
+      find('Sales Revenue') ??
+      find('Service Revenue') ??
+      find('Other Income') ??
+      accounts[0];
+    if (!account) return 0;
+
+    await this.prisma.otherIncome.create({
+      data: {
+        tenantId,
+        accountId: account.id,
+        source: 'FOLIO',
+        sourceRef: guestId,
+        description,
+        amount,
+        incomeDate: new Date(),
+      },
+    });
+    return amount;
+  }
+
   /**
    * Deducts raw ingredient stock for a paid food order based on its recipes
    * (Σ quantityPerUnit × order-item quantity per ingredient). Deduction spans
@@ -1056,7 +1170,7 @@ export class FinanceService {
    */
   async deductOrderIngredientStock(
     orderId: number,
-    tenantId: number | null,
+    tenantId: number,
     tx?: Prisma.TransactionClient,
   ): Promise<number> {
     const db = tx ?? this.prisma;
@@ -1178,7 +1292,7 @@ export class FinanceService {
    */
   async postSaleIncome(
     saleId: number,
-    tenantId: number | null,
+    tenantId: number,
     tx?: Prisma.TransactionClient,
   ): Promise<number> {
     const db = tx ?? this.prisma;
@@ -1478,6 +1592,12 @@ export class FinanceService {
     const arAccount = find('Accounts Receivable');
     if (!roomRevenue) return 0;
 
+    // Revenue is split by the service that produced each line, so the GL reports
+    // Room Revenue / Food Sales / service income separately instead of lumping
+    // every folio charge into one account.
+    const revenueAccountFor = (sourceService: string | null) =>
+      pickFolioIncomeAccount(sourceService, accounts) ?? roomRevenue.id;
+
     // Output VAT snapshot captured at settlement. Inclusive folios carry the tax
     // inside the charges (revenue = total − tax); exclusive folios add it on top
     // (AR/Cash = total + tax, revenue = total). Only splits when the VAT account
@@ -1496,7 +1616,7 @@ export class FinanceService {
       const incomeAccount =
         e.accountId && e.account?.type === AccountType.INCOME
           ? e.accountId
-          : roomRevenue.id;
+          : revenueAccountFor(e.sourceService);
       await db.otherIncome.create({
         data: {
           tenantId,
@@ -1523,6 +1643,29 @@ export class FinanceService {
           entryDate: new Date(),
         },
       });
+
+      // Credit each revenue account with its share of the settled charges, using
+      // the same per-service split as the income rows above (scaled to the net
+      // total so an inclusive VAT folio still balances).
+      const byAccount = new Map<number, number>();
+      for (const e of charges) {
+        const accountId =
+          e.accountId && e.account?.type === AccountType.INCOME
+            ? e.accountId
+            : revenueAccountFor(e.sourceService);
+        byAccount.set(accountId, (byAccount.get(accountId) ?? 0) + e.amount);
+      }
+      const scale = totalCharges > 0 ? netTotal / totalCharges : 0;
+      const revenueLines = Array.from(byAccount.entries()).map(
+        ([accountId, gross]) => ({
+          tenantId,
+          journalEntryId: entry.id,
+          accountId,
+          debit: 0,
+          credit: round2(gross * scale),
+        }),
+      );
+
       await db.journalLine.createMany({
         data: [
           {
@@ -1534,13 +1677,17 @@ export class FinanceService {
               : round2(totalCharges),
             credit: 0,
           },
-          {
-            tenantId,
-            journalEntryId: entry.id,
-            accountId: roomRevenue.id,
-            debit: 0,
-            credit: netTotal,
-          },
+          ...(revenueLines.length > 0
+            ? revenueLines
+            : [
+                {
+                  tenantId,
+                  journalEntryId: entry.id,
+                  accountId: roomRevenue.id,
+                  debit: 0,
+                  credit: netTotal,
+                },
+              ]),
         ],
       });
       if (splitVat) {
@@ -2097,7 +2244,6 @@ export class FinanceService {
     }
     return 1;
   }
-
 
   // --- Journal ---
   async listJournalEntries() {
@@ -3806,3 +3952,51 @@ export class FinanceService {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Revenue-account preference per hospitality service. Folio settlement splits
+ * income across the chart-of-accounts revenue lines (Room Revenue, Food Sales,
+ * Beverage Sales, Service Revenue, …) instead of dumping every charge into one
+ * account, while still falling back gracefully for custom service keys.
+ */
+const FOLIO_SERVICE_ACCOUNTS: Record<string, string[]> = {
+  ACCOMMODATION: ['Room Revenue'],
+  FOOD_AND_BEVERAGE: ['Food Sales', 'Sales Revenue'],
+  RESTAURANT: ['Food Sales', 'Sales Revenue'],
+  ROOM_SERVICE: ['Food Sales', 'Sales Revenue'],
+  BAR: ['Beverage Sales', 'Sales Revenue'],
+  MINIBAR: ['Beverage Sales', 'Sales Revenue'],
+  SPA: ['Service Revenue'],
+  GYM: ['Service Revenue'],
+  POOL: ['Service Revenue'],
+  EVENTS: ['Event Revenue', 'Sales Revenue', 'Service Revenue'],
+  LAUNDRY: ['Laundry Revenue', 'Service Revenue'],
+};
+
+/** Generic revenue fallbacks, tried after the service-specific accounts. */
+const FOLIO_INCOME_FALLBACKS = [
+  'Sales Revenue',
+  'Service Revenue',
+  'Other Income',
+];
+
+/**
+ * Pick the income account for a folio line: the service's preferred account
+ * first, then the generic revenue accounts, then any income account.
+ */
+function pickFolioIncomeAccount(
+  sourceService: string | null | undefined,
+  accounts: Array<{ id: number; name: string; type: AccountType }>,
+): number | null {
+  const findIncome = (name: string) =>
+    accounts.find((a) => a.name === name && a.type === AccountType.INCOME);
+  const candidates = [
+    ...(sourceService ? FOLIO_SERVICE_ACCOUNTS[sourceService] ?? [] : []),
+    ...FOLIO_INCOME_FALLBACKS,
+  ];
+  for (const name of candidates) {
+    const account = findIncome(name);
+    if (account) return account.id;
+  }
+  return accounts.find((a) => a.type === AccountType.INCOME)?.id ?? null;
+}

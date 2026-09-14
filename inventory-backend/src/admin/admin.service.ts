@@ -181,6 +181,7 @@ export class AdminService {
       {
         name: dto.name,
         businessType: dto.businessType,
+        hospitalityServices: dto.hospitalityServices,
         standalone: dto.standalone ?? false,
       },
       {
@@ -240,6 +241,7 @@ export class AdminService {
       ownerRole = await this.prisma.role.create({
         data: {
           name: 'Owner',
+          systemKey: 'OWNER',
           description: 'Full access to everything',
           isSystem: true,
           organizationId,

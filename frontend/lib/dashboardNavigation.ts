@@ -28,6 +28,13 @@ export interface DashboardNav {
   loose: DashboardNavItem[];
 }
 
+export interface NavService {
+  serviceType: string;
+  isEnabled: boolean;
+  customKey?: string | null;
+  customName?: string | null;
+}
+
 export interface NavStation {
   key: string;
   name: string;
@@ -48,6 +55,8 @@ export interface NavBuildContext {
   staffCount: number;
   canViewAllStations: boolean;
   stations: NavStation[];
+  /** Enabled hospitality services for the active business (multi-service gating). */
+  services: NavService[];
   /** Role-based check used to filter every menu item by its `permission`. */
   hasPermission: (key: string) => boolean;
   t: (key: string) => string;
@@ -96,6 +105,26 @@ export const routePermissionMap: Record<string, string> = {
   "/dashboard/food/barista": "barista.view",
   "/dashboard/food/station": "kitchen.view",
   "/dashboard/food/menu": "restaurant.manage",
+  // Hospitality vertical — every deep route is listed because the guard is an
+  // exact path lookup. Custom service lines are handled by prefix in the layout.
+  "/dashboard/hotel": "hotel.view",
+  "/dashboard/hospitality/packages": "packages.view",
+  "/dashboard/hospitality/folios": "folios.view",
+  "/dashboard/hospitality/memberships": "memberships.view",
+  "/dashboard/hospitality/memberships/types": "memberships.view",
+  "/dashboard/hospitality/spa": "facility.view",
+  "/dashboard/hospitality/gym": "facility.view",
+  "/dashboard/hospitality/pool": "facility.view",
+  "/dashboard/hospitality/events": "facility.view",
+  "/dashboard/cashier": "cashier.view",
+  // Service vertical (owner-only business type) — mirrors the backend's
+  // service.view / service.manage gates on /service/*.
+  "/dashboard/service": "service.view",
+  "/dashboard/service/catalog": "service.view",
+  "/dashboard/service/bookings": "service.view",
+  "/dashboard/service/tickets": "service.view",
+  "/dashboard/service/clients": "service.view",
+  "/dashboard/service/settings": "service.manage",
   "/dashboard/payment-methods": "finance.view",
   "/dashboard/taxes": "finance.view",
   "/dashboard/accounts": "finance.view",
@@ -105,8 +134,44 @@ export const routePermissionMap: Record<string, string> = {
   "/dashboard/agent": "agent.manage",
 };
 
+// Routes that belong to exactly one vertical. The sidebar already hides them, but
+// routePermissionMap is an exact-path lookup, so a typed URL (or a stale
+// bookmark) used to render another vertical's module for an organization that
+// merely happens to hold the key — role templates are shared across verticals
+// (e.g. a hospitality Manager carries `service.*`, a retail Storekeeper carries
+// `manufacturing.*`). This mirrors the backend's @Vertical(...) enforcement.
+export type VerticalRouteOwner = "HOSPITALITY" | "MANUFACTURING" | "SERVICE";
+
+export const verticalRoutePrefixes: Array<{
+  prefix: string;
+  type: VerticalRouteOwner;
+}> = [
+  { prefix: "/dashboard/service", type: "SERVICE" },
+  { prefix: "/dashboard/manufacturing", type: "MANUFACTURING" },
+  { prefix: "/dashboard/hotel", type: "HOSPITALITY" },
+  { prefix: "/dashboard/food", type: "HOSPITALITY" },
+  { prefix: "/dashboard/hospitality", type: "HOSPITALITY" },
+];
+
+/** The vertical that owns a route, or null when the route is shared. */
+export function verticalForRoute(
+  pathname: string,
+): VerticalRouteOwner | null {
+  for (const { prefix, type } of verticalRoutePrefixes) {
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return type;
+  }
+  return null;
+}
+
 export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
   const t = ctx.t;
+  /** Whether the active hospitality business has a given service enabled. */
+  const serviceEnabled = (type: string) =>
+    ctx.services.some((s) => s.serviceType === type && s.isEnabled);
+  // Owner-created custom services (each gets a generic facility dashboard).
+  const customServices = ctx.services.filter(
+    (s) => s.serviceType === "CUSTOM" && s.isEnabled,
+  );
 
   // Platform admins manage the platform, not a business: show the admin links
   // flat until they get grouped.
@@ -253,19 +318,93 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
   // Not-yet-grouped links keep their flat behaviour and relative order.
   const loose: DashboardNavItem[] = [];
   if (ctx.hasBusiness && ctx.isHospitality) {
-    loose.push(
-      { href: "/dashboard/food/orders", label: t("nav.orders"), permission: "restaurant.take-orders" },
-      ...ctx.stations.map((s) => ({
-        href: `/dashboard/food/station/${s.key}`,
-        label: s.nameLocalized ?? s.name,
-        permission: ctx.canViewAllStations
-          ? undefined
-          : (s.permissionView ?? "kitchen.view"),
-      })),
-      { href: "/dashboard/food/menu", label: t("nav.menu"), permission: "restaurant.manage" },
-      { href: "/dashboard/cashier", label: t("nav.cashier"), permission: "cashier.view" },
-      { href: "/dashboard/hotel", label: t("nav.roomService"), permission: "hotel.view" },
-    );
+    // FOOD_AND_BEVERAGE — orders, station boards, menu.
+    if (serviceEnabled("FOOD_AND_BEVERAGE")) {
+      loose.push(
+        { href: "/dashboard/food/orders", label: t("nav.orders"), permission: "restaurant.take-orders" },
+        ...ctx.stations.map((s) => ({
+          href: `/dashboard/food/station/${s.key}`,
+          label: s.nameLocalized ?? s.name,
+          permission: ctx.canViewAllStations
+            ? undefined
+            : (s.permissionView ?? "kitchen.view"),
+        })),
+        { href: "/dashboard/food/menu", label: t("nav.menu"), permission: "restaurant.manage" },
+      );
+    }
+    // ACCOMMODATION — rooms, reservations and front-desk billing.
+    if (serviceEnabled("ACCOMMODATION")) {
+      loose.push({ href: "/dashboard/hotel", label: t("nav.roomService"), permission: "hotel.view" });
+    }
+    // Facility dashboards per enabled service line.
+    if (serviceEnabled("SPA_AND_WELLNESS")) {
+      loose.push({
+        href: "/dashboard/hospitality/spa",
+        label: t("hospitalityServices.SPA_AND_WELLNESS"),
+        permission: "facility.view",
+      });
+    }
+    if (serviceEnabled("GYM_AND_FITNESS")) {
+      loose.push({
+        href: "/dashboard/hospitality/gym",
+        label: t("hospitalityServices.GYM_AND_FITNESS"),
+        permission: "facility.view",
+      });
+    }
+    if (serviceEnabled("SWIMMING_POOL")) {
+      loose.push({
+        href: "/dashboard/hospitality/pool",
+        label: t("hospitalityServices.SWIMMING_POOL"),
+        permission: "facility.view",
+      });
+    }
+    if (serviceEnabled("EVENT_AND_HALL_RENTAL")) {
+      loose.push({
+        href: "/dashboard/hospitality/events",
+        label: t("hospitalityServices.EVENT_AND_HALL_RENTAL"),
+        permission: "facility.view",
+      });
+    }
+    // Owner-created custom services → generic facility dashboards.
+    for (const s of customServices) {
+      loose.push({
+        href: `/dashboard/hospitality/service/${s.customKey}`,
+        label: s.customName ?? s.customKey ?? "Service",
+        permission: "facility.view",
+      });
+    }
+    // Memberships — shown when any membership-capable service is enabled.
+    if (
+      serviceEnabled("SPA_AND_WELLNESS") ||
+      serviceEnabled("GYM_AND_FITNESS") ||
+      serviceEnabled("SWIMMING_POOL") ||
+      customServices.length > 0
+    ) {
+      loose.push(
+        { href: "/dashboard/hospitality/memberships", label: "Memberships", permission: "memberships.view" },
+        { href: "/dashboard/hospitality/memberships/types", label: "Membership Types", permission: "memberships.view" },
+      );
+    }
+    // Packages & guest folios (package / entitlement routing).
+    if (
+      serviceEnabled("ACCOMMODATION") ||
+      serviceEnabled("FOOD_AND_BEVERAGE") ||
+      customServices.length > 0
+    ) {
+      loose.push(
+        { href: "/dashboard/hospitality/packages", label: "Packages", permission: "packages.view" },
+        { href: "/dashboard/hospitality/folios", label: "Guest Folios", permission: "folios.view" },
+      );
+    }
+    // Owner-only: upgrade/toggle the service lines as the business expands.
+    if (ctx.isOwnerAccount) {
+      loose.push({
+        href: "/dashboard/settings/hospitality-services",
+        label: t("nav.hospitalityServices"),
+      });
+    }
+    // Shared — always visible for a hospitality business.
+    loose.push({ href: "/dashboard/cashier", label: t("nav.cashier"), permission: "cashier.view" });
   }
   if (ctx.hasBusiness && ctx.isService) {
     loose.push(

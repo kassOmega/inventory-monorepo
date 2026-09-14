@@ -1,18 +1,23 @@
 "use client";
 
 import { useAuth } from "@/context/AuthContext";
-import { VERTICAL_LABELS } from "@/lib/verticals";
+import { VERTICAL_LABELS, HOSPITALITY_SERVICES, DEFAULT_HOSPITALITY_SERVICES } from "@/lib/verticals";
 import api from "@/lib/api";
 import { useConfirm } from "@/app/components/ConfirmProvider";
+import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
 
 export default function BusinessesPage() {
   const { user, activeOrganizationId, switchOrganization, refreshUser } = useAuth();
   const confirm = useConfirm();
+  const router = useRouter();
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [businessType, setBusinessType] = useState("RETAIL");
+  const [newServices, setNewServices] = useState<string[]>(
+    DEFAULT_HOSPITALITY_SERVICES,
+  );
   const [tradeLicense, setTradeLicense] = useState<File | null>(null);
   const [tinCertificate, setTinCertificate] = useState<File | null>(null);
   const [error, setError] = useState("");
@@ -44,6 +49,7 @@ export default function BusinessesPage() {
         name,
         businessType,
         standalone: newStandalone,
+        ...(businessType === "HOSPITALITY" ? { hospitalityServices: newServices } : {}),
       });
       const orgId = res.data.id;
 
@@ -196,6 +202,52 @@ export default function BusinessesPage() {
               <option key={value} value={value}>{label}</option>
             ))}
           </select>
+          {businessType === "HOSPITALITY" && (
+            <div className="md:col-span-2 rounded-lg border border-blue-200 bg-blue-50/50 p-3">
+              <p className="block text-sm font-medium text-gray-700 mb-1">
+                {t("hospitalityServices.title")}
+              </p>
+              <p className="text-[11px] text-gray-500 mb-3">
+                {t("hospitalityServices.hint")}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {HOSPITALITY_SERVICES.map((svc) => {
+                  const checked = newServices.includes(svc.value);
+                  return (
+                    <label
+                      key={svc.value}
+                      className={`flex items-start gap-2 rounded-lg border p-2.5 cursor-pointer transition ${
+                        checked
+                          ? "border-blue-600 bg-white ring-1 ring-blue-500"
+                          : "border-gray-200 bg-white hover:border-gray-300"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() =>
+                          setNewServices((prev) =>
+                            prev.includes(svc.value)
+                              ? prev.filter((v) => v !== svc.value)
+                              : [...prev, svc.value],
+                          )
+                        }
+                        className="mt-0.5 accent-blue-600"
+                      />
+                      <span>
+                        <span className="block text-sm font-medium text-gray-800">
+                          {t(`hospitalityServices.${svc.i18nKey}`, { defaultValue: svc.label })}
+                        </span>
+                        <span className="block text-[11px] text-gray-400">
+                          {t(`hospitalityServices.${svc.i18nKey}_DESC`, { defaultValue: svc.description })}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="md:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t("biz.standaloneQuestion")}
@@ -277,6 +329,17 @@ export default function BusinessesPage() {
                       )}
                       <button onClick={() => startEdit(m)} className="text-xs text-blue-600 hover:underline">{t("roles.edit")}</button>
                       <button onClick={() => openSettings(m)} className="text-xs text-gray-600 hover:underline">{t("biz.settings")}</button>
+                      {m.businessType === "HOSPITALITY" && (
+                        <button
+                          onClick={() => {
+                            switchOrganization(m.organizationId);
+                            router.push("/dashboard/businesses/settings");
+                          }}
+                          className="text-xs text-blue-600 hover:underline"
+                        >
+                          Services
+                        </button>
+                      )}
                       <button onClick={() => deleteBusiness(m)} className="text-xs text-red-600 hover:underline">{t("roles.delete")}</button>
                     </>
                   )}

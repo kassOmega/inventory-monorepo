@@ -3,6 +3,7 @@ import { FinanceService } from './finance.service';
 
 jest.mock('../common/tenant/tenant.context', () => ({
   getCurrentTenantId: jest.fn(() => 1),
+  requireTenantId: jest.fn(() => 1),
 }));
 
 describe('FinanceService universal auto-posting engine', () => {
@@ -1075,3 +1076,155 @@ describe('FinanceService General Ledger views', () => {
     expect(cov.byReference.find((b: any) => b.key === 'SALE').count).toBe(1);
   });
 });
+
+/**
+ * The sell-side GL split: a settled folio is no longer booked entirely to Room
+ * Revenue — each line credits the account for the service that produced it, so
+ * the hotel's P&L shows room, food & beverage and service income separately.
+ */
+describe('FinanceService folio settlement revenue split', () => {
+  const accounts = [
+    { id: 1, name: 'Cash', type: 'ASSET', isSystem: true },
+    { id: 2, name: 'Accounts Receivable', type: 'ASSET' },
+    { id: 5, name: 'Sales Revenue', type: 'INCOME', isSystem: true },
+    { id: 20, name: 'Food Sales', type: 'INCOME' },
+    { id: 22, name: 'Room Revenue', type: 'INCOME' },
+  ];
+
+  const makePrisma = () => {
+    const prisma: Record<string, any> = {
+      $transaction: jest.fn(async (cb: any) => cb(prisma)),
+      account: {
+        findMany: jest.fn(async () => accounts),
+        createMany: jest.fn(async () => ({})),
+      },
+      organization: {
+        findUnique: jest.fn(async () => ({ businessType: 'HOSPITALITY' })),
+      },
+      otherIncome: {
+        findFirst: jest.fn(async () => null),
+        create: jest.fn(async (x: any) => x.data),
+      },
+      journalEntry: {
+        findFirst: jest.fn(async () => null),
+        create: jest.fn(async (x: any) => ({ id: 77, ...x.data })),
+      },
+      journalLine: { createMany: jest.fn(async () => ({})) },
+      folio: {
+        findUnique: jest.fn(async () => ({
+          id: 500,
+          guestName: 'John Doe',
+          taxAmount: 0,
+          taxInclusive: true,
+          entries: [
+            {
+              id: 1,
+              description: 'Room 104 — 2 nights × 1,200',
+              amount: 2400,
+              type: 'CHARGE',
+              sourceService: 'ACCOMMODATION',
+              accountId: null,
+              account: null,
+              createdById: 7,
+              createdAt: new Date('2026-01-04'),
+            },
+            {
+              id: 2,
+              description: 'Bedele Beer × 2',
+              amount: 140,
+              type: 'CHARGE',
+              sourceService: 'FOOD_AND_BEVERAGE',
+              accountId: null,
+              account: null,
+              createdById: 8,
+              createdAt: new Date('2026-01-04'),
+            },
+          ],
+        })),
+      },
+    };
+    return prisma;
+  };
+
+  it('credits Room Revenue for room lines and Food Sales for F&B lines', async () => {
+    const prisma = makePrisma();
+    const service = new FinanceService(prisma as any);
+
+    const created = await service.postFolioIncome(500, 1);
+
+    expect(created).toBe(2);
+    const rows = prisma.otherIncome.create.mock.calls.map((c: any) => c[0].data);
+    expect(rows.find((r: any) => r.amount === 2400)).toMatchObject({
+      accountId: 22,
+      source: 'FOLIO',
+      sourceId: 500,
+      createdById: 7,
+    });
+    expect(rows.find((r: any) => r.amount === 140)).toMatchObject({
+      accountId: 20,
+      createdById: 8,
+    });
+
+    // The journal credits mirror the same split and still balance.
+    const lines = prisma.journalLine.createMany.mock.calls[0][0].data;
+    const credits = lines.filter((l: any) => l.credit > 0);
+    expect(credits.map((c: any) => c.accountId).sort()).toEqual([20, 22]);
+    expect(credits.reduce((s: number, c: any) => s + c.credit, 0)).toBeCloseTo(
+      2540,
+    );
+    expect(
+      lines
+        .filter((l: any) => l.debit > 0)
+        .reduce((s: number, l: any) => s + l.debit, 0),
+    ).toBeCloseTo(2540);
+  });
+
+  it('falls back to the line account, then a generic revenue account', async () => {
+    const prisma = makePrisma();
+    prisma.folio.findUnique.mockResolvedValue({
+      id: 501,
+      guestName: 'Jane Roe',
+      taxAmount: 0,
+      taxInclusive: true,
+      entries: [
+        {
+          id: 3,
+          description: 'Laundry — 3 items',
+          amount: 300,
+          type: 'CHARGE',
+          // Custom service key with no mapped account.
+          sourceService: 'HOUSEKEEPING',
+          accountId: null,
+          account: null,
+          createdById: 9,
+          createdAt: new Date('2026-01-05'),
+        },
+        {
+          id: 4,
+          description: 'Airport transfer',
+          amount: 500,
+          type: 'CHARGE',
+          sourceService: 'TRANSPORT',
+          // An explicitly chosen income account always wins.
+          accountId: 5,
+          account: { type: 'INCOME' },
+          createdById: 9,
+          createdAt: new Date('2026-01-05'),
+        },
+      ],
+    });
+    const service = new FinanceService(prisma as any);
+
+    await service.postFolioIncome(501, 1);
+
+    const rows = prisma.otherIncome.create.mock.calls.map((c: any) => c[0].data);
+    // Unmapped service -> the first generic revenue account (Sales Revenue).
+    expect(rows.find((r: any) => r.amount === 300)).toMatchObject({
+      accountId: 5,
+    });
+    expect(rows.find((r: any) => r.amount === 500)).toMatchObject({
+      accountId: 5,
+    });
+  });
+});
+

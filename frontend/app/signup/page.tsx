@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@/context/AuthContext";
-import { VERTICAL_LABELS } from "@/lib/verticals";
+import { VERTICAL_LABELS, HOSPITALITY_SERVICES, DEFAULT_HOSPITALITY_SERVICES } from "@/lib/verticals";
 import api, { getApiErrorMessage, markHandled } from "@/lib/api";
 import PublicHeader from "@/app/components/PublicHeader";
 import AiAssistWidget from "@/app/components/AiAssistWidget";
@@ -26,6 +26,11 @@ export default function SignupPage() {
   // Optional inline business creation (max 2 businesses per owner).
   const [businessName, setBusinessName] = useState("");
   const [businessType, setBusinessType] = useState("RETAIL");
+  // Hospitality-only: the service lines offered (multi-select). Pre-selected
+  // with the defaults so an owner who skips the step still gets a working setup.
+  const [hospitalityServices, setHospitalityServices] = useState<string[]>(
+    DEFAULT_HOSPITALITY_SERVICES,
+  );
   const [standalone, setStandalone] = useState(false);
   const [tradeLicense, setTradeLicense] = useState<File | null>(null);
   const [tinCertificate, setTinCertificate] = useState<File | null>(null);
@@ -99,7 +104,12 @@ export default function SignupPage() {
           phone,
           password,
           business: businessName.trim()
-            ? { name: businessName.trim(), businessType, standalone }
+            ? {
+                name: businessName.trim(),
+                businessType,
+                standalone,
+                ...(businessType === "HOSPITALITY" ? { hospitalityServices } : {}),
+              }
             : undefined,
         });
 
@@ -376,6 +386,58 @@ export default function SignupPage() {
                   ))}
                 </select>
               </div>
+              {businessType === "HOSPITALITY" && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3 sm:p-4">
+                  <p className="block text-sm font-medium text-gray-700 mb-1">
+                    {t("hospitalityServices.title")}
+                  </p>
+                  <p className="text-[11px] text-gray-500 mb-3">
+                    {t("hospitalityServices.hint")}
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {HOSPITALITY_SERVICES.map((svc) => {
+                      const checked = hospitalityServices.includes(svc.value);
+                      return (
+                        <label
+                          key={svc.value}
+                          className={`flex items-start gap-2 rounded-lg border p-2.5 cursor-pointer transition ${
+                            checked
+                              ? "border-blue-600 bg-white ring-1 ring-blue-500"
+                              : "border-gray-200 bg-white hover:border-gray-300"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() =>
+                              setHospitalityServices((prev) =>
+                                prev.includes(svc.value)
+                                  ? prev.filter((v) => v !== svc.value)
+                                  : [...prev, svc.value],
+                              )
+                            }
+                            className="mt-0.5 accent-blue-600"
+                          />
+                          <span>
+                            <span className="block text-sm font-medium text-gray-800">
+                              {t(`hospitalityServices.${svc.i18nKey}`, { defaultValue: svc.label })}
+                            </span>
+                            <span className="block text-[11px] text-gray-400">
+                              {t(`hospitalityServices.${svc.i18nKey}_DESC`, { defaultValue: svc.description })}
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {hospitalityServices.length === 0 && (
+                    <p className="text-[11px] text-amber-600 mt-2">
+                      Pick at least one service — otherwise Food &amp; Beverage and
+                      Accommodation are enabled by default.
+                    </p>
+                  )}
+                </div>
+              )}
               <div>
                 <p className="block text-sm font-medium text-gray-700 mb-1">
                   {t("auth.isStandaloneShop")}

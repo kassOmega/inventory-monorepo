@@ -35,7 +35,10 @@ import { TasksModule } from './tasks/tasks.module';
 import { TenantsModule } from './tenants/tenants.module';
 import { FinanceModule } from './finance/finance.module';
 import { HotelModule } from './hotel/hotel.module';
+import { FacilitiesModule } from './facilities/facilities.module';
 import { InventoryModule } from './inventory/inventory.module';
+import { MembershipsModule } from './memberships/memberships.module';
+import { PackagesModule } from './packages/packages.module';
 import { RestaurantModule } from './restaurant/restaurant.module';
 import { RequestsModule } from './requests/requests.module';
 import { RestockModule } from './restock/restock.module';
@@ -84,7 +87,10 @@ import { FiscalModule } from './fiscal/fiscal.module';
     FinanceModule,
     RestaurantModule,
     HotelModule,
+    FacilitiesModule,
     InventoryModule,
+    MembershipsModule,
+    PackagesModule,
     VerificationModule,
     VerticalProfilesModule,
     ServiceModule,

@@ -36,6 +36,7 @@ export default function FoodMenuPage() {
     cost: "",
     trackingMode: "SIMPLE",
     estimatedCogs: "",
+    durationMins: "",
     useCategoryRoute: true,
     route: [],
   });
@@ -305,6 +306,7 @@ export default function FoodMenuPage() {
       cost: String(it.cost ?? ""),
       trackingMode: mode,
       estimatedCogs: String(it.estimatedCogs ?? ""),
+      durationMins: it.durationMins != null ? String(it.durationMins) : "",
       useCategoryRoute: itemRoute.length === 0,
       route: itemRoute.map((r) => r.id),
     });
@@ -356,6 +358,10 @@ export default function FoodMenuPage() {
       // Manual fallback cost only applies to Perpetual items (until a recipe
       // is defined); SIMPLE/BENCHMARK costs are derived by the backend.
       payload.cost = itemForm.cost ? Number(itemForm.cost) : undefined;
+    }
+    // Spa/wellness treatment duration (optional; minutes).
+    if (itemForm.durationMins !== "" && itemForm.durationMins != null) {
+      payload.durationMins = Number(itemForm.durationMins);
     }
     if (itemForm.useCategoryRoute) {
       // Follow the category's route. On an existing item an empty array tells
@@ -690,6 +696,7 @@ export default function FoodMenuPage() {
                       </p>
                       <p className="text-xs text-gray-400">
                         {Number(it.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        {it.durationMins ? ` · ⏱ ${it.durationMins} min` : ""}
                         {it.description ? ` · ${it.description}` : ""}
                       </p>
                       <p className="text-[11px] truncate mt-0.5">
@@ -983,6 +990,16 @@ export default function FoodMenuPage() {
                 placeholder={t("menu.price")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
                 required
+              />
+
+              {/* Optional treatment duration — spa / wellness service items. */}
+              <input
+                type="number"
+                min="0"
+                value={itemForm.durationMins}
+                onChange={(e) => setItemForm({ ...itemForm, durationMins: e.target.value })}
+                placeholder="Duration in minutes (spa/wellness, optional)"
+                className="border border-gray-300 rounded p-2 text-sm w-full"
               />
 
               {itemForm.trackingMode === "BENCHMARK" && (

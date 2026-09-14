@@ -1,6 +1,7 @@
-import { BusinessType } from '@prisma/client';
+import { BusinessType, HospitalityServiceType } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
   IsEmail,
   IsEnum,
@@ -23,6 +24,12 @@ export class SignupBusinessDto {
   @IsEnum(BusinessType)
   @IsOptional()
   businessType?: BusinessType;
+
+  /** Hospitality only: the service lines the business offers (multi-select). */
+  @IsArray()
+  @IsEnum(HospitalityServiceType, { each: true })
+  @IsOptional()
+  hospitalityServices?: HospitalityServiceType[];
 
   /** Standalone = a single-location shop run by the owner alone (no staff). */
   @IsBoolean()

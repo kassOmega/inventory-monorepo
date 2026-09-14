@@ -7,7 +7,7 @@ import {
 import { Prisma, TaxDirection } from '@prisma/client';
 import { assertNotDuplicate } from '../common/duplicate.util';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
-import { getCurrentTenantId } from '../common/tenant/tenant.context';
+import { getCurrentTenantId, requireTenantId } from '../common/tenant/tenant.context';
 import { resolveTax, round2, splitTax } from '../common/tax.util';
 import { FinanceService } from '../finance/finance.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -67,7 +67,7 @@ export class SalesService {
   /** Post sale income inside the sale transaction; surface missing accounts. */
   private async postSaleIncomeChecked(
     saleId: number,
-    tenantId: number | null,
+    tenantId: number,
     tx: Prisma.TransactionClient,
   ) {
     const posted = await this.finance.postSaleIncome(saleId, tenantId, tx);
@@ -222,6 +222,7 @@ export class SalesService {
     },
   ) {
     await inventoryUpsert(tx, {
+      tenantId: requireTenantId(),
       productId: args.productId,
       variantId: args.variantId ?? null,
       locationId: args.locationId,
@@ -271,7 +272,7 @@ export class SalesService {
     if (!shopId) throw new BadRequestException('Shop location is required');
 
     const saleType = (dto.saleType ?? 'FULLY_PAID') as any;
-    const tenantId = getCurrentTenantId();
+    const tenantId = requireTenantId();
 
     const run = async (tx: Prisma.TransactionClient) => {
       let totalAmount = 0;
@@ -598,7 +599,7 @@ export class SalesService {
   private async refreshSalePostings(
     tx: Prisma.TransactionClient,
     saleId: number,
-    tenantId: number | null,
+    tenantId: number,
   ) {
     const returns = await tx.return.findMany({
       where: { saleId },
@@ -627,7 +628,7 @@ export class SalesService {
   }
 
   async updateSale(id: number, dto: CreateSaleDto, user: JwtPayload) {
-    const tenantId = getCurrentTenantId();
+    const tenantId = requireTenantId();
     return this.prisma.$transaction(async (tx) => {
       // 1. Find old sale
       const oldSale = await tx.sale.findUnique({
@@ -1008,7 +1009,7 @@ export class SalesService {
       throw new ForbiddenException('You can only return sales from your own shop');
     }
 
-    const tenantId = getCurrentTenantId();
+    const tenantId = requireTenantId();
 
     return this.prisma.$transaction(async (tx) => {
       let totalRefund = 0;

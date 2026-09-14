@@ -89,6 +89,48 @@ export class TenantsController {
     return this.tenantsService.updateProfile(id, req.user.sub, body);
   }
 
+  @Get(':id/services')
+  getServices(@Req() req: RequestWithUser, @Param('id', ParseIntPipe) id: number) {
+    return this.tenantsService.getServices(id, req.user);
+  }
+
+  @Patch(':id/services')
+  updateServices(
+    @Req() req: RequestWithUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { serviceTypes: string[] },
+  ) {
+    return this.tenantsService.updateServices(id, req.user, body.serviceTypes);
+  }
+
+  @Post(':id/services')
+  createCustomService(
+    @Req() req: RequestWithUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { name: string; key?: string },
+  ) {
+    return this.tenantsService.createCustomService(id, req.user, body);
+  }
+
+  @Patch(':id/services/:serviceId')
+  updateServiceToggle(
+    @Req() req: RequestWithUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('serviceId') serviceId: string,
+    @Body() body: { isEnabled: boolean },
+  ) {
+    return this.tenantsService.updateServiceToggle(id, req.user, serviceId, body.isEnabled);
+  }
+
+  @Delete(':id/services/:serviceId')
+  deleteService(
+    @Req() req: RequestWithUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('serviceId') serviceId: string,
+  ) {
+    return this.tenantsService.deleteService(id, req.user, serviceId);
+  }
+
   @Delete(':id')
   deleteOrganization(
     @Req() req: RequestWithUser,

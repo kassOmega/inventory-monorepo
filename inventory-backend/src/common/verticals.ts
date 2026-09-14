@@ -196,7 +196,7 @@ export const VERTICALS: Record<BusinessType, VerticalDefinition> = {
     profileModel: 'RetailProfile',
   },
   [BusinessType.HOSPITALITY]: {
-    label: 'Hotels & Restaurants',
+    label: 'Hospitality',
     sector: 'HOSPITALITY',
     defaultRoles: HOSPITALITY_ROLES,
     features: { inventory: false, retail: false, pos: true, kitchen: true, tables: true, reservations: true, rooms: true, folio: true, finance: true },

@@ -11,7 +11,7 @@ import {
 } from '../common/business-number.util';
 import { inventoryFind, inventoryUpsert } from '../common/inventory.util';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
-import { getCurrentTenantId } from '../common/tenant/tenant.context';
+import { getCurrentTenantId, requireTenantId } from '../common/tenant/tenant.context';
 import { parsePaging, pagedResult } from '../common/pagination.util';
 import { tr } from '../i18n/i18n.service';
 import { FinanceService } from '../finance/finance.service';
@@ -1067,7 +1067,7 @@ export class RequestsService {
       throw new ForbiddenException(tr('errors.reqConfirmReceiptCreator'));
     }
 
-    const tenantId = getCurrentTenantId();
+    const tenantId = requireTenantId();
     // Shortages (received < dispatched/stored) are reported to whoever
     // dispatched after the transaction commits.
     const shortageNotices: {
@@ -1338,6 +1338,7 @@ export class RequestsService {
         // Destination (shop) receives what actually arrived. The source store
         // was already deducted at dispatch time.
         await inventoryUpsert(tx, {
+          tenantId: requireTenantId(),
           productId: item.productId,
           variantId: item.variantId ?? null,
           locationId: shopId,

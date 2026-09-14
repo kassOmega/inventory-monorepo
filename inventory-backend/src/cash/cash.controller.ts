@@ -29,6 +29,12 @@ export class CashController {
     return this.cash.confirmPayment(id, req.user.sub);
   }
 
+  @Post('facility-payments/:id/confirm')
+  @Permissions('cashier.confirm')
+  confirmFacility(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
+    return this.cash.confirmFacilityPayment(id, req.user.sub);
+  }
+
   @Get('floats')
   @Permissions('finance.view', 'cashier.view')
   listFloats() {

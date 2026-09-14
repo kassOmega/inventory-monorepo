@@ -4,6 +4,7 @@ import { TaxesService } from './taxes.service';
 
 jest.mock('../common/tenant/tenant.context', () => ({
   getCurrentTenantId: jest.fn(() => 1),
+  requireTenantId: jest.fn(() => 1),
 }));
 
 describe('TaxesService', () => {

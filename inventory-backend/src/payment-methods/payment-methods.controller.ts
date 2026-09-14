@@ -19,6 +19,9 @@ export class PaymentMethodsController {
     'purchases.create',
     'credits.manage',
     'requests.confirm',
+    // Front desk collects money at checkout / settled a folio.
+    'hotel.view',
+    'hotel.reception',
   )
   findAll() {
     return this.svc.findAll();

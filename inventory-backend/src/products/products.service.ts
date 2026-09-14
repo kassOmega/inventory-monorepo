@@ -12,7 +12,7 @@ import {
   RequestType,
 } from '@prisma/client';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
-import { getCurrentTenantId } from '../common/tenant/tenant.context';
+import { getCurrentTenantId, requireTenantId } from '../common/tenant/tenant.context';
 import { Paging, pagedResult } from '../common/pagination.util';
 import { FinanceService } from '../finance/finance.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -89,7 +89,7 @@ export class ProductsService {
       }
     }
 
-    const tenantId = getCurrentTenantId();
+    const tenantId = requireTenantId();
     let targetLocationId: number | null = dto.storeId ?? null;
 
     if (tenantId != null) {
@@ -150,6 +150,7 @@ export class ProductsService {
 
     const product = await this.prisma.product.create({
       data: {
+        tenantId,
         brand: dto.brand,
         baseName: dto.baseName,
         attributes: dto.attributes ?? {},
@@ -318,6 +319,7 @@ export class ProductsService {
       // deposit as a COMPLETED request.
       for (const it of items) {
         await inventoryUpsert(this.prisma, {
+          tenantId: requireTenantId(),
           productId: it.productId,
           variantId: it.variantId ?? null,
           locationId: targetLocationId,
@@ -757,7 +759,7 @@ export class ProductsService {
           // store/shop location (owner-operated direct landing).
           if (depositLocationId && v.quantity > 0) {
             await inventoryUpsert(this.prisma, {
-              tenantId: getCurrentTenantId(),
+              tenantId: requireTenantId(),
               productId: id,
               variantId: created.id,
               locationId: depositLocationId,
@@ -853,7 +855,7 @@ export class ProductsService {
     // Inventory Asset ledger stays in sync with the physical count.
     const before = await this.prisma.inventory.findFirst({
       where: {
-        tenantId: getCurrentTenantId(),
+        tenantId: requireTenantId(),
         productId,
         variantId: null,
         locationId: dto.locationId,
@@ -862,6 +864,7 @@ export class ProductsService {
     const delta = round2(dto.quantity - (before?.quantity ?? 0));
 
     await inventorySet(this.prisma, {
+      tenantId: requireTenantId(),
       productId,
       locationId: dto.locationId,
       quantity: dto.quantity,
@@ -977,6 +980,7 @@ export class ProductsService {
       });
       if (location) {
         await inventoryUpsert(this.prisma, {
+          tenantId: requireTenantId(),
           productId,
           variantId: variant.id,
           locationId: depositLocationId,

@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Observable, Subject } from 'rxjs';
 import { inventoryFind } from '../common/inventory.util';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
@@ -12,6 +12,7 @@ const LOW_STOCK_LINK = '/dashboard/reports?tab=low-stock';
 @Injectable()
 export class NotificationsService {
   private readonly events = new Subject<{ data: string }>();
+  private readonly logger = new Logger(NotificationsService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -259,25 +260,80 @@ export class NotificationsService {
   }
 
   /** Notify everyone holding a given role name in the active organization. */
+  /**
+   * Notify every member of a role.
+   *
+   * `roleKey` is normally the role's immutable `systemKey` (CASHIER,
+   * RECEPTIONIST, CHEF, BARMAN, BARISTA, STATION_<KEY>, ...). The
+   * user-editable role name is still accepted as a fallback so roles created
+   * before the systemKey column keep working.
+   */
   async notifyRole(
-    roleName: string,
+    roleKey: string,
     title: string,
     message: string,
     type = 'ORDER_STATUS',
     link?: string | null,
   ): Promise<void> {
     const tenantId = getCurrentTenantId();
-    const role = await this.prisma.role.findFirst({ where: { name: roleName, organizationId: tenantId } });
-    if (!role) return;
+    const role =
+      (await this.prisma.role.findFirst({
+        where: { systemKey: roleKey, organizationId: tenantId },
+      })) ??
+      (await this.prisma.role.findFirst({
+        where: { name: roleKey, organizationId: tenantId },
+      }));
+    if (!role) {
+      // This used to return silently, so a mistyped/renamed role made alerts
+      // disappear without a trace.
+      this.logger.warn(
+        `notifyRole("${roleKey}") skipped: no role with that systemKey or name in organization ${tenantId ?? 'n/a'}.`,
+      );
+      return;
+    }
+    await this.dispatchToRole(role.id, role.organizationId, title, message, type, link);
+  }
 
+  /**
+   * Notify every member of a role by id. Preferred by callers that already hold
+   * an immutable role reference (e.g. RestaurantStation.roleId), so a station
+   * rename can never misroute its alerts.
+   */
+  async notifyRoleId(
+    roleId: number,
+    title: string,
+    message: string,
+    type = 'ORDER_STATUS',
+    link?: string | null,
+  ): Promise<void> {
+    const tenantId = getCurrentTenantId();
+    const role = await this.prisma.role.findFirst({
+      where: {
+        id: roleId,
+        ...(tenantId != null ? { organizationId: tenantId } : {}),
+      },
+    });
+    if (!role) return;
+    await this.dispatchToRole(role.id, role.organizationId, title, message, type, link);
+  }
+
+  /** Persist a role-targeted notification and fan it out to web push. */
+  private async dispatchToRole(
+    roleId: number,
+    organizationId: number | null,
+    title: string,
+    message: string,
+    type: string,
+    link?: string | null,
+  ): Promise<void> {
     await this.prisma.notification.create({
       data: {
-        tenantId: role.organizationId,
+        tenantId: organizationId,
         type,
         title,
         message,
         ...(link ? { link } : {}),
-        targetRoleId: role.id,
+        targetRoleId: roleId,
       },
     });
     this.events.next({ data: 'refresh' });
@@ -285,8 +341,8 @@ export class NotificationsService {
     this.push
       .sendToRoleId(
         { title, body: message, ...(link ? { url: link } : {}) },
-        role.id,
-        role.organizationId,
+        roleId,
+        organizationId,
       )
       .catch(() => {});
   }

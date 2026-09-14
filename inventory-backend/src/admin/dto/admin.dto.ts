@@ -1,6 +1,7 @@
 // src/admin/dto/admin.dto.ts
-import { BusinessType, OrgStatus, UserStatus } from '@prisma/client';
+import { BusinessType, HospitalityServiceType, OrgStatus, UserStatus } from '@prisma/client';
 import {
+  IsArray,
   IsBoolean,
   IsDateString,
   IsEmail,
@@ -28,6 +29,12 @@ export class CreateOrgForOwnerDto {
   @IsInt() ownerUserId!: number;
   @IsString() name!: string;
   @IsEnum(BusinessType) @IsOptional() businessType?: BusinessType;
+
+  /** Hospitality only: the service lines the business offers (multi-select). */
+  @IsArray()
+  @IsEnum(HospitalityServiceType, { each: true })
+  @IsOptional()
+  hospitalityServices?: HospitalityServiceType[];
 
   /** AI entitlement overrides for the new business (admin-only path). */
   @IsBoolean() @IsOptional() aiEnabled?: boolean;

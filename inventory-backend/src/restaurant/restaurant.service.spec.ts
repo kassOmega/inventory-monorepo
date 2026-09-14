@@ -8,6 +8,7 @@ import { RestaurantService } from './restaurant.service';
 // request-scoped tenant context in unit tests.
 jest.mock('../common/tenant/tenant.context', () => ({
   getCurrentTenantId: jest.fn(() => 1),
+  requireTenantId: jest.fn(() => 1),
 }));
 
 /**
@@ -70,8 +71,15 @@ describe('RestaurantService order/item status flow', () => {
     organization: { findUnique: jest.fn() },
     $transaction: jest.fn(),
   };
-  const notifications = { notifyUser: jest.fn(), notifyRole: jest.fn() };
+  const notifications = {
+    notifyUser: jest.fn(),
+    notifyRole: jest.fn(),
+    notifyRoleId: jest.fn(),
+  };
   const finance = {};
+  // Package entitlement billing (feature/multi-service) — only consulted when
+  // an order is billed to a package guest, so a stub is enough here.
+  const packages = { computePackageOrderBilling: jest.fn() };
   const recipes = {
     liveMenuItemCost: jest.fn(async () => null),
     recalcMenuItemCost: jest.fn(async () => false),
@@ -83,6 +91,7 @@ describe('RestaurantService order/item status flow', () => {
     prisma as any,
     notifications as any,
     finance as any,
+    packages as any,
     recipes as any,
   );
 
@@ -539,8 +548,17 @@ describe('RestaurantService order/item status flow', () => {
           data: expect.objectContaining({ status: OrderStatus.SERVED }),
         }),
       );
+      // Alerts now target immutable role systemKeys, so a role rename cannot
+      // silently stop the cashier/reception from being notified.
       expect(notifications.notifyRole).toHaveBeenCalledWith(
-        'Cashier',
+        'CASHIER',
+        'Order Served',
+        expect.stringContaining('ORD-1'),
+        'ORDER_STATUS',
+        '/dashboard/cashier',
+      );
+      expect(notifications.notifyRole).toHaveBeenCalledWith(
+        'RECEPTIONIST',
         'Order Served',
         expect.stringContaining('ORD-1'),
         'ORDER_STATUS',

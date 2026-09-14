@@ -2,7 +2,7 @@
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import { getVerticalFeatures } from "@/lib/verticals";
-import { buildDashboardNav, routeFeatureMap, routePermissionMap } from "@/lib/dashboardNavigation";
+import { buildDashboardNav, routeFeatureMap, routePermissionMap, verticalForRoute } from "@/lib/dashboardNavigation";
 import { User } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -31,6 +31,7 @@ export default function DashboardLayout({
   const [agentMode, setAgentMode] = useState<string | null>(null);
   const [agentPending, setAgentPending] = useState(0);
   const [stations, setStations] = useState<any[]>([]);
+  const [services, setServices] = useState<any[]>([]);
 
   const businessType = activeMembership?.businessType ?? user?.businessType ?? "";
   const vertical = getVerticalFeatures(businessType);
@@ -63,6 +64,28 @@ export default function DashboardLayout({
       .get("/restaurant/stations")
       .then((r) => setStations(Array.isArray(r.data) ? r.data : []))
       .catch(() => setStations([]));
+  }, [activeMembership, user, activeOrganizationId]);
+
+  // Load the org's active hospitality services so the sidebar filters
+  // sub-routes (F&B, Rooms, Spa, Gym, Pool, Events) based on what the business
+  // enables. Re-fetches on `services:changed` so toggling a service in settings
+  // immediately reveals/hides its menu without a hard reload.
+  useEffect(() => {
+    const isHosp =
+      (activeMembership?.businessType ?? user?.businessType) === "HOSPITALITY";
+    const refresh = () => {
+      if (!isHosp || !activeOrganizationId) {
+        setServices([]);
+        return;
+      }
+      api
+        .get(`/tenants/${activeOrganizationId}/services`)
+        .then((r) => setServices(Array.isArray(r.data) ? r.data : []))
+        .catch(() => setServices([]));
+    };
+    refresh();
+    window.addEventListener("services:changed", refresh);
+    return () => window.removeEventListener("services:changed", refresh);
   }, [activeMembership, user, activeOrganizationId]);
 
   // Refetch stations when the menu page creates/edits/deletes one, so the
@@ -106,11 +129,31 @@ export default function DashboardLayout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, vertical.inventory, vertical.retail, vertical.pos, vertical.rooms, router]);
 
+  // Vertical-exclusive modules (SERVICE / MANUFACTURING / HOSPITALITY) are only
+  // reachable inside the matching business type. The menu already hides them, but
+  // a typed URL would otherwise render another vertical's module for an
+  // organization whose role template happens to hold the permission key. This
+  // mirrors the backend's @Vertical(...) enforcement so the two agree.
+  useEffect(() => {
+    const owner = verticalForRoute(pathname);
+    if (!owner || !businessType || isLoading) return;
+    if (businessType !== owner) router.replace("/dashboard");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, businessType, isLoading, router]);
+
   // Redirect users away from routes they lack the permission for.
   useEffect(() => {
     const stationMatch = pathname.match(/^\/dashboard\/food\/station\/([^/]+)$/);
     const isStationRoute = !!stationMatch;
-    let required = routePermissionMap[pathname] ?? undefined;
+    // Custom hospitality service lines are owner-created, so their route cannot
+    // live in the static map: /dashboard/hospitality/service/<customKey> is a
+    // generic facility dashboard and follows the same facility.view gate.
+    const customServiceRoute = /^\/dashboard\/hospitality\/service\/[^/]+$/.test(
+      pathname,
+    );
+    let required =
+      routePermissionMap[pathname] ??
+      (customServiceRoute ? "facility.view" : undefined);
     if (!required && stationMatch) {
       if (stations.length === 0) return; // station list still loading
       const st = stations.find((s) => s.key === stationMatch[1]);
@@ -125,6 +168,46 @@ export default function DashboardLayout({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, user, isLoading, router, stations]);
+
+  // Redirect away from hospitality routes whose service is disabled (e.g. F&B
+  // routes when FOOD_AND_BEVERAGE is toggled off).
+  useEffect(() => {
+    const hosp = businessType === "HOSPITALITY";
+    if (!hosp || services.length === 0) return;
+    const customEnabled = services.some((s) => s.serviceType === "CUSTOM" && s.isEnabled);
+    const membershipsAvailable =
+      serviceEnabled("GYM_AND_FITNESS") ||
+      serviceEnabled("SWIMMING_POOL") ||
+      customEnabled;
+    const customMatch = pathname.match(
+      /^\/dashboard\/hospitality\/service\/([^/]+)$/,
+    );
+    const needed = (() => {
+      if (pathname.startsWith("/dashboard/food")) return "FOOD_AND_BEVERAGE";
+      if (pathname.startsWith("/dashboard/hotel")) return "ACCOMMODATION";
+      if (pathname === "/dashboard/hospitality/spa") return "SPA_AND_WELLNESS";
+      if (pathname === "/dashboard/hospitality/gym") return "GYM_AND_FITNESS";
+      if (pathname === "/dashboard/hospitality/pool") return "SWIMMING_POOL";
+      if (pathname === "/dashboard/hospitality/events") return "EVENT_AND_HALL_RENTAL";
+      if (pathname.startsWith("/dashboard/settings/hospitality-services")) {
+        return user?.isOwnerAccount ? null : "BLOCKED";
+      }
+      if (customMatch) {
+        const svc = services.find(
+          (s) => s.serviceType === "CUSTOM" && s.customKey === customMatch[1],
+        );
+        return svc && svc.isEnabled ? null : "BLOCKED";
+      }
+      if (pathname.startsWith("/dashboard/hospitality/memberships")) {
+        return membershipsAvailable ? null : "BLOCKED";
+      }
+      return null;
+    })();
+    if (needed === "BLOCKED" || (needed && !serviceEnabled(needed))) {
+      router.replace("/dashboard");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, businessType, services, router, user?.isOwnerAccount]);
 
   // Owners with no business yet are sent to create one. Unverified accounts
   // are handled by the verification redirect below (which wins), and
@@ -154,6 +237,7 @@ export default function DashboardLayout({
     if (
       !user.isOwnerAccount &&
       (pathname === "/dashboard/businesses" ||
+        pathname === "/dashboard/businesses/settings" ||
         pathname === "/dashboard/verification")
     ) {
       router.replace("/dashboard");
@@ -207,6 +291,10 @@ export default function DashboardLayout({
   // Owners + users with restaurant.manage can open any station board, so they
   // should see every station in the nav; station staff see only their own.
   const canViewAllStations = hasPermission("restaurant.manage");
+  // Whether the active hospitality business has a given service enabled
+  // (drives both the nav entries and the hospitality route guard below).
+  const serviceEnabled = (type: string) =>
+    services.some((s) => s.serviceType === type && s.isEnabled);
 
   // Build the grouped navigation for this user (see lib/dashboardNavigation.ts).
   const dashboardNav = buildDashboardNav({
@@ -222,6 +310,15 @@ export default function DashboardLayout({
     staffCount: activeMembership?.staffCount ?? 0,
     canViewAllStations,
     stations: stations as any,
+    // Enabled hospitality services drive the service-specific nav entries
+    // (orders/menu, room service, gym, pool, custom services, memberships,
+    // packages & folios) — see lib/dashboardNavigation.ts.
+    services: (services ?? []).map((s: any) => ({
+      serviceType: s.serviceType,
+      isEnabled: !!s.isEnabled,
+      customKey: s.customKey ?? null,
+      customName: s.customName ?? null,
+    })),
     hasPermission: (key: string) => hasPermission(key),
     t: (key: string) => t(key),
   });
