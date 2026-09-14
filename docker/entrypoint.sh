@@ -56,7 +56,7 @@ wait_for_backend() {
     const tick = async () => {
       if (Date.now() > deadline) {
         console.error(`[entrypoint] API did not answer on ${url} within 90s`);
-        console.error('[entrypoint] check DATABASE_URL and the API log above');
+        console.error(`[entrypoint] check DATABASE_URL and the API log above`);
         process.exit(1);
       }
       try {

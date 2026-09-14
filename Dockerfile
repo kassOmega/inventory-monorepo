@@ -106,7 +106,7 @@ COPY --from=frontend-builder --chown=node:node /app/.next/static /app/frontend/.
 COPY --from=frontend-builder --chown=node:node /app/public /app/frontend/public
 
 # Uploaded KYC documents / images. Mount a volume here to survive restarts.
-RUN mkdir -p /app/uploads && chown -R node:node /app
+RUN mkdir -p /app/uploads && chown node:node /app /app/uploads
 
 COPY --chown=node:node docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
