@@ -1224,13 +1224,23 @@ export class RequestsService {
       const newStatus = await this.evaluateRequestStatus(tx, requestId);
       const result = await tx.stockRequest.update({ where: { id: requestId }, data: { status: newStatus } });
 
-      // Check low stock for affected locations
+      // Check low stock for affected locations. Same-transaction client: the
+      // receipt was just booked inside `tx`, so an outside read would see the
+      // pre-receipt quantities.
       for (const update of items) {
         const item = request.items.find((i) => i.id === update.id);
         if (item) {
-          await this.notifications.checkAndNotifyLowStock(item.productId, request.storeId);
+          await this.notifications.checkAndNotifyLowStock(
+            item.productId,
+            request.storeId,
+            tx,
+          );
           if (request.shopId) {
-            await this.notifications.checkAndNotifyLowStock(item.productId, request.shopId);
+            await this.notifications.checkAndNotifyLowStock(
+              item.productId,
+              request.shopId,
+              tx,
+            );
           }
         }
       }

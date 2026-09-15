@@ -388,9 +388,15 @@ export class SalesService {
         },
       });
 
-      // Check low stock for each product after sale
+      // Check low stock for each product after sale. This runs through the SAME
+      // transaction client: the stock was just decremented inside `tx`, and an
+      // outside read would still see the pre-sale quantity and skip the alert.
       for (const item of dto.items) {
-        await this.notifications.checkAndNotifyLowStock(item.productId, shopId);
+        await this.notifications.checkAndNotifyLowStock(
+          item.productId,
+          shopId,
+          tx,
+        );
       }
 
       return sale;
@@ -425,13 +431,12 @@ export class SalesService {
   ) {
     const where: Record<string, unknown> = {};
 
-    // Shopkeepers see only their shop's sales, storekeepers see sales related to their store
+    // A user with a location only sees the sales recorded at that location. Both
+    // counter types sell from their own location (`createSale` books the sale at
+    // `user.locationId`), so STORE users used to get `shopId: -1` — an always
+    // empty list, including the very sale they had just made.
     if (user.locationId) {
-      if (user.locationType === 'SHOP') {
-        where.shopId = user.locationId;
-      } else {
-        where.shopId = -1; // returns empty result
-      }
+      where.shopId = user.locationId;
     } else if (filters?.locationId) {
       where.shopId = Number(filters.locationId);
     }
@@ -563,12 +568,10 @@ export class SalesService {
   async findOne(id: number, user: JwtPayload) {
     const where: Record<string, unknown> = { id };
 
+    // Same scoping as findAll: a user with a location sees sales booked at that
+    // location (a storekeeper's own sale used to be unreachable by id).
     if (user.locationId) {
-      if (user.locationType === 'SHOP') {
-        where.shopId = user.locationId;
-      } else {
-        where.shopId = -1;
-      }
+      where.shopId = user.locationId;
     }
 
     const sale = await this.prisma.sale.findFirst({

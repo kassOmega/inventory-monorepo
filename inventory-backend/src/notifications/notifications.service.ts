@@ -14,6 +14,18 @@ type LowStockRow = Prisma.InventoryGetPayload<{
   include: { product: true; variant: true; location: true };
 }>;
 
+/**
+ * Both PrismaClient and Prisma.TransactionClient expose these delegates, so the
+ * low-stock helpers accept either. A caller running inside a transaction MUST pass
+ * its `tx` client: reading through the outside client would see the pre-transaction
+ * quantities and silently miss the alert (e.g. a sale that pushes stock below the
+ * number — the decrement is still uncommitted when the check runs).
+ */
+type LowStockDb = Pick<
+  Prisma.TransactionClient,
+  'inventory' | 'notification' | 'role' | 'user'
+>;
+
 @Injectable()
 export class NotificationsService {
   private readonly events = new Subject<{ data: string }>();
@@ -35,8 +47,11 @@ export class NotificationsService {
    * scheduled scan — which has no request tenant context — still resolve the
    * right business instead of the first system role in the database.
    */
-  private async getOwnerRoleId(tenantId: number | null): Promise<number | null> {
-    const role = await this.prisma.role.findFirst({
+  private async getOwnerRoleId(
+    tenantId: number | null,
+    db: LowStockDb,
+  ): Promise<number | null> {
+    const role = await db.role.findFirst({
       where: {
         isSystem: true,
         ...(tenantId != null ? { organizationId: tenantId } : {}),
@@ -111,18 +126,23 @@ export class NotificationsService {
   async checkAndNotifyLowStock(
     productId: number,
     locationId: number,
+    db: LowStockDb = this.prisma,
   ): Promise<void> {
     // Every stock row of this product at this location: one row for a plain
-    // product, one row per variant for a variant product.
-    const rows = await this.prisma.inventory.findMany({
+    // product, one row per variant for a variant product. Read through `db` so that
+    // an in-transaction caller sees its own uncommitted stock movements.
+    const rows = await db.inventory.findMany({
       where: { productId, locationId },
       include: { product: true, variant: true, location: true },
     });
-    await this.processLowStockRows(rows);
+    await this.processLowStockRows(rows, db);
   }
 
   /** Shared per-row low-stock work (used per product and for a whole location). */
-  private async processLowStockRows(rows: LowStockRow[]): Promise<void> {
+  private async processLowStockRows(
+    rows: LowStockRow[],
+    db: LowStockDb,
+  ): Promise<void> {
     for (const row of rows) {
       const locationId = row.locationId;
       // Derive the business from the location so this works even when called
@@ -136,18 +156,21 @@ export class NotificationsService {
       const threshold = this.lowStockThreshold(row.product, row.variant);
 
       if (threshold > 0 && row.quantity < threshold) {
-        await this.raiseLowStock({
-          ...item,
-          threshold,
-          qty: row.quantity,
-          label: this.lowStockItemLabel(row.product, row.variant),
-          locationName: row.location.name,
-        });
+        await this.raiseLowStock(
+          {
+            ...item,
+            threshold,
+            qty: row.quantity,
+            label: this.lowStockItemLabel(row.product, row.variant),
+            locationName: row.location.name,
+          },
+          db,
+        );
       } else {
         // Back at/above its number (or alerts switched off): close whatever is
         // still open for this item so the bell drops the stale alert. The next
         // drop below the number raises it again.
-        await this.resolveLowStockAlerts(item);
+        await this.resolveLowStockAlerts(item, db);
       }
     }
   }
@@ -160,16 +183,19 @@ export class NotificationsService {
    * quantity never stacks duplicates. The device push fires only when the alert is
    * *newly* raised — coalesced updates just refresh the in-app entry.
    */
-  private async raiseLowStock(params: {
-    tenantId: number | null;
-    productId: number;
-    variantId: number | null;
-    locationId: number;
-    threshold: number;
-    qty: number;
-    label: string;
-    locationName: string;
-  }): Promise<void> {
+  private async raiseLowStock(
+    params: {
+      tenantId: number | null;
+      productId: number;
+      variantId: number | null;
+      locationId: number;
+      threshold: number;
+      qty: number;
+      label: string;
+      locationName: string;
+    },
+    db: LowStockDb,
+  ): Promise<void> {
     const { tenantId, productId, variantId, locationId, qty, label, locationName } =
       params;
     const title = 'Low Stock Alert';
@@ -182,11 +208,28 @@ export class NotificationsService {
       url: LOW_STOCK_LINK,
     };
 
-    const ownerRoleId = await this.getOwnerRoleId(tenantId);
+    const ownerRoleId = await this.getOwnerRoleId(tenantId, db);
 
     let raised = false;
     if (ownerRoleId) {
-      const owner = await this.upsertLowStockAlert({
+      const owner = await this.upsertLowStockAlert(
+        {
+          tenantId,
+          productId,
+          variantId,
+          locationId,
+          threshold: params.threshold,
+          title,
+          message,
+          target: { targetRoleId: ownerRoleId },
+        },
+        db,
+      );
+      raised = raised || owner.created;
+    }
+
+    const locationAlert = await this.upsertLowStockAlert(
+      {
         tenantId,
         productId,
         variantId,
@@ -194,21 +237,10 @@ export class NotificationsService {
         threshold: params.threshold,
         title,
         message,
-        target: { targetRoleId: ownerRoleId },
-      });
-      raised = raised || owner.created;
-    }
-
-    const locationAlert = await this.upsertLowStockAlert({
-      tenantId,
-      productId,
-      variantId,
-      locationId,
-      threshold: params.threshold,
-      title,
-      message,
-      target: { targetLocationId: locationId },
-    });
+        target: { targetLocationId: locationId },
+      },
+      db,
+    );
     raised = raised || locationAlert.created;
 
     if (!raised) return;
@@ -220,7 +252,7 @@ export class NotificationsService {
     // only ever sit in the bell. Fall back to the business owner(s), who already
     // have the in-app row. The count is a single indexed query; the sends stay
     // fire-and-forget so stock/sales latency is unchanged.
-    const assignedUsers = await this.prisma.user.count({
+    const assignedUsers = await db.user.count({
       where: { locationId },
     });
     if (assignedUsers === 0 && ownerRoleId) {
@@ -231,16 +263,19 @@ export class NotificationsService {
   }
 
   /** Create the alert, or refresh the still-open one for the same item+target. */
-  private async upsertLowStockAlert(params: {
-    tenantId: number | null;
-    productId: number;
-    variantId: number | null;
-    locationId: number;
-    threshold: number;
-    title: string;
-    message: string;
-    target: { targetRoleId?: number | null; targetLocationId?: number | null };
-  }): Promise<{ created: boolean }> {
+  private async upsertLowStockAlert(
+    params: {
+      tenantId: number | null;
+      productId: number;
+      variantId: number | null;
+      locationId: number;
+      threshold: number;
+      title: string;
+      message: string;
+      target: { targetRoleId?: number | null; targetLocationId?: number | null };
+    },
+    db: LowStockDb,
+  ): Promise<{ created: boolean }> {
     const key = {
       type: 'LOW_STOCK',
       tenantId: params.tenantId,
@@ -251,7 +286,7 @@ export class NotificationsService {
       targetLocationId: params.target.targetLocationId ?? null,
     };
 
-    const open = await this.prisma.notification.findFirst({
+    const open = await db.notification.findFirst({
       where: { ...key, isRead: false },
     });
 
@@ -262,7 +297,7 @@ export class NotificationsService {
         open.threshold !== params.threshold ||
         open.message !== params.message
       ) {
-        await this.prisma.notification.update({
+        await db.notification.update({
           where: { id: open.id },
           data: {
             threshold: params.threshold,
@@ -275,7 +310,7 @@ export class NotificationsService {
       return { created: false };
     }
 
-    await this.prisma.notification.create({
+    await db.notification.create({
       data: {
         ...key,
         title: params.title,
@@ -289,13 +324,16 @@ export class NotificationsService {
   }
 
   /** Close every open alert for an item that is no longer below its number. */
-  private async resolveLowStockAlerts(params: {
-    tenantId: number | null;
-    productId: number;
-    variantId: number | null;
-    locationId: number;
-  }): Promise<void> {
-    const open = await this.prisma.notification.findMany({
+  private async resolveLowStockAlerts(
+    params: {
+      tenantId: number | null;
+      productId: number;
+      variantId: number | null;
+      locationId: number;
+    },
+    db: LowStockDb,
+  ): Promise<void> {
+    const open = await db.notification.findMany({
       where: {
         type: 'LOW_STOCK',
         tenantId: params.tenantId,
@@ -308,7 +346,7 @@ export class NotificationsService {
     });
     if (open.length === 0) return;
 
-    await this.prisma.notification.updateMany({
+    await db.notification.updateMany({
       where: { id: { in: open.map((n) => n.id) } },
       data: { isRead: true },
     });
@@ -548,7 +586,7 @@ export class NotificationsService {
       where: { locationId },
       include: { product: true, variant: true, location: true },
     });
-    await this.processLowStockRows(rows);
+    await this.processLowStockRows(rows, this.prisma);
   }
 
   async findAll(user: JwtPayload) {

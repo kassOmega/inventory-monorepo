@@ -114,3 +114,52 @@ describe('SalesService.updateSale', () => {
     expect(prisma.inventory.update).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('SalesService location scoping', () => {
+  // A storekeeper: real location, type STORE, holds sales.view + sales.create.
+  const storeUser = {
+    sub: 9,
+    isSuperuser: false,
+    locationId: 26,
+    locationType: 'STORE',
+    permissions: ['sales.view'],
+  };
+
+  it('findAll shows a STORE user the sales booked at their own location', async () => {
+    const prisma = makePrisma({
+      sale: { findMany: jest.fn(async () => []) },
+    });
+    const { service } = makeService(prisma);
+
+    await service.findAll(storeUser as any);
+
+    expect(prisma.sale.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ shopId: 26 }),
+      }),
+    );
+  });
+
+  it('findOne shows a STORE user their own sale instead of an empty result', async () => {
+    const prisma = makePrisma({
+      sale: {
+        findFirst: jest.fn(async () => ({ id: 41, shopId: 26, items: [] })),
+      },
+    });
+    const { service } = makeService(prisma);
+
+    await service.findOne(41, storeUser as any);
+
+    expect(prisma.sale.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 41, shopId: 26 }),
+      }),
+    );
+    // The old behaviour forced shopId -1, making the sale unreachable by id.
+    expect(prisma.sale.findFirst).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ shopId: -1 }),
+      }),
+    );
+  });
+});

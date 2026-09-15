@@ -249,3 +249,34 @@ describe('NotificationsService.checkAndNotifyLowStock', () => {
     expect(open.isRead).toBe(true);
   });
 });
+
+describe('NotificationsService.checkAndNotifyLowStock (transaction client)', () => {
+  it('reads stock through the transaction client the caller passes', async () => {
+    // The outside client still sees the pre-transaction world (no rows below the
+    // number) — exactly why the sale path used to miss the alert.
+    const outside = makePrisma([]);
+    // The caller's transaction already decremented the variant to 2.
+    const tx = makePrisma([
+      row({ variantId: 500, variant: variant(), quantity: 2 }),
+    ]);
+    const push = makePush();
+    const svc = new NotificationsService(outside as never, push as never);
+
+    await svc.checkAndNotifyLowStock(100, 7, tx as never);
+
+    // The rows (and the alert/role/user reads) all go through the tx client.
+    expect(tx.inventory.findMany).toHaveBeenCalled();
+    expect(outside.inventory.findMany).not.toHaveBeenCalled();
+    expect(tx.role.findFirst).toHaveBeenCalled();
+    expect(outside.role.findFirst).not.toHaveBeenCalled();
+
+    // Alert rows are written through the same client, so they roll back with a
+    // failed sale instead of leaking an alert for a sale that never happened.
+    expect(tx.notification.create).toHaveBeenCalledTimes(2);
+    expect(outside.notification.create).not.toHaveBeenCalled();
+    expect(tx.notification.create.mock.calls[0][0].data).toMatchObject({
+      variantId: 500,
+      threshold: 3,
+    });
+  });
+});
