@@ -283,3 +283,52 @@ instead of shipping. `src/common/guards/vertical/vertical.guard.spec.ts` pins th
 business-type boundary: mismatched vertical → 403, matching → allow, disabled →
 no-op with a one-time warning, platform admins exempt, owners **not** exempt.
 
+## 6. Hardcoded-gate audit (Phase 0)
+
+Inventory of the authorization checks that do **not** go through
+`@Permissions` + `PermissionsGuard`. Route-level authorization is already RBAC;
+this section only records what is left and what should happen to it. Nothing here
+changes behaviour yet — it is the working list for a later conversion pass.
+
+Counts at audit time (non-spec sources):
+
+| Signal | Hits | Files |
+|---|---|---|
+| `isSuperuser` | 29 | 14 |
+| `isOwnerAccount` | 31 | 10 |
+| `isPlatformAdmin` | 19 | 11 |
+| `isSystem` | 79 | 20 |
+| `ForbiddenException` | 71 | 18 |
+| inline `permissions.includes(...)` outside the guard | 4 | 2 |
+
+### Keep as-is — converting these would be a security downgrade
+
+| Pattern | Examples | Why it stays hardcoded |
+|---|---|---|
+| Platform lane | `admin/admin.controller.ts:20`, `admin/admin.service.ts:92-147` | `isPlatformAdmin` is deliberately outside tenant roles; `/admin` is the only door |
+| Account type | `admin/admin.service.ts` ("Only owner accounts are managed here"), "Only owner accounts can create businesses", "Only owner accounts require user-level verification" | account lifecycle rules, not grantable capabilities |
+| Privilege hierarchy | `users.service.ts:119/130/141/200`, `auth.service.ts:117` — "Only the system owner can modify the system owner account / change passwords / assign system roles" | RBAC alone cannot express "you may not act on a higher-privileged principal" |
+| Role integrity | `roles.service.ts:89,121` (a system role cannot be edited or deleted) | protects the Owner role itself |
+| Record / location scoping | "You can only delete sales/returns from your own shop", "You can only restock/purchase for your own store/shop" | RBAC answers *may you do X*; these answer *may you do X to this row* (data scoping) |
+| Tenant + vertical | "You are not a member of this organization/business", `@Vertical(...)` + `VerticalGuard`, `VerificationGuard`, `CsrfGuard` | different enforcement layer |
+
+### Conversion backlog — delegatable, so a permission key fits
+
+| Site | Today's check | Target |
+|---|---|---|
+| `tenants.service.ts:404` | owner-role membership ("only the owner of this business can perform this action") | `business.manage` (new key) |
+| `verification.service.ts:926` | owner-role membership (business document upload) | `verification.manage` (new key) |
+| `auth.service.ts:117` | `role.isSystem && !caller.isSuperuser` (register a user with a system role) | `users.manage` (exists) |
+| `push.controller.ts:30,42` | `isSuperuser` only (subscription count / purge diagnostics) | `system.diagnostics` (new key) or keep owner-only by policy |
+| Frontend action gates | `isOwnerAccount` / `isSuperuser` guarding buttons on `/dashboard/verification`, `/dashboard/businesses`, `/dashboard/users` | the matching `hasPermission('…')` |
+
+New keys must be rolled out with a backfill (see the
+`backfill-hospitality-role-permissions.ts` precedent) **and** exposed in the Roles
+UI, otherwise existing businesses lose the converted action the moment it ships.
+
+### Guard rail (optional, recommended before Phase 1)
+
+`src/common/rbac-audit.spec.ts` — an allowlist spec listing every accepted
+hardcoded gate from the tables above; it fails when a *new*
+`isSuperuser`/`roleName`-style gate appears, so this audit cannot silently rot.
+
