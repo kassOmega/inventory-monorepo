@@ -622,6 +622,10 @@ model ProductVariant {
   buyPrice   Float?
   sellPrice  Float?
   quantity   Int      @default(0) // reserved for per-variant stock (Phase 2)
+  // Per-variant low-stock alert number (0 → inherit the product's) and the
+  // suggested quantity to reorder once it is breached (null → inherit).
+  reorderLevel Int    @default(0)
+  reorderQty   Int?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -1079,6 +1083,11 @@ model Notification {
   link             String?
   productId        Int?
   product          Product?  @relation(fields: [productId], references: [id])
+  // Which variant the alert is about (null for plain products) and the exact
+  // low-stock alert number it was raised for — both make an alert addressable so
+  // it can be coalesced/auto-resolved by that number instead of duplicated.
+  variantId        Int?
+  threshold        Int?
   locationId       Int?
   location         Location? @relation(fields: [locationId], references: [id])
   targetRoleId     Int?
@@ -1089,6 +1098,8 @@ model Notification {
   createdAt        DateTime  @default(now())
 
   @@index([tenantId])
+  // The low-stock dedup/auto-resolve lookup runs on every stock movement.
+  @@index([type, productId, variantId, locationId])
 }
 
 // --- Finance: Chart of Accounts & Journal ---

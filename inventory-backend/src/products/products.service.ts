@@ -183,6 +183,10 @@ export class ProductsService {
           buyPrice: v.buyPrice ?? null,
           sellPrice: v.sellPrice ?? null,
           quantity: v.quantity ?? 0,
+          // 0 = inherit the product's alert number; null = inherit its suggested
+          // reorder quantity.
+          reorderLevel: v.reorderLevel ?? 0,
+          reorderQty: v.reorderQty ?? null,
         })),
       });
       variantTotal = createdVariants.reduce(
@@ -730,6 +734,15 @@ export class ProductsService {
               attributes: v.attributes ?? undefined,
               buyPrice: v.buyPrice ?? undefined,
               sellPrice: v.sellPrice ?? undefined,
+              // 0 is a meaningful value (inherit), so only `undefined` (field
+              // absent from the payload) leaves the stored number untouched.
+              // `null` clears the suggested qty back to "inherit".
+              reorderLevel: v.reorderLevel ?? undefined,
+              ...(v.reorderQty === null
+                ? { reorderQty: null }
+                : v.reorderQty !== undefined
+                  ? { reorderQty: v.reorderQty }
+                  : {}),
             },
           });
         } else {
@@ -753,6 +766,8 @@ export class ProductsService {
               attributes: v.attributes ?? {},
               buyPrice: v.buyPrice ?? null,
               sellPrice: v.sellPrice ?? null,
+              reorderLevel: v.reorderLevel ?? 0,
+              reorderQty: v.reorderQty ?? null,
             },
           });
           // Deposit initial quantity for brand-new variants at the resolved
@@ -965,6 +980,8 @@ export class ProductsService {
         attributes: dto.attributes ?? {},
         buyPrice: dto.buyPrice ?? null,
         sellPrice: dto.sellPrice ?? null,
+        reorderLevel: dto.reorderLevel ?? 0,
+        reorderQty: dto.reorderQty ?? null,
       },
     });
 

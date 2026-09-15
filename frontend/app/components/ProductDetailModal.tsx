@@ -213,7 +213,14 @@ export default function ProductDetailModal({
                           <td className="p-1 text-right">
                             {v.sellPrice != null ? v.sellPrice : "—"}
                           </td>
-                          <td className="p-1 text-right font-semibold">{qty}</td>
+                          <td className="p-1 text-right font-semibold">
+                            {qty}
+                            {v.reorderLevel > 0 && (
+                              <span className="block text-[10px] font-normal text-gray-400">
+                                {t("pdm.lowStockAlert", { n: v.reorderLevel })}
+                              </span>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}

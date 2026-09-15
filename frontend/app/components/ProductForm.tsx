@@ -28,6 +28,10 @@ interface VariantRow {
   buyPrice: string;
   sellPrice: string;
   quantity: string;
+  /** Per-variant low-stock alert number ("" → inherit the product's). */
+  reorderLevel: string;
+  /** Per-variant suggested reorder qty ("" → inherit the product's). */
+  reorderQty: string;
   /** Set when editing an existing variant so the backend updates instead of cloning. */
   variantId?: number;
 }
@@ -42,6 +46,10 @@ const emptyVariant = (): VariantRow => ({
   buyPrice: "",
   sellPrice: "",
   quantity: "",
+  // Blank on purpose: a variant inherits the product's numbers until it is given
+  // its own (0 = inherit on the backend).
+  reorderLevel: "",
+  reorderQty: "",
 });
 
 // Map an existing product variant's attributes back into the 4 UI slots.
@@ -67,6 +75,9 @@ const mapVariantToSlots = (v: any): VariantRow => {
     buyPrice: v.buyPrice != null ? String(v.buyPrice) : "",
     sellPrice: v.sellPrice != null ? String(v.sellPrice) : "",
     quantity: v.quantity != null ? String(v.quantity) : "",
+    // 0 / null mean "inherit the product's numbers", so they show as blank.
+    reorderLevel: v.reorderLevel ? String(v.reorderLevel) : "",
+    reorderQty: v.reorderQty != null ? String(v.reorderQty) : "",
     variantId: v.id ?? undefined,
   };
 };
@@ -111,8 +122,11 @@ export default function ProductForm({
     barcode: "",
     hasVariants: false,
     isPerishable: false,
-    reorderLevel: 0,
-    reorderQty: 0,
+    // Default low-stock alert level for a new product; variants inherit it.
+    reorderLevel: 10,
+    // Blank = "let the system suggest it" (a literal 0 would pin every suggestion
+    // to 1 on the backend).
+    reorderQty: "",
   });
   const [attrs, setAttrs] = useState([{ key: "", value: "" }]);
   // Variant builder rows (revealed when Has Variants is checked). Each row has
@@ -442,10 +456,12 @@ export default function ProductForm({
       hasVariants,
       isPerishable: !!form.isPerishable,
       reorderLevel: Number(form.reorderLevel) || 0,
+      // null (not undefined) so clearing the field on an edit resets it back to
+      // "suggest it for me" instead of leaving the old number in place.
       reorderQty:
         form.reorderQty !== "" && form.reorderQty !== undefined
           ? Number(form.reorderQty)
-          : undefined,
+          : null,
     };
     if (!hasVariants) {
       // Plain products carry their own buy/sell prices and initial quantity.
@@ -478,6 +494,10 @@ export default function ProductForm({
               v.quantity !== "" && v.quantity !== undefined
                 ? Number(v.quantity)
                 : undefined,
+            // Blank = inherit (0) the product's low-stock alert number.
+            reorderLevel: v.reorderLevel === "" ? 0 : Number(v.reorderLevel),
+            // Blank = inherit (null) the product's suggested reorder qty.
+            reorderQty: v.reorderQty === "" ? null : Number(v.reorderQty),
           };
           // Upsert: pass the existing variant id when editing.
           if (isEdit && v.variantId) entry.id = v.variantId;
@@ -800,6 +820,18 @@ export default function ProductForm({
                     {t("pf.sellPrice")}
                   </label>
                   <input type="number" placeholder="e.g. 19.99" value={v.sellPrice} onChange={(e) => updateVariant(i, "sellPrice", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                    {t("pf.variantLowStock")}
+                  </label>
+                  <input type="number" min="0" placeholder={String(form.reorderLevel ?? 0)} value={v.reorderLevel} onChange={(e) => updateVariant(i, "reorderLevel", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                    {t("pf.variantReorderQty")}
+                  </label>
+                  <input type="number" min="0" placeholder={t("pf.inherit")} value={v.reorderQty} onChange={(e) => updateVariant(i, "reorderQty", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
                 </div>
               </div>
             </div>

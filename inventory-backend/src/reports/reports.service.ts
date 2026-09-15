@@ -303,7 +303,12 @@ export class ReportsService {
     const items = inventories.map((inv) => {
       const quantity = inv.quantity;
       const buyPrice = inv.product?.currentBuyPrice ?? 0;
-      const reorderLevel = inv.product?.reorderLevel ?? 0;
+      // The low-stock number and the suggested reorder qty resolve per stock row:
+      // a variant's own settings win, otherwise the product's applies (0 = no
+      // alert). This keeps the report in step with what actually raises alerts.
+      const variantLevel = inv.variant?.reorderLevel ?? 0;
+      const reorderLevel =
+        variantLevel > 0 ? variantLevel : (inv.product?.reorderLevel ?? 0);
       return {
         productId: inv.productId,
         variantId: inv.variantId,
@@ -314,7 +319,7 @@ export class ReportsService {
         currentBuyPrice: buyPrice,
         stockValue: round2(quantity * buyPrice),
         reorderLevel,
-        reorderQty: inv.product?.reorderQty ?? null,
+        reorderQty: inv.variant?.reorderQty ?? inv.product?.reorderQty ?? null,
         kind: inv.product?.kind ?? 'GOODS',
         location: inv.location?.name ?? null,
         locationId: inv.locationId,
@@ -1504,12 +1509,18 @@ export class ReportsService {
     const lowInventories = await this.prisma.inventory.findMany({
       where: {
         ...(targetLocationId ? { locationId: targetLocationId } : {}),
-        product: { ...where, reorderLevel: { gt: 0 } },
+        // Candidate rows: the product-level number is set, OR the variant carries
+        // its own number (a variant left at 0 inherits the product, so the product
+        // branch already covers it).
+        OR: [
+          { product: { ...where, reorderLevel: { gt: 0 } } },
+          { variant: { reorderLevel: { gt: 0 }, product: { ...where } } },
+        ],
       },
       include: {
         product: true,
         location: true,
-        variant: { select: { id: true, sku: true, attributes: true } },
+        variant: true,
       },
     });
 
@@ -1527,8 +1538,13 @@ export class ReportsService {
     >();
 
     for (const inv of lowInventories) {
-      // Only count inventory below this product threshold.
-      if (inv.quantity >= inv.product.reorderLevel) continue;
+      // The item's own number: the variant's when it has one, otherwise the
+      // product's.
+      const variantLevel = inv.variant?.reorderLevel ?? 0;
+      const threshold =
+        variantLevel > 0 ? variantLevel : inv.product.reorderLevel;
+      // Only count inventory below this item's own number.
+      if (inv.quantity >= threshold) continue;
       let entry = productMap.get(inv.productId);
       if (!entry) {
         entry = {
@@ -1552,6 +1568,10 @@ export class ReportsService {
           attributes: (inv.variant?.attributes as Record<string, any>) ?? {},
           quantity: 0,
           locations: [],
+          // The number this unit alerts at (null → inherits the product's) and
+          // its own suggested reorder qty (null → inherits).
+          reorderLevel: variantLevel > 0 ? variantLevel : null,
+          reorderQty: inv.variant?.reorderQty ?? null,
         };
         entry.variants.set(variantId, variant);
       }

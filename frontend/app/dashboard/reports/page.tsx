@@ -744,6 +744,15 @@ export default function ReportsPage() {
                                   </td>
                                   <td className="p-1 text-right font-semibold">
                                     {vr.quantity}
+                                    {vr.reorderLevel ? (
+                                      <span className="ml-1 text-[10px] font-normal text-red-500">
+                                        (
+                                        {t("reports.alertAt", {
+                                          n: vr.reorderLevel,
+                                        })}
+                                        )
+                                      </span>
+                                    ) : null}
                                   </td>
                                   {isOwner && (
                                     <td className="p-1 text-right text-gray-600">

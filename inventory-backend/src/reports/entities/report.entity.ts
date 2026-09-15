@@ -85,6 +85,10 @@ export interface ReportVariantDetail {
   quantity: number;
   /** Names of the locations where this unit currently meets the filter. */
   locations?: string[];
+  /** This unit's own low-stock alert number (null → inherits the product's). */
+  reorderLevel?: number | null;
+  /** This unit's own suggested reorder qty (null → inherits the product's). */
+  reorderQty?: number | null;
 }
 
 export interface LowStockProduct {

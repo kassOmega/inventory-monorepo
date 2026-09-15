@@ -29,6 +29,18 @@ export class AddVariantDto {
   @IsNumber()
   sellPrice?: number;
 
+  // Per-variant low-stock alert number (0 → inherit the product's) and the
+  // suggested quantity to reorder once it is breached (null/absent → inherit).
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  reorderLevel?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  reorderQty?: number | null;
+
   @IsOptional()
   @IsInt()
   @Min(0)

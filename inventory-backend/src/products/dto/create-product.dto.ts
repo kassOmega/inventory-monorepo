@@ -33,6 +33,17 @@ export class CreateProductVariantDto {
   @IsOptional()
   @IsInt()
   @Min(0)
+  reorderLevel?: number;
+
+  /** Suggested reorder qty for this variant (null on update → clear/inherit). */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  reorderQty?: number | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
   quantity?: number;
 }
 

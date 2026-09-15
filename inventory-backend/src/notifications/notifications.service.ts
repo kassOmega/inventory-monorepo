@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { Observable, Subject } from 'rxjs';
-import { inventoryFind } from '../common/inventory.util';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { PrismaService } from '../prisma/prisma.service';
@@ -8,6 +8,11 @@ import { PushService } from '../push/push.service';
 
 /** Deep link used for low-stock alerts (kept in sync with the bell/toast map). */
 const LOW_STOCK_LINK = '/dashboard/reports?tab=low-stock';
+
+/** An inventory row plus the product/variant/location the alert text needs. */
+type LowStockRow = Prisma.InventoryGetPayload<{
+  include: { product: true; variant: true; location: true };
+}>;
 
 @Injectable()
 export class NotificationsService {
@@ -24,124 +29,290 @@ export class NotificationsService {
     return this.events.asObservable();
   }
 
-  private async getOwnerRoleId(): Promise<number | null> {
-    const tenantId = getCurrentTenantId();
+  /**
+   * Owner (system) role of a specific business. `tenantId` is always supplied by
+   * the caller (taken from the location's tenant) so alerts raised from the
+   * scheduled scan — which has no request tenant context — still resolve the
+   * right business instead of the first system role in the database.
+   */
+  private async getOwnerRoleId(tenantId: number | null): Promise<number | null> {
     const role = await this.prisma.role.findFirst({
-      where: { isSystem: true, ...(tenantId != null ? { organizationId: tenantId } : {}) },
+      where: {
+        isSystem: true,
+        ...(tenantId != null ? { organizationId: tenantId } : {}),
+      },
+      select: { id: true },
     });
     return role?.id ?? null;
   }
 
+  /** The exact low-stock number for one stock row (variant's own, else product's). */
+  private lowStockThreshold(
+    product: { reorderLevel: number },
+    variant: { reorderLevel: number } | null,
+  ): number {
+    const variantLevel = variant?.reorderLevel ?? 0;
+    return variantLevel > 0 ? variantLevel : (product.reorderLevel ?? 0);
+  }
+
+  /** "Brand Base" — or "Brand Base (42 / Black)" so the alert names the variant. */
+  private lowStockItemLabel(
+    product: { brand: string; baseName: string },
+    variant: { sku?: string | null; attributes?: unknown } | null,
+  ): string {
+    const base = `${product.brand ?? ''} ${product.baseName ?? ''}`.trim();
+    if (!variant) return base;
+    const label = this.variantLabel(variant);
+    return label ? `${base} (${label})` : base;
+  }
+
+  /** Attribute label for a variant: slot1..slot4, else legacy keys, else its SKU. */
+  private variantLabel(variant: {
+    sku?: string | null;
+    attributes?: unknown;
+  }): string {
+    const attrs = (variant.attributes ?? {}) as Record<string, unknown>;
+    const pick = (key: string): string | null => {
+      const value = attrs[key];
+      if (value === undefined || value === null) return null;
+      const text = String(value).trim();
+      return text === '' ? null : text;
+    };
+    const slots = ['slot1', 'slot2', 'slot3', 'slot4']
+      .map(pick)
+      .filter((v): v is string => v !== null);
+    const legacy = [
+      'size',
+      'color',
+      'power',
+      'capacity',
+      'material',
+      'voltage',
+      'weight',
+    ]
+      .map(pick)
+      .filter((v): v is string => v !== null);
+    const label = slots.length ? slots : legacy;
+    return label.length ? label.join(' / ') : (variant.sku ?? '').trim();
+  }
+
+  /**
+   * Low-stock check for one product at one location.
+   *
+   * Alerts are per ITEM, never per product: a plain product alerts on its own
+   * stock row, while a variant product alerts once per variant row (each with its
+   * own number) and never produces a product-level alert.
+   *
+   * The number compared against is the item's own — the variant's when it has one
+   * (`reorderLevel > 0`), otherwise the product's. `0` still means "never alert".
+   * Every alert is stamped with that number (`threshold`) and the `variantId`, so
+   * it can be coalesced and auto-resolved by it instead of duplicated.
+   */
   async checkAndNotifyLowStock(
     productId: number,
     locationId: number,
   ): Promise<void> {
-    const inventory = await inventoryFind(
-      this.prisma,
-      { productId, locationId },
-      { product: true, location: true },
-    );
+    // Every stock row of this product at this location: one row for a plain
+    // product, one row per variant for a variant product.
+    const rows = await this.prisma.inventory.findMany({
+      where: { productId, locationId },
+      include: { product: true, variant: true, location: true },
+    });
+    await this.processLowStockRows(rows);
+  }
 
-    if (!inventory) return;
-
-    const qty = inventory.quantity;
-    // Only alert when a per-item low-stock threshold is set (> 0); items with
-    // no threshold configured are never flagged.
-    const threshold = inventory.product.reorderLevel;
-
-    if (threshold > 0 && qty < threshold) {
-      const productName = `${inventory.product.brand} ${inventory.product.baseName}`;
+  /** Shared per-row low-stock work (used per product and for a whole location). */
+  private async processLowStockRows(rows: LowStockRow[]): Promise<void> {
+    for (const row of rows) {
+      const locationId = row.locationId;
       // Derive the business from the location so this works even when called
       // from the scheduled low-stock scan (no request tenant context).
-      const tenantId = inventory.location.tenantId ?? getCurrentTenantId();
+      const item = {
+        tenantId: row.location.tenantId ?? getCurrentTenantId(),
+        productId: row.productId,
+        variantId: row.variantId ?? null,
+        locationId,
+      };
+      const threshold = this.lowStockThreshold(row.product, row.variant);
 
-      const ownerRoleId = await this.getOwnerRoleId();
-      if (ownerRoleId) {
-        const existingOwner = await this.prisma.notification.findFirst({
-          where: {
-            type: 'LOW_STOCK',
-            tenantId,
-            productId,
-            locationId,
-            targetRoleId: ownerRoleId,
-            isRead: false,
-          },
+      if (threshold > 0 && row.quantity < threshold) {
+        await this.raiseLowStock({
+          ...item,
+          threshold,
+          qty: row.quantity,
+          label: this.lowStockItemLabel(row.product, row.variant),
+          locationName: row.location.name,
         });
-
-        if (!existingOwner) {
-          await this.prisma.notification.create({
-            data: {
-              type: 'LOW_STOCK',
-              title: 'Low Stock Alert',
-              message: `${productName} is running low (${qty} remaining) at ${inventory.location.name}.`,
-              tenantId,
-              productId,
-              locationId,
-              targetRoleId: ownerRoleId,
-            },
-          });
-        }
-      }
-
-      const existingLocation = await this.prisma.notification.findFirst({
-        where: {
-          type: 'LOW_STOCK',
-          tenantId,
-          productId,
-          locationId,
-          targetRoleId: null,
-          targetLocationId: locationId,
-          isRead: false,
-        },
-      });
-
-      if (!existingLocation) {
-        await this.prisma.notification.create({
-          data: {
-            type: 'LOW_STOCK',
-            title: 'Low Stock Alert',
-            message: `${productName} is running low (${qty} remaining) at ${inventory.location.name}.`,
-            link: LOW_STOCK_LINK,
-            tenantId,
-            productId,
-            locationId,
-            targetRoleId: null,
-            targetLocationId: locationId,
-          },
-        });
-      }
-
-      this.push
-        .sendToLocation({
-          title: 'Low Stock Alert',
-          body: `${productName} is running low (${qty} remaining)`,
-          url: LOW_STOCK_LINK,
-        }, locationId)
-        .catch(() => {});
-
-      // A location with nobody assigned to it (owner-run shop, a branch whose
-      // staff were removed, ...) can never receive the fan-out above, so the
-      // alert would only ever sit in the bell. Fall back to the business
-      // owner(s), who already have the in-app row created above. The count is a
-      // single indexed query; the sends stay fire-and-forget so stock/sales
-      // latency is unchanged.
-      const assignedUsers = await this.prisma.user.count({
-        where: { locationId },
-      });
-      if (assignedUsers === 0 && ownerRoleId) {
-        this.push
-          .sendToRoleId(
-            {
-              title: 'Low Stock Alert',
-              body: `${productName} is running low (${qty} remaining)`,
-              url: LOW_STOCK_LINK,
-            },
-            ownerRoleId,
-            tenantId,
-          )
-          .catch(() => {});
+      } else {
+        // Back at/above its number (or alerts switched off): close whatever is
+        // still open for this item so the bell drops the stale alert. The next
+        // drop below the number raises it again.
+        await this.resolveLowStockAlerts(item);
       }
     }
+  }
+
+  /**
+   * Raise (or refresh) the low-stock alert for one item+location and push it.
+   *
+   * One live alert per item+location per target: an existing unread alert is
+   * updated in place when the quantity or the alert number changed, so a falling
+   * quantity never stacks duplicates. The device push fires only when the alert is
+   * *newly* raised — coalesced updates just refresh the in-app entry.
+   */
+  private async raiseLowStock(params: {
+    tenantId: number | null;
+    productId: number;
+    variantId: number | null;
+    locationId: number;
+    threshold: number;
+    qty: number;
+    label: string;
+    locationName: string;
+  }): Promise<void> {
+    const { tenantId, productId, variantId, locationId, qty, label, locationName } =
+      params;
+    const title = 'Low Stock Alert';
+    const message =
+      `${label} is running low (${qty} remaining, alert level ${params.threshold}) ` +
+      `at ${locationName}.`;
+    const pushPayload = {
+      title,
+      body: `${label}: ${qty} left (alert level ${params.threshold})`,
+      url: LOW_STOCK_LINK,
+    };
+
+    const ownerRoleId = await this.getOwnerRoleId(tenantId);
+
+    let raised = false;
+    if (ownerRoleId) {
+      const owner = await this.upsertLowStockAlert({
+        tenantId,
+        productId,
+        variantId,
+        locationId,
+        threshold: params.threshold,
+        title,
+        message,
+        target: { targetRoleId: ownerRoleId },
+      });
+      raised = raised || owner.created;
+    }
+
+    const locationAlert = await this.upsertLowStockAlert({
+      tenantId,
+      productId,
+      variantId,
+      locationId,
+      threshold: params.threshold,
+      title,
+      message,
+      target: { targetLocationId: locationId },
+    });
+    raised = raised || locationAlert.created;
+
+    if (!raised) return;
+
+    this.push.sendToLocation(pushPayload, locationId).catch(() => {});
+
+    // A location with nobody assigned to it (owner-run shop, a branch whose staff
+    // were removed, ...) can never receive the fan-out above, so the alert would
+    // only ever sit in the bell. Fall back to the business owner(s), who already
+    // have the in-app row. The count is a single indexed query; the sends stay
+    // fire-and-forget so stock/sales latency is unchanged.
+    const assignedUsers = await this.prisma.user.count({
+      where: { locationId },
+    });
+    if (assignedUsers === 0 && ownerRoleId) {
+      this.push
+        .sendToRoleId(pushPayload, ownerRoleId, tenantId)
+        .catch(() => {});
+    }
+  }
+
+  /** Create the alert, or refresh the still-open one for the same item+target. */
+  private async upsertLowStockAlert(params: {
+    tenantId: number | null;
+    productId: number;
+    variantId: number | null;
+    locationId: number;
+    threshold: number;
+    title: string;
+    message: string;
+    target: { targetRoleId?: number | null; targetLocationId?: number | null };
+  }): Promise<{ created: boolean }> {
+    const key = {
+      type: 'LOW_STOCK',
+      tenantId: params.tenantId,
+      productId: params.productId,
+      variantId: params.variantId,
+      locationId: params.locationId,
+      targetRoleId: params.target.targetRoleId ?? null,
+      targetLocationId: params.target.targetLocationId ?? null,
+    };
+
+    const open = await this.prisma.notification.findFirst({
+      where: { ...key, isRead: false },
+    });
+
+    if (open) {
+      // Managed by the number: a changed quantity or a re-edited alert level
+      // rewrites this one row instead of adding another.
+      if (
+        open.threshold !== params.threshold ||
+        open.message !== params.message
+      ) {
+        await this.prisma.notification.update({
+          where: { id: open.id },
+          data: {
+            threshold: params.threshold,
+            message: params.message,
+            link: LOW_STOCK_LINK,
+          },
+        });
+        this.events.next({ data: 'refresh' });
+      }
+      return { created: false };
+    }
+
+    await this.prisma.notification.create({
+      data: {
+        ...key,
+        title: params.title,
+        message: params.message,
+        link: LOW_STOCK_LINK,
+        threshold: params.threshold,
+      },
+    });
+    this.events.next({ data: 'refresh' });
+    return { created: true };
+  }
+
+  /** Close every open alert for an item that is no longer below its number. */
+  private async resolveLowStockAlerts(params: {
+    tenantId: number | null;
+    productId: number;
+    variantId: number | null;
+    locationId: number;
+  }): Promise<void> {
+    const open = await this.prisma.notification.findMany({
+      where: {
+        type: 'LOW_STOCK',
+        tenantId: params.tenantId,
+        productId: params.productId,
+        variantId: params.variantId,
+        locationId: params.locationId,
+        isRead: false,
+      },
+      select: { id: true },
+    });
+    if (open.length === 0) return;
+
+    await this.prisma.notification.updateMany({
+      where: { id: { in: open.map((n) => n.id) } },
+      data: { isRead: true },
+    });
+    this.events.next({ data: 'refresh' });
   }
 
   async notifyOwner(
@@ -371,13 +542,13 @@ export class NotificationsService {
   }
 
   async checkAllLowStockForLocation(locationId: number): Promise<void> {
-    const inventories = await this.prisma.inventory.findMany({
+    // One query for the whole location (plain rows + variant rows) and one pass
+    // over them: going product-by-product would re-scan every variant group.
+    const rows = await this.prisma.inventory.findMany({
       where: { locationId },
+      include: { product: true, variant: true, location: true },
     });
-
-    for (const inv of inventories) {
-      await this.checkAndNotifyLowStock(inv.productId, locationId);
-    }
+    await this.processLowStockRows(rows);
   }
 
   async findAll(user: JwtPayload) {
