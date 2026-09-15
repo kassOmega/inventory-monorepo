@@ -3,6 +3,7 @@ import { useToast } from "@/app/components/ToastProvider";
 import { useAuth } from "@/context/AuthContext";
 import { generateEan13 } from "@/lib/barcode";
 import api, { markHandled } from "@/lib/api";
+import { variantLabel } from "@/lib/variantLabel";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import AiPhotoPicker from "./AiPhotoPicker";
@@ -132,6 +133,14 @@ export default function ProductForm({
   // Variant builder rows (revealed when Has Variants is checked). Each row has
   // 4 explicit attribute slots (generic across industries) + barcode tools.
   const [variants, setVariants] = useState<VariantRow[]>([emptyVariant()]);
+  // Catalog-derived variant suggestions for the selected category:
+  // GET /products/variant-suggestions returns the matrices other items in this
+  // category already use. Read-only — the user applies rows, prunes and edits
+  // them, and nothing is written until the form is submitted.
+  const [variantSuggest, setVariantSuggest] = useState<any | null>(null);
+  const [suggestBusy, setSuggestBusy] = useState(false);
+  const [suggestDismissed, setSuggestDismissed] = useState(false);
+  const [copySourceId, setCopySourceId] = useState("");
   // Batch / expiry fields (revealed when Perishable is checked).
   const [batch, setBatch] = useState({
     batchNumber: "",
@@ -205,6 +214,49 @@ export default function ProductForm({
       }
     });
   }, [isStandalone]);
+
+  // Suggest the variant rows other products in this category already use, so a
+  // second brand of the same wire/bulb does not have to be retyped. Brand is only
+  // a ranking hint (it decides whose prices get pre-filled), so it is read at
+  // request time instead of re-fetching on every keystroke.
+  useEffect(() => {
+    const categoryId = Number(form.categoryId);
+    if (!categoryId || !form.hasVariants) {
+      setVariantSuggest(null);
+      setSuggestDismissed(false);
+      setCopySourceId("");
+      return;
+    }
+    let cancelled = false;
+    setSuggestBusy(true);
+    setSuggestDismissed(false);
+    setCopySourceId("");
+    api
+      .get("/products/variant-suggestions", {
+        params: {
+          categoryId,
+          brand: form.brand?.trim() || undefined,
+          excludeProductId: editing?.id || undefined,
+        },
+      })
+      .then((res) => {
+        if (!cancelled) setVariantSuggest(res.data ?? null);
+      })
+      .catch((err) => {
+        // A suggestion is a convenience, never a blocker: the builder still works
+        // by hand (and the AI suggester is still there). Handled here so the
+        // global API error toast stays quiet.
+        markHandled(err);
+        if (!cancelled) setVariantSuggest(null);
+      })
+      .finally(() => {
+        if (!cancelled) setSuggestBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.categoryId, form.hasVariants, editing?.id]);
 
   // Duplicate detection: when the entered brand + base name exactly match an
   // existing product, pre-fill the form so the user can edit what should be
@@ -582,6 +634,65 @@ export default function ProductForm({
 
   const addVariantRow = () => setVariants([...variants, emptyVariant()]);
 
+  // Signature of a builder row's slots — used to skip suggested rows that are
+  // already in the builder, so applying a suggestion can never duplicate a
+  // variant the user already has.
+  const variantRowKey = (r: VariantRow) =>
+    [r.slot1, r.slot2, r.slot3, r.slot4]
+      .map((s) => s.trim().toLowerCase())
+      .join("|");
+
+  // Drop suggested rows into the builder: attributes (including legacy
+  // size/color keys) fold into the slots exactly like an existing variant's do,
+  // prices fall back to the product's own numbers, and nothing the user typed is
+  // overwritten.
+  const applySuggestedRows = (rows: any[]) => {
+    const seen = new Set(variants.map(variantRowKey));
+    const mapped = rows
+      .map((r) => mapVariantToSlots(r))
+      .map((r) => ({
+        ...r,
+        buyPrice:
+          r.buyPrice ||
+          (form.currentBuyPrice ? String(form.currentBuyPrice) : ""),
+        sellPrice:
+          r.sellPrice ||
+          (form.currentSellPrice ? String(form.currentSellPrice) : ""),
+      }))
+      .filter((r) => {
+        const key = variantRowKey(r);
+        if (!key.replace(/\|/g, "").trim()) return false; // empty source row
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+    if (mapped.length === 0) {
+      toast.error(t("pf.variantSuggestNone"));
+      return;
+    }
+    // Replace the untouched starter row when there is nothing else, otherwise
+    // append — a typed row is never overwritten.
+    const pristine = variants.length === 1 && !activeVariants.length;
+    setVariants(pristine ? mapped : [...variants, ...mapped]);
+    setForm((f: any) => (f.hasVariants ? f : { ...f, hasVariants: true }));
+    toast.success(t("pf.variantSuggestApplied", { count: mapped.length }));
+  };
+
+  const copyVariantsFromProduct = () => {
+    const source = (variantSuggest?.products ?? []).find(
+      (p: any) => String(p.id) === copySourceId,
+    );
+    if (!source) return;
+    applySuggestedRows(source.rows ?? []);
+  };
+
+  // The best suggestion for this category (identical rows used by the most
+  // products, preferring the typed brand).
+  const topSuggestion = variantSuggest?.groups?.[0] ?? null;
+  const showSuggestions =
+    !suggestDismissed && !!topSuggestion && (topSuggestion.rows ?? []).length > 0;
+
 
   return (
     <form
@@ -738,6 +849,74 @@ export default function ProductForm({
           <p className="text-[11px] text-gray-400">
             {t("pf.variantHint")}
           </p>
+          {suggestBusy && (
+            <p className="text-[11px] text-gray-400">
+              {t("pf.variantSuggestLoading")}
+            </p>
+          )}
+          {showSuggestions && (
+            <div className="border border-blue-200 bg-blue-50/60 rounded-lg p-3 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-medium text-blue-900">
+                  {t("pf.variantSuggestFrom", {
+                    count: topSuggestion.count,
+                    category: variantSuggest?.categoryName ?? "",
+                  })}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => applySuggestedRows(topSuggestion.rows ?? [])}
+                    className="bg-blue-600 text-white rounded px-2 py-1 text-xs"
+                  >
+                    {t("pf.variantSuggestApply")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSuggestDismissed(true)}
+                    className="text-xs text-gray-500 hover:underline"
+                  >
+                    {t("pf.variantSuggestDismiss")}
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {(topSuggestion.rows ?? []).map((r: any, i: number) => (
+                  <span
+                    key={i}
+                    className="bg-white border rounded px-2 py-0.5 text-[11px] text-gray-600"
+                  >
+                    {variantLabel(r) ||
+                      Object.values(r.attributes ?? {}).join(" · ")}
+                  </span>
+                ))}
+              </div>
+              {(variantSuggest?.products ?? []).length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-blue-100">
+                  <select
+                    value={copySourceId}
+                    onChange={(e) => setCopySourceId(e.target.value)}
+                    className="border p-1.5 rounded text-xs bg-white"
+                  >
+                    <option value="">{t("pf.copyFromProductPick")}</option>
+                    {(variantSuggest?.products ?? []).map((p: any) => (
+                      <option key={p.id} value={p.id}>
+                        {`${p.brand} ${p.baseName} (${p.variantCount})`}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={copyVariantsFromProduct}
+                    disabled={!copySourceId}
+                    className="text-xs text-blue-700 hover:underline disabled:opacity-50"
+                  >
+                    {t("pf.copyFromProduct")}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           {variants.map((v, i) => (
             <div key={i} className="border rounded-lg p-3 space-y-2 bg-gray-50/50">
               <div className="flex items-center justify-between">
