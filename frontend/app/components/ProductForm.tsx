@@ -807,7 +807,16 @@ export default function ProductForm({
                   <label className="block text-[11px] font-medium text-gray-500 mb-1">
                     {t("pf.initialQty")}
                   </label>
-                  <input type="number" min="0" placeholder="0" value={v.quantity} onChange={(e) => updateVariant(i, "quantity", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
+                  {v.variantId ? (
+                    // Existing variants keep their stock in the inventory rows —
+                    // this field only seeds a NEW variant, so typing here looked
+                    // like it "restored" stock while changing nothing.
+                    <p className="border p-2 rounded-lg text-[11px] text-gray-400 bg-gray-50 leading-snug">
+                      {t("pf.useAdjustForStock")}
+                    </p>
+                  ) : (
+                    <input type="number" min="0" placeholder="0" value={v.quantity} onChange={(e) => updateVariant(i, "quantity", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
+                  )}
                 </div>
                 <div>
                   <label className="block text-[11px] font-medium text-gray-500 mb-1">

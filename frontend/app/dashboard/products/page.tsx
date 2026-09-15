@@ -39,6 +39,7 @@ export default function ProductsPage() {
   const [adjusting, setAdjusting] = useState<any>(null);
   const [adjustForm, setAdjustForm] = useState({
     locationId: "",
+    variantId: "",
     quantity: 0,
     reason: "",
   });
@@ -162,14 +163,49 @@ export default function ProductsPage() {
     });
   }, [canAdjust, user]);
 
-  const startAdjust = (p: any) => {
+  /**
+   * Stock of one item at one location, straight from the list payload: a variant
+   * row when `variantId` is given, the plain row otherwise. Used to prefill the
+   * reconciliation count — the modal used to show the product-wide total across
+   * variants *and* locations, which is also why the backend wrote the wrong row.
+   */
+  const stockAt = (product: any, locationId: string, variantId?: string) =>
+    (product?.inventory ?? [])
+      .filter(
+        (i: any) =>
+          String(i.locationId) === String(locationId) &&
+          (variantId === undefined ||
+            String(i.variantId ?? "") === String(variantId)),
+      )
+      .reduce((sum: number, i: any) => sum + (i.quantity ?? 0), 0);
+
+  /** Open the modal, optionally pinned to one variant (per-variant Adjust). */
+  const startAdjust = (p: any, variantId?: number | string) => {
+    const locationId = locations.length === 1 ? String(locations[0].id) : "";
+    const selectedVariant =
+      p?.hasVariants && variantId !== undefined ? String(variantId) : "";
     setAdjusting(p);
     setAdjustForm({
-      locationId: locations.length === 1 ? String(locations[0].id) : "",
-      quantity: getTotalStock(p),
+      locationId,
+      variantId: selectedVariant,
+      quantity: locationId
+        ? stockAt(p, locationId, p?.hasVariants ? selectedVariant : undefined)
+        : 0,
       reason: "",
     });
     setShowAdjustModal(true);
+  };
+
+  /** Keep the counted quantity in step with the chosen location / variant. */
+  const syncAdjustTarget = (next: { locationId: string; variantId: string }) => {
+    const quantity = next.locationId
+      ? stockAt(
+          adjusting,
+          next.locationId,
+          adjusting?.hasVariants ? next.variantId : undefined,
+        )
+      : 0;
+    setAdjustForm((f) => ({ ...f, ...next, quantity }));
   };
 
   const handleAdjust = async (e: React.FormEvent) => {
@@ -178,9 +214,18 @@ export default function ProductsPage() {
       toast.error(t("products.pleaseSelectLocation"));
       return;
     }
+    if (adjusting.hasVariants && !adjustForm.variantId) {
+      toast.error(t("products.selectVariant"));
+      return;
+    }
     try {
       await api.post(`/products/${adjusting.id}/adjust-stock`, {
         locationId: Number(adjustForm.locationId),
+        // Stock for a variant product lives on the variant rows, so the API needs
+        // to know which one is being counted (it rejects the request otherwise).
+        ...(adjusting.hasVariants
+          ? { variantId: Number(adjustForm.variantId) }
+          : {}),
         quantity: Number(adjustForm.quantity),
         reason: adjustForm.reason || undefined,
       });
@@ -402,6 +447,19 @@ export default function ProductsPage() {
                                   </td>
                                   <td className="p-1 text-right font-semibold">{qty}</td>
                                   <td className="p-1 text-right whitespace-nowrap">
+                                    {canAdjust && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          startAdjust(p, v.id);
+                                        }}
+                                        className="text-emerald-600 hover:underline mr-2"
+                                        title={t("products.adjustVariantTitle")}
+                                      >
+                                        {t("products.adjust")}
+                                      </button>
+                                    )}
                                     <button
                                       type="button"
                                       onClick={(e) => { e.stopPropagation(); startQr(p); }}
@@ -515,7 +573,10 @@ export default function ProductsPage() {
             <select
               value={adjustForm.locationId}
               onChange={(e) =>
-                setAdjustForm({ ...adjustForm, locationId: e.target.value })
+                syncAdjustTarget({
+                  locationId: e.target.value,
+                  variantId: adjustForm.variantId,
+                })
               }
               className="border p-2 rounded-lg w-full bg-white"
               required
@@ -528,6 +589,46 @@ export default function ProductsPage() {
               ))}
             </select>
           </div>
+          {adjusting?.hasVariants && (
+            <div>
+              <label className="block text-sm font-medium text-gray-500 mb-1">
+                {t("products.selectVariant")}
+              </label>
+              <select
+                value={adjustForm.variantId}
+                onChange={(e) =>
+                  syncAdjustTarget({
+                    locationId: adjustForm.locationId,
+                    variantId: e.target.value,
+                  })
+                }
+                className="border p-2 rounded-lg w-full bg-white"
+                required
+              >
+                <option value="">{t("products.selectVariant")}</option>
+                {(adjusting?.variants ?? []).map((v: any) => (
+                  <option key={v.id} value={v.id}>
+                    {variantLabel(v) || v.sku || `#${v.id}`}
+                    {v.sku ? ` — ${v.sku}` : ""}
+                  </option>
+                ))}
+              </select>
+              {adjustForm.locationId && adjustForm.variantId && (
+                <p className="text-[11px] text-gray-400 mt-1">
+                  {t("products.stockAtLocation", {
+                    n: stockAt(adjusting, adjustForm.locationId, adjustForm.variantId),
+                  })}
+                </p>
+              )}
+            </div>
+          )}
+          {!adjusting?.hasVariants && adjustForm.locationId && (
+            <p className="text-[11px] text-gray-400 -mt-2">
+              {t("products.stockAtLocation", {
+                n: stockAt(adjusting, adjustForm.locationId),
+              })}
+            </p>
+          )}
           <div>
             <label className="block text-sm font-medium text-gray-500 mb-1">
               {t("products.newQuantity")}
