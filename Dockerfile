@@ -45,11 +45,17 @@ COPY inventory-backend/prisma/migrations ./prisma/migrations
 ENV DATABASE_URL="postgresql://build:build@127.0.0.1:5432/build?schema=public"
 RUN npx prisma generate
 
-COPY inventory-backend/nest-cli.json inventory-backend/tsconfig.json inventory-backend/tsconfig.build.json ./
+COPY inventory-backend/nest-cli.json inventory-backend/tsconfig.json inventory-backend/tsconfig.build.json inventory-backend/tsconfig.scripts.json ./
 COPY inventory-backend/src ./src
 # Deliberately `nest build` and not `npm run build`: that script runs
 # `prisma db push` + backfill scripts against a live database. -> dist/main.js
-RUN npx nest build \
+RUN npx nest build
+
+# Compile Prisma seed/backfill scripts to JS so production containers can run
+# them manually without ts-node/devDependencies, e.g.:
+#   cd /app/backend && npm run seed:prod:js
+COPY inventory-backend/prisma/*.ts ./prisma/
+RUN npm run build:prisma-scripts \
   && npm prune --omit=dev
 
 # =============================================================================
