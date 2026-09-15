@@ -262,3 +262,169 @@ describe('ProductsService.findByCode (POS scan to cart)', () => {
     );
   });
 });
+
+describe('ProductsService.adjustStock', () => {
+  const variantProduct = {
+    id: 5,
+    brand: 'Test',
+    baseName: 'Led panel',
+    hasVariants: true,
+    currentBuyPrice: 10,
+  };
+  const plainProduct = { ...variantProduct, hasVariants: false };
+
+  // adjustStock writes through inventorySet, so the mock needs that delegate.
+  const inventoryMock = (row: any) => ({
+    findFirst: jest.fn(async () => row),
+    update: jest.fn(async (a: any) => a),
+    create: jest.fn(async (a: any) => a),
+  });
+
+  const prepare = (prisma: any) => {
+    // adjustStock resolves the location (tenant-scoped) before anything else, so
+    // every case needs a valid one unless the test overrides it afterwards.
+    prisma.location = {
+      ...(prisma.location ?? {}),
+      findFirst: jest.fn(async () => ({
+        id: 26,
+        name: 'Sosa Store',
+        type: 'STORE',
+      })),
+    };
+    const { service, finance, notifications } = makeService(prisma);
+    (finance as any).postInventoryAdjustment = jest.fn(async () => true);
+    (notifications as any).checkAndNotifyLowStock = jest.fn(
+      async () => undefined,
+    );
+    return { service, finance, notifications };
+  };
+
+  it('requires a variant when the product has variants', async () => {
+    const prisma = makePrisma({
+      product: { findUnique: jest.fn(async () => variantProduct) },
+    });
+    const { service } = prepare(prisma);
+
+    await expect(
+      service.adjustStock(5, { locationId: 26, quantity: 12 }, owner as any),
+    ).rejects.toThrow('Select a variant to reconcile');
+  });
+
+  it('rejects a variant that belongs to another product', async () => {
+    const prisma = makePrisma({
+      product: { findUnique: jest.fn(async () => variantProduct) },
+      productVariant: { findFirst: jest.fn(async () => null) },
+    });
+    const { service } = prepare(prisma);
+
+    await expect(
+      service.adjustStock(
+        5,
+        { locationId: 26, variantId: 999, quantity: 3 },
+        owner as any,
+      ),
+    ).rejects.toThrow('does not belong to this product');
+  });
+
+  it('adjusts the selected variant at the selected location only', async () => {
+    const prisma = makePrisma({
+      product: { findUnique: jest.fn(async () => variantProduct) },
+      productVariant: {
+        findFirst: jest.fn(async () => ({
+          sku: 'TES-LED-V1',
+          attributes: { slot1: '9w', slot2: '3 colors' },
+        })),
+      },
+      inventory: inventoryMock({ id: 900, quantity: 4, avgCost: 5 }),
+      auditLog: { create: jest.fn(async (a: any) => a) },
+    });
+    const { service, finance, notifications } = prepare(prisma);
+
+    await service.adjustStock(
+      5,
+      { locationId: 26, variantId: 847, quantity: 10 },
+      owner as any,
+    );
+
+    // The row is resolved and written for (variant 847, location 26) — never the
+    // plain row, which used to become a phantom row on variant products.
+    expect(prisma.inventory.findFirst).toHaveBeenCalledWith({
+      where: { tenantId: 1, productId: 5, variantId: 847, locationId: 26 },
+    });
+    expect(prisma.inventory.update).toHaveBeenCalledWith({
+      where: { id: 900 },
+      data: { quantity: 10 },
+    });
+    expect(prisma.inventory.create).not.toHaveBeenCalled();
+
+    // Journal: delta 6 × avgCost 5, and it names the variant.
+    const journal = (finance as any).postInventoryAdjustment.mock.calls[0][0];
+    expect(journal.signedAmount).toBe(30);
+    expect(journal.ref).toContain('-847-');
+    expect(journal.description).toContain('Test Led panel (9w / 3 colors)');
+
+    // Audit trail names the variant too.
+    const audit = (prisma.auditLog.create as jest.Mock).mock.calls[0][0];
+    expect(audit.data.details).toContain('9w / 3 colors');
+    expect(audit.data.details).toContain('to 10 at');
+
+    // Low-stock is re-evaluated for that product at that location.
+    expect((notifications as any).checkAndNotifyLowStock).toHaveBeenCalledWith(
+      5,
+      26,
+    );
+  });
+
+  it('still adjusts a plain product through its null-variant row', async () => {
+    const prisma = makePrisma({
+      product: { findUnique: jest.fn(async () => plainProduct) },
+      inventory: inventoryMock({ id: 901, quantity: 2, avgCost: 4 }),
+      auditLog: { create: jest.fn(async (a: any) => a) },
+    });
+    const { service, finance } = prepare(prisma);
+
+    await service.adjustStock(5, { locationId: 28, quantity: 5 }, owner as any);
+
+    expect(prisma.inventory.findFirst).toHaveBeenCalledWith({
+      where: { tenantId: 1, productId: 5, variantId: null, locationId: 28 },
+    });
+    expect(prisma.inventory.update).toHaveBeenCalledWith({
+      where: { id: 901 },
+      data: { quantity: 5 },
+    });
+    expect(
+      (finance as any).postInventoryAdjustment.mock.calls[0][0].signedAmount,
+    ).toBe(12);
+  });
+
+  it('rejects a variantId for a product without variants', async () => {
+    const prisma = makePrisma({
+      product: { findUnique: jest.fn(async () => plainProduct) },
+    });
+    const { service } = prepare(prisma);
+
+    await expect(
+      service.adjustStock(
+        5,
+        { locationId: 28, variantId: 9, quantity: 5 },
+        owner as any,
+      ),
+    ).rejects.toThrow('This product has no variants.');
+  });
+
+  it('only accepts locations of the active business', async () => {
+    const prisma = makePrisma({
+      product: { findUnique: jest.fn(async () => plainProduct) },
+    });
+    const { service } = prepare(prisma);
+    // A location id from another business resolves to nothing.
+    prisma.location.findFirst = jest.fn(async () => null);
+
+    await expect(
+      service.adjustStock(5, { locationId: 999, quantity: 5 }, owner as any),
+    ).rejects.toThrow('Location not found');
+    expect(prisma.location.findFirst).toHaveBeenCalledWith({
+      where: { id: 999, tenantId: 1 },
+    });
+  });
+});

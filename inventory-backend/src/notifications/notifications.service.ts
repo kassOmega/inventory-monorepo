@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nest
 import { Prisma } from '@prisma/client';
 import { Observable, Subject } from 'rxjs';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
+import { itemDisplayName } from '../common/variant-label.util';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { PrismaService } from '../prisma/prisma.service';
 import { PushService } from '../push/push.service';
@@ -70,47 +71,6 @@ export class NotificationsService {
     return variantLevel > 0 ? variantLevel : (product.reorderLevel ?? 0);
   }
 
-  /** "Brand Base" — or "Brand Base (42 / Black)" so the alert names the variant. */
-  private lowStockItemLabel(
-    product: { brand: string; baseName: string },
-    variant: { sku?: string | null; attributes?: unknown } | null,
-  ): string {
-    const base = `${product.brand ?? ''} ${product.baseName ?? ''}`.trim();
-    if (!variant) return base;
-    const label = this.variantLabel(variant);
-    return label ? `${base} (${label})` : base;
-  }
-
-  /** Attribute label for a variant: slot1..slot4, else legacy keys, else its SKU. */
-  private variantLabel(variant: {
-    sku?: string | null;
-    attributes?: unknown;
-  }): string {
-    const attrs = (variant.attributes ?? {}) as Record<string, unknown>;
-    const pick = (key: string): string | null => {
-      const value = attrs[key];
-      if (value === undefined || value === null) return null;
-      const text = String(value).trim();
-      return text === '' ? null : text;
-    };
-    const slots = ['slot1', 'slot2', 'slot3', 'slot4']
-      .map(pick)
-      .filter((v): v is string => v !== null);
-    const legacy = [
-      'size',
-      'color',
-      'power',
-      'capacity',
-      'material',
-      'voltage',
-      'weight',
-    ]
-      .map(pick)
-      .filter((v): v is string => v !== null);
-    const label = slots.length ? slots : legacy;
-    return label.length ? label.join(' / ') : (variant.sku ?? '').trim();
-  }
-
   /**
    * Low-stock check for one product at one location.
    *
@@ -161,7 +121,7 @@ export class NotificationsService {
             ...item,
             threshold,
             qty: row.quantity,
-            label: this.lowStockItemLabel(row.product, row.variant),
+            label: itemDisplayName(row.product, row.variant),
             locationName: row.location.name,
           },
           db,

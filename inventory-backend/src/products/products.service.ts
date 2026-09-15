@@ -12,6 +12,7 @@ import {
   RequestType,
 } from '@prisma/client';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
+import { itemDisplayName } from '../common/variant-label.util';
 import { getCurrentTenantId, requireTenantId } from '../common/tenant/tenant.context';
 import { Paging, pagedResult } from '../common/pagination.util';
 import { FinanceService } from '../finance/finance.service';
@@ -855,32 +856,72 @@ export class ProductsService {
   }
 
   async adjustStock(productId: number, dto: AdjustStockDto, user: JwtPayload) {
+    const tenantId = requireTenantId();
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
+      select: {
+        id: true,
+        brand: true,
+        baseName: true,
+        hasVariants: true,
+        currentBuyPrice: true,
+      },
     });
     if (!product) throw new NotFoundException('Product not found');
 
-    const location = await this.prisma.location.findUnique({
-      where: { id: dto.locationId },
+    // Only locations of the active business can be reconciled (an unscoped lookup
+    // let a foreign location id create a row under this tenant).
+    const location = await this.prisma.location.findFirst({
+      where: { id: dto.locationId, tenantId },
     });
     if (!location) throw new NotFoundException('Location not found');
+
+    // Resolve which stock row is being counted. Stock lives on the variant rows
+    // for a variant product and on the plain (variantId = null) row otherwise, so
+    // an adjustment must say which variant it is — writing the plain row for a
+    // variant product used to create a phantom row and leave the real variant
+    // stock (and the ledger) untouched.
+    const variantId = dto.variantId ?? null;
+    if (product.hasVariants && variantId === null) {
+      throw new BadRequestException(
+        'Select a variant to reconcile — this product keeps stock per variant.',
+      );
+    }
+    if (!product.hasVariants && variantId !== null) {
+      throw new BadRequestException('This product has no variants.');
+    }
+
+    let variant: { sku: string | null; attributes: unknown } | null = null;
+    if (variantId !== null) {
+      variant = await this.prisma.productVariant.findFirst({
+        where: { id: variantId, productId, ...(tenantId != null ? { tenantId } : {}) },
+        select: { sku: true, attributes: true },
+      });
+      if (!variant) {
+        throw new BadRequestException(
+          'That variant does not belong to this product.',
+        );
+      }
+    }
+    const label = itemDisplayName(product, variant);
 
     // Reconciliation: compare the counted vs system stock, then book the value
     // difference (surplus/shortage) via an Inventory Adjustment journal so the
     // Inventory Asset ledger stays in sync with the physical count.
     const before = await this.prisma.inventory.findFirst({
       where: {
-        tenantId: requireTenantId(),
+        tenantId,
         productId,
-        variantId: null,
+        variantId,
         locationId: dto.locationId,
       },
     });
     const delta = round2(dto.quantity - (before?.quantity ?? 0));
 
     await inventorySet(this.prisma, {
-      tenantId: requireTenantId(),
+      tenantId,
       productId,
+      variantId,
       locationId: dto.locationId,
       quantity: dto.quantity,
     });
@@ -889,8 +930,8 @@ export class ProductsService {
       const unitCost = before?.avgCost ?? product.currentBuyPrice ?? 0;
       await this.finance
         .postInventoryAdjustment({
-          ref: `ADJ-${productId}-${dto.locationId}-${Date.now()}`,
-          description: `Inventory adjustment: ${product.brand} ${product.baseName} at ${location.name} — count ${dto.quantity} (was ${before?.quantity ?? 0})${dto.reason ? ` — ${dto.reason}` : ''}`,
+          ref: `ADJ-${productId}-${variantId ?? 'base'}-${dto.locationId}-${Date.now()}`,
+          description: `Inventory adjustment: ${label} at ${location.name} — count ${dto.quantity} (was ${before?.quantity ?? 0})${dto.reason ? ` — ${dto.reason}` : ''}`,
           signedAmount: round2(delta * unitCost),
           createdById: user.sub,
           tenantId: getCurrentTenantId(),
@@ -902,7 +943,7 @@ export class ProductsService {
       data: {
         userId: user.sub,
         action: 'STOCK_ADJUST',
-        details: `Adjusted ${product.brand} ${product.baseName} to ${dto.quantity} at ${location.name}${dto.reason ? ` — ${dto.reason}` : ''}`,
+        details: `Adjusted ${label} to ${dto.quantity} at ${location.name}${dto.reason ? ` — ${dto.reason}` : ''}`,
       },
     });
 
