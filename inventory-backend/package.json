@@ -9,8 +9,11 @@
     "build": "npx prisma generate && npx prisma db push --accept-data-loss && npx ts-node prisma/backfill-guest-id-types.ts && npx ts-node prisma/backfill-room-charges.ts && npx ts-node prisma/backfill-hospitality-role-permissions.ts && nest build",
     "db:reset:prod": "npx prisma generate && npx prisma db push --force-reset && npx ts-node prisma/seed-prod.ts",
     "db:push": "prisma db push",
+    "build:prisma-scripts": "tsc -p tsconfig.scripts.json",
     "seed": "ts-node prisma/seed.ts",
     "seed:prod": "ts-node prisma/seed-prod.ts",
+    "seed:js": "node dist/prisma/seed-entry.js",
+    "seed:prod:js": "node dist/prisma/seed-prod.js",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -97,6 +100,6 @@
     "testEnvironment": "node"
   },
   "prisma": {
-    "seed": "ts-node prisma/seed-entry.ts"
+    "seed": "node dist/prisma/seed-entry.js"
   }
 }
