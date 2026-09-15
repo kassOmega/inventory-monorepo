@@ -26,6 +26,40 @@ import { inventorySet, inventoryUpsert } from '../common/inventory.util';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/**
+ * Lower-cased attribute map used to compare variant rows: "Red " and "red" are
+ * the same option, so two products that describe the same matrix group together.
+ */
+const normalizeAttributes = (attributes: unknown): Record<string, string> => {
+  const out: Record<string, string> = {};
+  if (attributes && typeof attributes === 'object') {
+    for (const [key, value] of Object.entries(
+      attributes as Record<string, unknown>,
+    )) {
+      if (value === null || value === undefined || value === '') continue;
+      out[key.trim().toLowerCase()] = String(value).trim().toLowerCase();
+    }
+  }
+  return out;
+};
+
+/**
+ * A single row handed to the Variant Builder. Attributes come back exactly as
+ * stored (the builder folds legacy size/color keys into its slots), and prices
+ * plus the per-variant alert numbers ride along so the row is usable as-is.
+ *
+ * SKU, barcode and quantity are deliberately never suggested: variant SKUs are
+ * generated per product, barcodes are unique per tenant, and quantity is this
+ * product's own stock — not a copy of another product's.
+ */
+const toSuggestionRow = (v: any) => ({
+  attributes: v.attributes ?? {},
+  buyPrice: v.buyPrice ?? null,
+  sellPrice: v.sellPrice ?? null,
+  reorderLevel: v.reorderLevel ?? 0,
+  reorderQty: v.reorderQty ?? null,
+});
+
 @Injectable()
 export class ProductsService {
   constructor(
@@ -432,6 +466,178 @@ export class ProductsService {
       include: { category: true, unit: true },
     });
     return { product };
+  }
+
+  /**
+   * Variant-builder suggestions for a category ("this is what the other
+   * Electrical Wire items look like"): the variant matrices already used by the
+   * business's own products in that category (plus its sub-categories), and a
+   * short list of same-category products whose variants can be copied wholesale.
+   *
+   * Variant rows are never shared between products — each product owns its SKUs,
+   * barcodes, prices and stock — so this only returns the row definitions the
+   * builder pre-fills. The user prunes/edits them, and the normal create/update
+   * path still writes per-product rows. Read-only: nothing is written here.
+   *
+   * `brand` is only a ranking hint (the typed brand's items win ties) and
+   * `excludeProductId` keeps a product from being suggested back to itself.
+   */
+  async variantSuggestions(
+    opts: {
+      categoryId?: number;
+      brand?: string;
+      excludeProductId?: number;
+      limit?: number;
+    } = {},
+  ) {
+    const empty = {
+      categoryId: null as number | null,
+      categoryName: null as string | null,
+      categoryIds: [] as number[],
+      scannedProducts: 0,
+      groups: [] as any[],
+      products: [] as any[],
+    };
+    if (!opts.categoryId) return empty;
+
+    const tenantId = requireTenantId();
+
+    // The category must belong to the active business: a foreign id must never
+    // expose another business's catalog.
+    const root = await this.prisma.category.findFirst({
+      where: { id: opts.categoryId, tenantId },
+      select: { id: true, name: true },
+    });
+    if (!root) throw new NotFoundException('Category not found');
+
+    // Sub-categories count too — catalogs are usually filed one level down
+    // ("Electrical Wire" → "Wire 2.5mm"). Depth-capped so a cycle can't loop.
+    const categoryIds: number[] = [root.id];
+    let frontier: number[] = [root.id];
+    for (let depth = 0; depth < 5 && frontier.length > 0; depth++) {
+      const children = await this.prisma.category.findMany({
+        where: { parentId: { in: frontier }, tenantId },
+        select: { id: true },
+      });
+      frontier = children
+        .map((c: any) => c.id as number)
+        .filter((id: number) => !categoryIds.includes(id));
+      categoryIds.push(...frontier);
+    }
+
+    const scanLimit = Math.min(Math.max(opts.limit ?? 200, 1), 500);
+    const scanned = await this.prisma.product.findMany({
+      where: {
+        tenantId,
+        hasVariants: true,
+        categoryId: { in: categoryIds },
+        ...(opts.excludeProductId ? { id: { not: opts.excludeProductId } } : {}),
+      },
+      select: {
+        id: true,
+        brand: true,
+        baseName: true,
+        updatedAt: true,
+        variants: {
+          orderBy: { id: 'asc' },
+          select: {
+            attributes: true,
+            buyPrice: true,
+            sellPrice: true,
+            reorderLevel: true,
+            reorderQty: true,
+          },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: scanLimit,
+    });
+
+    // Products that were flagged as variant products but carry no rows teach us
+    // nothing, so they are skipped.
+    const withRows = scanned
+      .map((p: any) => ({ ...p, variants: p.variants ?? [] }))
+      .filter((p: any) => p.variants.length > 0);
+
+    const brand = opts.brand?.trim().toLowerCase() || null;
+    const signatureOf = (rows: any[]) =>
+      JSON.stringify(
+        rows
+          .map((v: any) => JSON.stringify(normalizeAttributes(v.attributes)))
+          .sort(),
+      );
+
+    // A whole matrix is what the user wants to reuse, so identical row sets are
+    // grouped and counted. The sample row set (and therefore the pre-filled
+    // prices) comes from the typed brand when it has one, else the newest item.
+    const bySignature = new Map<string, any>();
+    for (const product of withRows) {
+      const signature = signatureOf(product.variants);
+      const isSameBrand =
+        !!brand && (product.brand ?? '').toLowerCase() === brand;
+      let entry = bySignature.get(signature);
+      if (!entry) {
+        entry = {
+          signature,
+          count: 0,
+          brandCount: 0,
+          sampleIsSameBrand: false,
+          updatedAt: new Date(product.updatedAt).getTime(),
+          sample: {
+            productId: product.id,
+            brand: product.brand,
+            baseName: product.baseName,
+          },
+          rows: product.variants.map(toSuggestionRow),
+        };
+        bySignature.set(signature, entry);
+      }
+      entry.count += 1;
+      if (isSameBrand) entry.brandCount += 1;
+      if (isSameBrand && !entry.sampleIsSameBrand) {
+        entry.sampleIsSameBrand = true;
+        entry.sample = {
+          productId: product.id,
+          brand: product.brand,
+          baseName: product.baseName,
+        };
+        entry.rows = product.variants.map(toSuggestionRow);
+      }
+    }
+
+    const groups = Array.from(bySignature.values())
+      .sort(
+        (a, b) =>
+          b.brandCount - a.brandCount ||
+          b.count - a.count ||
+          b.updatedAt - a.updatedAt,
+      )
+      .slice(0, 8)
+      .map((g) => ({
+        signature: g.signature,
+        count: g.count,
+        sample: g.sample,
+        rows: g.rows,
+      }));
+
+    // Copy-from sources: newest first, each with its own rows so the picker
+    // needs no second round-trip.
+    const products = withRows.slice(0, 10).map((p: any) => ({
+      id: p.id,
+      brand: p.brand,
+      baseName: p.baseName,
+      variantCount: p.variants.length,
+      rows: p.variants.slice(0, 30).map(toSuggestionRow),
+    }));
+
+    return {
+      categoryId: root.id,
+      categoryName: root.name,
+      categoryIds,
+      scannedProducts: withRows.length,
+      groups,
+      products,
+    };
   }
 
   /**

@@ -86,6 +86,26 @@ export class ProductsController {
     );
   }
 
+  // Variant-builder suggestions for a category: the variant matrices other
+  // products in the same category already use, plus same-category products whose
+  // variants can be copied. Read-only — the form still creates this product's own
+  // variant rows (own SKUs/barcodes/stock). Declared before @Get(':id').
+  @Get('variant-suggestions')
+  @Permissions('products.view', 'products.create')
+  variantSuggestions(
+    @Query('categoryId') categoryId?: string,
+    @Query('brand') brand?: string,
+    @Query('excludeProductId') excludeProductId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.variantSuggestions({
+      categoryId: categoryId ? Number(categoryId) : undefined,
+      brand,
+      excludeProductId: excludeProductId ? Number(excludeProductId) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
   @Get(':id')
   @Permissions('products.view')
   findOne(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {

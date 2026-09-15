@@ -428,3 +428,205 @@ describe('ProductsService.adjustStock', () => {
     });
   });
 });
+
+describe('ProductsService.variantSuggestions', () => {
+  const row = (attributes: any, extra: any = {}) => ({
+    attributes,
+    buyPrice: 10,
+    sellPrice: 20,
+    reorderLevel: 0,
+    reorderQty: null,
+    ...extra,
+  });
+  const product = (
+    id: number,
+    brand: string,
+    rows: any[],
+    extra: any = {},
+  ): any => ({
+    id,
+    brand,
+    baseName: `Wire ${id}`,
+    updatedAt: new Date(2026, 0, id),
+    variants: rows,
+    ...extra,
+  });
+
+  const make = (
+    products: any[],
+    opts: { category?: any; children?: any[] } = {},
+  ) => {
+    const prisma = makePrisma({
+      category: {
+        findFirst: jest.fn(async () =>
+          opts.category === undefined
+            ? { id: 10, name: 'Electrical Wire' }
+            : opts.category,
+        ),
+        findMany: jest.fn(async () => opts.children ?? []),
+      },
+      product: {
+        findFirst: jest.fn(async () => null),
+        findUnique: jest.fn(async () => null),
+        create: jest.fn(),
+        update: jest.fn(),
+        findMany: jest.fn(async () => products),
+      },
+    });
+    return { prisma, service: makeService(prisma).service };
+  };
+
+  it('returns nothing until a category is chosen', async () => {
+    const { prisma, service } = make([]);
+    const res = await service.variantSuggestions({ brand: 'Kabel' });
+
+    expect(res).toEqual({
+      categoryId: null,
+      categoryName: null,
+      categoryIds: [],
+      scannedProducts: 0,
+      groups: [],
+      products: [],
+    });
+    expect(prisma.product.findMany).not.toHaveBeenCalled();
+  });
+
+  it('groups identical variant matrices and counts the products using them', async () => {
+    const matrix = [
+      row({ size: '2.5mm', color: 'Red' }),
+      row({ size: '2.5mm', color: 'Blue' }),
+    ];
+    const { service } = make([
+      product(1, 'Kabel', matrix),
+      product(2, 'Nifas', matrix),
+      // Case/spacing differences describe the same option, so they must not split
+      // one matrix into two groups.
+      product(4, 'Kabel', [
+        row({ size: ' 2.5MM ', color: 'red' }),
+        row({ size: '2.5mm', color: 'blue' }),
+      ]),
+      product(3, 'Kabel', [row({ size: '4mm', color: 'Red' })]),
+    ]);
+
+    const res = await service.variantSuggestions({ categoryId: 10 });
+
+    expect(res.scannedProducts).toBe(4);
+    expect(res.groups).toHaveLength(2);
+    expect(res.groups[0]).toMatchObject({
+      count: 3,
+      sample: { productId: 1, brand: 'Kabel' },
+    });
+    expect(res.groups[0].rows).toHaveLength(2);
+    expect(res.categoryName).toBe('Electrical Wire');
+  });
+
+  it('never returns sku, barcode or quantity', async () => {
+    const { service } = make([
+      product(1, 'Kabel', [
+        row(
+          { size: '2.5mm' },
+          { sku: 'KAB-25-RED', barcode: '1234567890123', quantity: 42 },
+        ),
+      ]),
+    ]);
+
+    const res = await service.variantSuggestions({ categoryId: 10 });
+    const suggested = res.groups[0].rows[0];
+
+    // A variant row belongs to one product: its code, barcode and stock are not
+    // reusable, so the builder must never pre-fill them.
+    expect(Object.keys(suggested).sort()).toEqual([
+      'attributes',
+      'buyPrice',
+      'reorderLevel',
+      'reorderQty',
+      'sellPrice',
+    ]);
+    expect(JSON.stringify(res.groups)).not.toContain('KAB-25-RED');
+    expect(JSON.stringify(res.groups)).not.toContain('1234567890123');
+  });
+
+  it("prefers the typed brand's row set for the pre-filled prices", async () => {
+    const { service } = make([
+      product(1, 'Kabel', [row({ size: '2.5mm' }, { buyPrice: 11 })]),
+      product(2, 'Nifas', [row({ size: '2.5mm' }, { buyPrice: 22 })]),
+    ]);
+
+    const res = await service.variantSuggestions({
+      categoryId: 10,
+      brand: 'nifas',
+    });
+
+    expect(res.groups).toHaveLength(1);
+    expect(res.groups[0].sample).toMatchObject({ productId: 2, brand: 'Nifas' });
+    expect(res.groups[0].rows[0].buyPrice).toBe(22);
+  });
+
+  it('includes sub-categories of the selected category', async () => {
+    const { prisma, service } = make([], { children: [{ id: 11 }] });
+
+    await service.variantSuggestions({ categoryId: 10 });
+
+    expect(prisma.product.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ categoryId: { in: [10, 11] } }),
+      }),
+    );
+  });
+
+  it('skips variant products that carry no rows', async () => {
+    const { service } = make([product(1, 'Kabel', [])]);
+
+    const res = await service.variantSuggestions({ categoryId: 10 });
+
+    expect(res.scannedProducts).toBe(0);
+    expect(res.groups).toEqual([]);
+    expect(res.products).toEqual([]);
+  });
+
+  it('rejects a category outside the active business without reading products', async () => {
+    const { prisma, service } = make([], { category: null });
+
+    await expect(
+      service.variantSuggestions({ categoryId: 999 }),
+    ).rejects.toThrow('Category not found');
+
+    expect(prisma.category.findFirst).toHaveBeenCalledWith({
+      where: { id: 999, tenantId: 1 },
+      select: { id: true, name: true },
+    });
+    expect(prisma.product.findMany).not.toHaveBeenCalled();
+  });
+
+  it('never suggests the product being edited back to itself', async () => {
+    const { prisma, service } = make([
+      product(1, 'Kabel', [row({ size: '2.5mm' })]),
+    ]);
+
+    await service.variantSuggestions({ categoryId: 10, excludeProductId: 7 });
+
+    expect(prisma.product.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: { not: 7 } }),
+      }),
+    );
+  });
+
+  it('lists at most ten copy-from sources and clamps the scan limit', async () => {
+    const many = Array.from({ length: 12 }, (_, i) =>
+      product(i + 1, 'Kabel', [row({ size: `${i + 1}mm` })]),
+    );
+
+    const wide = make(many);
+    const res = await wide.service.variantSuggestions({ categoryId: 10 });
+    expect(res.products).toHaveLength(10);
+    expect(res.products[0]).toMatchObject({ id: 1, variantCount: 1 });
+
+    const clamped = make(many);
+    await clamped.service.variantSuggestions({ categoryId: 10, limit: 9999 });
+    expect(clamped.prisma.product.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 500 }),
+    );
+  });
+});
+
