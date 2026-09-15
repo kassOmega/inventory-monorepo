@@ -11,6 +11,7 @@ import {
   RequestStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PushService } from '../push/push.service';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -18,7 +19,10 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export class AgentToolsService {
   private readonly logger = new Logger(AgentToolsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly push: PushService,
+  ) {}
 
   // =========================================================================
   // Tools exposed to Gemini
@@ -333,6 +337,14 @@ export class AgentToolsService {
         targetRoleId: ownerRole?.id ?? null,
       },
     });
+
+    // The agent runs autonomously (often from a scheduled job with no request
+    // context), so a device push is the only way the owner notices immediately.
+    if (ownerRole) {
+      this.push
+        .sendToRoleId({ title, body: message }, ownerRole.id, orgId)
+        .catch(() => {});
+    }
   }
 }
 

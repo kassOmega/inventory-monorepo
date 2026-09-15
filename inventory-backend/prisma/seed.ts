@@ -85,7 +85,11 @@ async function main() {
   await prisma.cogsEntry.deleteMany({});
   await prisma.account.deleteMany({});
   await prisma.purchase.deleteMany({});
-  await prisma.pushSubscription.deleteMany({});
+  // Push subscriptions are per-device browser state, not seed data, so the seed
+  // NEVER deletes them — otherwise re-seeding silently unregisters every browser
+  // and pushes stop arriving (each device would have to visit again before it
+  // could be reached). To wipe them deliberately (e.g. right after rotating the
+  // VAPID key pair) use the owner-only POST /push/subscriptions/purge endpoint.
   await prisma.auditLog.deleteMany({});
   await prisma.notification.deleteMany({});
   await prisma.creditPayment.deleteMany({});

@@ -6,6 +6,8 @@ import { PrismaService } from '../prisma/prisma.service';
 export class PushService {
   private readonly logger = new Logger(PushService.name);
   private enabled = false;
+  /** One-shot flag so the disabled state is reported on the first send too. */
+  private warnedDisabled = false;
 
   constructor(private prisma: PrismaService) {
     if (
@@ -56,10 +58,14 @@ export class PushService {
     payload: { title: string; body: string; url?: string },
   ) {
     if (!this.enabled) {
-      // The constructor already warned loudly; don't spam per-send.
-      this.logger.debug(
-        `Push send skipped for user ${userId} (push disabled).`,
-      );
+      // The constructor already warned loudly at boot; repeat it once here so a
+      // send that goes nowhere is never silent.
+      if (!this.warnedDisabled) {
+        this.warnedDisabled = true;
+        this.logger.warn(
+          `Push send skipped for user ${userId}: Web Push is DISABLED (missing VAPID_* env).`,
+        );
+      }
       return;
     }
 
@@ -67,8 +73,11 @@ export class PushService {
       where: { userId },
     });
     if (subs.length === 0) {
-      this.logger.debug(
-        `No push subscriptions for user ${userId} — nothing to send.`,
+      // Visible on purpose: this is the usual reason a notification is created
+      // in-app but never reaches a device.
+      this.logger.warn(
+        `No push subscriptions for user ${userId} — nothing to send. ` +
+          'The device must load the app (production build) once with notification permission granted.',
       );
       return;
     }

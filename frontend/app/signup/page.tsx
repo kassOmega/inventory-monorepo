@@ -126,6 +126,15 @@ export default function SignupPage() {
           // actually been uploaded.
           localStorage.setItem("token", res.data.access_token);
           localStorage.setItem("user", JSON.stringify(res.data.user));
+          // Adopt the new business as the active tenant (or clear a stale id from
+          // a previous account) so the verification uploads below are not
+          // rejected with 403 "You are not a member of this organization".
+          const newOrgId = res.data?.business?.id;
+          if (newOrgId) {
+            localStorage.setItem("activeOrganizationId", String(newOrgId));
+          } else {
+            localStorage.removeItem("activeOrganizationId");
+          }
         } else {
           router.push("/login?created=1");
           return;

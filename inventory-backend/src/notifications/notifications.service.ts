@@ -118,6 +118,29 @@ export class NotificationsService {
           url: LOW_STOCK_LINK,
         }, locationId)
         .catch(() => {});
+
+      // A location with nobody assigned to it (owner-run shop, a branch whose
+      // staff were removed, ...) can never receive the fan-out above, so the
+      // alert would only ever sit in the bell. Fall back to the business
+      // owner(s), who already have the in-app row created above. The count is a
+      // single indexed query; the sends stay fire-and-forget so stock/sales
+      // latency is unchanged.
+      const assignedUsers = await this.prisma.user.count({
+        where: { locationId },
+      });
+      if (assignedUsers === 0 && ownerRoleId) {
+        this.push
+          .sendToRoleId(
+            {
+              title: 'Low Stock Alert',
+              body: `${productName} is running low (${qty} remaining)`,
+              url: LOW_STOCK_LINK,
+            },
+            ownerRoleId,
+            tenantId,
+          )
+          .catch(() => {});
+      }
     }
   }
 

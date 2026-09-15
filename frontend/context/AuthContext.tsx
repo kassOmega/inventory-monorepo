@@ -142,11 +142,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       userData.memberships?.[0]?.organizationId ??
       null;
     setActiveOrganizationId(orgId);
+    // A new account must never inherit the previous account's active business:
+    // an account without one (platform admin, brand-new signup) would otherwise
+    // keep sending the old id as X-Tenant-Id and every request would answer 403
+    // "You are not a member of this organization".
     if (orgId) localStorage.setItem(ORG_STORAGE_KEY, String(orgId));
+    else localStorage.removeItem(ORG_STORAGE_KEY);
     router.push("/dashboard");
   };
 
   const logout = () => {
+    // JwtStrategy prefers the HttpOnly access_token cookie over the Bearer
+    // header, so clear it server-side as well (best-effort — the redirect below
+    // navigates immediately).
+    api.post("/auth/logout").catch(() => undefined);
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     localStorage.removeItem(ORG_STORAGE_KEY);

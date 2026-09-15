@@ -5,6 +5,7 @@ import FilterPanel from "@/app/components/FilterPanel";
 import SalesReport from "@/app/components/SalesReport";
 import HospitalityDashboard from "@/app/components/HospitalityDashboard";
 import ManufacturingDashboard from "@/app/components/ManufacturingDashboard";
+import ServiceDashboard from "@/app/components/ServiceDashboard";
 import Loading from "@/app/components/Loading";
 import { useAuth } from "@/context/AuthContext";
 import { variantLabel } from "@/lib/variantLabel";
@@ -36,7 +37,7 @@ const COLORS = [
 type DatePreset = "today" | "week" | "month" | "year";
 
 export default function DashboardPage() {
-  const { user, activeMembership } = useAuth();
+  const { user, activeMembership, hasPermission } = useAuth();
   const router = useRouter();
 
   // Every business type lands on the Dashboard home. Only the platform admin
@@ -68,6 +69,13 @@ export default function DashboardPage() {
     (activeMembership?.businessType ?? user?.businessType) === "HOSPITALITY";
   const isManufacturing =
     (activeMembership?.businessType ?? user?.businessType) === "MANUFACTURING";
+  const isService =
+    (activeMembership?.businessType ?? user?.businessType) === "SERVICE";
+
+  // `/products/my-inventory` is gated by `products.view`. SERVICE staff roles
+  // (Provider/Cashier), platform admins and unverified memberships do not carry
+  // that permission, so requesting it for them can only ever answer 403.
+  const canViewInventory = hasPermission("products.view");
 
   // Group my-inventory rows by base product so each product appears once (its
   // variants repeat the base name otherwise). Expand a row to see the
@@ -116,9 +124,14 @@ export default function DashboardPage() {
     if (!user) return;
     setLoading(true);
 
-    if (isHospitality) {
+    if (isHospitality || isManufacturing || isService) {
+      // Vertical dashboards render their own data — the location stock table is
+      // retail-only, so don't request it.
       setLoading(false);
-    } else if (isOwner) {
+    } else if (isOwner || !canViewInventory) {
+      // Owners (and anyone without `products.view`: platform admins, SERVICE
+      // staff, unverified memberships) must not call the products endpoint.
+      setInventory([]);
       setLoading(false);
     } else {
       api
@@ -131,7 +144,16 @@ export default function DashboardPage() {
         })
         .catch(() => setLoading(false));
     }
-  }, [user, categoryFilter, search, isOwner, isHospitality]);
+  }, [
+    user,
+    categoryFilter,
+    search,
+    isOwner,
+    isHospitality,
+    isManufacturing,
+    isService,
+    canViewInventory,
+  ]);
 
   if (loading) return <Loading className="py-24" />;
 
@@ -169,6 +191,26 @@ export default function DashboardPage() {
           </p>
         </div>
         <ManufacturingDashboard />
+      </div>
+    );
+  }
+
+  // --- SERVICE DASHBOARD (staff) ---
+  // SERVICE owners keep the owner dashboard (sales/cash/reports); their staff
+  // land on the service overview instead of the retail inventory table, which
+  // they have no permission to read.
+  if (isService && !isOwner) {
+    return (
+      <div>
+        <div className="mb-6">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">
+            Dashboard
+          </h1>
+          <p className="text-gray-500 text-xs sm:text-sm mt-1">
+            Welcome back, {user?.roleName}.
+          </p>
+        </div>
+        <ServiceDashboard />
       </div>
     );
   }

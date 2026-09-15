@@ -1,5 +1,6 @@
 // src/ai/ai.module.ts
 import { Module } from '@nestjs/common';
+import { PushModule } from '../push/push.module';
 import { AiController } from './ai.controller';
 import { AiDataCollectorService } from './ai-data-collector.service';
 import { AiProductService } from './ai-product.service';
@@ -9,6 +10,7 @@ import { AiUsageService } from './ai-usage.service';
 import { GeminiService } from './gemini.service';
 
 @Module({
+  imports: [PushModule],
   controllers: [AiController],
   providers: [
     AiService,

@@ -28,11 +28,32 @@ export function onApiPendingChange(cb: (count: number) => void) {
   };
 }
 
+// Only advertise an organization the logged-in user actually belongs to. After
+// switching accounts a leftover `activeOrganizationId` (platform admin, fresh
+// signup) would otherwise be sent as X-Tenant-Id and the backend would answer
+// 403 "You are not a member of this organization" for every request.
+function activeOrgIdForRequest(): string | null {
+  try {
+    const orgId = localStorage.getItem("activeOrganizationId");
+    if (!orgId) return null;
+    const raw = localStorage.getItem("user");
+    const memberships: unknown = raw ? JSON.parse(raw)?.memberships : null;
+    if (!Array.isArray(memberships) || memberships.length === 0) return null;
+    return memberships.some(
+      (m) => String((m as { organizationId?: number })?.organizationId) === orgId,
+    )
+      ? orgId
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
     const token = localStorage.getItem("token");
     if (token) config.headers.Authorization = `Bearer ${token}`;
-    const orgId = localStorage.getItem("activeOrganizationId");
+    const orgId = activeOrgIdForRequest();
     if (orgId) config.headers["X-Tenant-Id"] = orgId;
     // Advertise the active UI locale so the backend can (a) resolve localized
     // entity data and (b) localize error/notification messages for this request.

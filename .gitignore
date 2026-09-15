@@ -4,3 +4,5 @@ dist/
 .next/
 .env
 .env.local
+# Local scratch env file: holds live secrets (JWT, VAPID, Gemini) — never commit.
+env.txt

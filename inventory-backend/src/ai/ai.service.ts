@@ -7,6 +7,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InsightType, MessageSender, Prisma, PoDraftStatus } from '@prisma/client';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { PrismaService } from '../prisma/prisma.service';
+import { PushService } from '../push/push.service';
 import { AiDataCollectorService } from './ai-data-collector.service';
 import { CashFlowDto, CashFlowTargetPeriod } from './dto/cashflow.dto';
 import { ChatDto } from './dto/chat.dto';
@@ -242,6 +243,7 @@ export class AiService {
     private readonly prisma: PrismaService,
     private readonly collector: AiDataCollectorService,
     private readonly gemini: GeminiService,
+    private readonly push: PushService,
   ) {}
 
   // =========================================================================
@@ -883,6 +885,15 @@ export class AiService {
           targetUserId: t.targetUserId,
         },
       });
+    }
+
+    // Reach owner devices too — previously this alert only existed in the in-app
+    // bell. One role fan-out (rather than one send per row) keeps it cheap, and
+    // not awaiting it keeps the AI request latency unchanged.
+    if (ownerRole) {
+      this.push
+        .sendToRoleId({ title, body: message }, ownerRole.id, tenantId)
+        .catch(() => {});
     }
   }
 
