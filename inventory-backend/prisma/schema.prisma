@@ -634,6 +634,7 @@ model ProductVariant {
   requestItems RequestItem[]
   otherIncomes OtherIncome[]
   cogsEntries  CogsEntry[]
+  priceHistory PriceHistory[]
 
   @@unique([tenantId, sku])
   @@unique([tenantId, barcode])
@@ -671,6 +672,13 @@ model PriceHistory {
   tenantId     Int?
   productId    Int
   product      Product  @relation(fields: [productId], references: [id])
+  /// The variant this change belongs to; null = the product's own (parent) row.
+  variantId    Int?
+  variant      ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  /// Groups every row written by ONE price action (the parent row + its variants).
+  batchRef     String?
+  /// What caused the change: RESTOCK | PURCHASE | REQUEST | PRODUCT_EDIT.
+  source       String?
   oldBuyPrice  Float
   newBuyPrice  Float
   oldSellPrice Float
@@ -679,6 +687,9 @@ model PriceHistory {
   updatedAt    DateTime @default(now())
 
   @@index([tenantId])
+  @@index([productId, updatedAt])
+  @@index([variantId])
+  @@index([batchRef])
 }
 
 // --- Inventory Tracking (Location Specific) ---

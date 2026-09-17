@@ -20,7 +20,18 @@ export class PriceHistoryController {
 
   @Get()
   findAll(@Query() query: Record<string, unknown>) {
-    return this.service.findAll(parsePaging(query));
+    const num = (key: string) => {
+      const value = Number(query?.[key]);
+      return Number.isInteger(value) && value > 0 ? value : undefined;
+    };
+    const flag = (key: string) =>
+      query?.[key] === '1' || query?.[key] === 'true' || query?.[key] === true;
+    return this.service.findAll(parsePaging(query), {
+      productId: num('productId'),
+      variantId: num('variantId'),
+      source: typeof query?.source === 'string' && query.source ? query.source : undefined,
+      withDetails: flag('withDetails'),
+    });
   }
   @Get(':id') findOne(@Param('id', ParseIntPipe) id: number) {
     return this.service.findOne(id);

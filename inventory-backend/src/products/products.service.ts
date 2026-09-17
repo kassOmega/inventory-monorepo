@@ -1,17 +1,24 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import {
   LocationType,
+  Prisma,
   ProductKind,
   RequestItemStatus,
   RequestStatus,
   RequestType,
 } from '@prisma/client';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
+import {
+  PriceChange,
+  newPriceBatchRef,
+  recordPriceChanges,
+} from '../common/price-history.util';
 import { itemDisplayName } from '../common/variant-label.util';
 import { getCurrentTenantId, requireTenantId } from '../common/tenant/tenant.context';
 import { Paging, pagedResult } from '../common/pagination.util';
@@ -20,6 +27,10 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { AddVariantDto } from './dto/add-variant.dto';
+import {
+  BulkAdjustStockDto,
+  BulkAdjustStockItemDto,
+} from './dto/bulk-adjust-stock.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { inventorySet, inventoryUpsert } from '../common/inventory.util';
@@ -59,6 +70,43 @@ const toSuggestionRow = (v: any) => ({
   reorderLevel: v.reorderLevel ?? 0,
   reorderQty: v.reorderQty ?? null,
 });
+
+/** A validated count row, ready to be applied inside a transaction. */
+interface AdjustTarget {
+  index: number;
+  product: {
+    id: number;
+    brand: string;
+    baseName: string;
+    hasVariants: boolean;
+    currentBuyPrice: number | null;
+    reorderLevel: number;
+  };
+  variant: {
+    id: number;
+    sku: string | null;
+    attributes: unknown;
+    reorderLevel: number;
+  } | null;
+  location: { id: number; name: string; type: LocationType };
+  quantity: number;
+  /** Selling price corrected while counting (null = leave it alone). */
+  sellPrice?: number | null;
+}
+
+/**
+ * A row that failed validation. `status` keeps the single-row endpoint's
+ * historical HTTP status for that failure (404 product/location, 403 scope),
+ * so a sheet can report the same reasons in bulk.
+ */
+interface AdjustRowError {
+  index: number;
+  productId?: number;
+  variantId?: number | null;
+  locationId?: number;
+  message: string;
+  status: number;
+}
 
 @Injectable()
 export class ProductsService {
@@ -830,18 +878,60 @@ export class ProductsService {
   }
 
   async update(id: number, dto: UpdateProductDto, user: JwtPayload) {
-    if (dto.currentBuyPrice || dto.currentSellPrice) {
-      const existing = await this.prisma.product.findUnique({ where: { id } });
-      if (existing) {
-        await this.prisma.priceHistory.create({
-          data: {
-            productId: id,
-            oldBuyPrice: existing.currentBuyPrice,
-            newBuyPrice: dto.currentBuyPrice ?? existing.currentBuyPrice,
-            oldSellPrice: existing.currentSellPrice,
-            newSellPrice: dto.currentSellPrice ?? existing.currentSellPrice,
-            updatedById: 1, // Hardcoded for now
-          },
+    const tenantId = requireTenantId();
+    // One batch reference for the whole edit, so the product's own row and every
+    // variant it changed group together on the price-history page.
+    const priceBatchRef = newPriceBatchRef();
+    const priceChanges: PriceChange[] = [];
+    const existingBefore = await this.prisma.product.findUnique({ where: { id } });
+    if (!existingBefore) throw new NotFoundException('Product not found');
+    if (
+      (dto.currentBuyPrice !== undefined &&
+        dto.currentBuyPrice !== existingBefore.currentBuyPrice) ||
+      (dto.currentSellPrice !== undefined &&
+        dto.currentSellPrice !== existingBefore.currentSellPrice)
+    ) {
+      priceChanges.push({
+        productId: id,
+        oldBuyPrice: existingBefore.currentBuyPrice,
+        newBuyPrice: dto.currentBuyPrice ?? existingBefore.currentBuyPrice,
+        oldSellPrice: existingBefore.currentSellPrice,
+        newSellPrice: dto.currentSellPrice ?? existingBefore.currentSellPrice,
+      });
+    }
+    // The form edits variant prices on the variant rows themselves; capture their
+    // old values now, because the upserts below overwrite them.
+    const variantPriceEdits = new Map<
+      number,
+      { buyPrice?: number; sellPrice?: number }
+    >();
+    for (const v of (dto.variants ?? []) as any[]) {
+      if (v?.id && (v.buyPrice !== undefined || v.sellPrice !== undefined)) {
+        variantPriceEdits.set(Number(v.id), {
+          ...(v.buyPrice !== undefined ? { buyPrice: Number(v.buyPrice) } : {}),
+          ...(v.sellPrice !== undefined ? { sellPrice: Number(v.sellPrice) } : {}),
+        });
+      }
+    }
+    if (variantPriceEdits.size > 0) {
+      const rows = await this.prisma.productVariant.findMany({
+        where: { id: { in: [...variantPriceEdits.keys()] }, productId: id },
+        select: { id: true, buyPrice: true, sellPrice: true },
+      });
+      for (const row of rows) {
+        const edit = variantPriceEdits.get(row.id)!;
+        const newBuy = edit.buyPrice ?? row.buyPrice ?? 0;
+        const newSell = edit.sellPrice ?? row.sellPrice ?? 0;
+        if (newBuy === (row.buyPrice ?? 0) && newSell === (row.sellPrice ?? 0)) {
+          continue;
+        }
+        priceChanges.push({
+          productId: id,
+          variantId: row.id,
+          oldBuyPrice: row.buyPrice ?? 0,
+          newBuyPrice: newBuy,
+          oldSellPrice: row.sellPrice ?? 0,
+          newSellPrice: newSell,
         });
       }
     }
@@ -1021,6 +1111,23 @@ export class ProductsService {
       }
     }
 
+    // --- Price history (one action, one batch). The parent row is written even
+    // when only variant prices moved, so the action always has a main row to
+    // group its per-variant rows under. ---
+    if (priceChanges.length > 0) {
+      await recordPriceChanges(this.prisma, {
+        tenantId,
+        userId: user.sub,
+        source: 'PRODUCT_EDIT',
+        batchRef: priceBatchRef,
+        changes: priceChanges,
+        // Always write the product's own row: when only variant prices moved it is
+        // unchanged, but the history page lists parent rows and hangs the per-variant
+        // detail under them — without it those rows would be invisible.
+        keepUnchanged: true,
+      });
+    }
+
     return this.prisma.product.findUnique({
       where: { id },
       include: {
@@ -1061,101 +1168,601 @@ export class ProductsService {
     return { message: 'Product deleted' };
   }
 
-  async adjustStock(productId: number, dto: AdjustStockDto, user: JwtPayload) {
-    const tenantId = requireTenantId();
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-      select: {
-        id: true,
-        brand: true,
-        baseName: true,
-        hasVariants: true,
-        currentBuyPrice: true,
-      },
-    });
-    if (!product) throw new NotFoundException('Product not found');
-
-    // Only locations of the active business can be reconciled (an unscoped lookup
-    // let a foreign location id create a row under this tenant).
-    const location = await this.prisma.location.findFirst({
-      where: { id: dto.locationId, tenantId },
-    });
-    if (!location) throw new NotFoundException('Location not found');
-
-    // Resolve which stock row is being counted. Stock lives on the variant rows
-    // for a variant product and on the plain (variantId = null) row otherwise, so
-    // an adjustment must say which variant it is — writing the plain row for a
-    // variant product used to create a phantom row and leave the real variant
-    // stock (and the ledger) untouched.
-    const variantId = dto.variantId ?? null;
-    if (product.hasVariants && variantId === null) {
-      throw new BadRequestException(
-        'Select a variant to reconcile — this product keeps stock per variant.',
+  // ---------------------------------------------------------------- Counting
+  /**
+   * Location scope for a reconciliation: a user bound to a location may only
+   * count that one (the products page already hides the others from them — this
+   * is the server-side half of the same rule). Owners, users without a bound
+   * location, and holders of `inventory.all-locations` keep any location of the
+   * active business.
+   */
+  private assertLocationAllowed(locationId: number, user: JwtPayload) {
+    if (user.isSuperuser) return;
+    if (user.permissions?.includes('inventory.all-locations')) return;
+    if (user.locationId != null && user.locationId !== locationId) {
+      throw new ForbiddenException(
+        'You can only adjust stock at your own location.',
       );
     }
-    if (!product.hasVariants && variantId !== null) {
-      throw new BadRequestException('This product has no variants.');
+  }
+
+  /** Who may move prices: owners and roles that can edit products. */
+  private canChangePrices(user: JwtPayload) {
+    return (
+      user.isSuperuser === true ||
+      user.permissions?.includes('products.edit') === true
+    );
+  }
+
+  /**
+   * Validate a whole counting sheet before anything is written. Products,
+   * variants and locations are loaded once (tenant-scoped) and every row is
+   * checked with exactly the rules the single-row endpoint enforces — including
+   * duplicate detection, since a repeated product/variant/location row would
+   * double-count and collide on the journal reference.
+   *
+   * `single` preserves the historical single-row contract (throw that row's
+   * original exception with its status); otherwise every failure is collected
+   * and one 400 lists each bad row by index.
+   */
+  private async validateAdjustItems(
+    items: BulkAdjustStockItemDto[],
+    user: JwtPayload,
+    tenantId: number,
+    opts: { single?: boolean } = {},
+  ): Promise<AdjustTarget[]> {
+    const productIds = [...new Set(items.map((i) => Number(i.productId)))];
+    const locationIds = [...new Set(items.map((i) => Number(i.locationId)))];
+    const variantIds = [
+      ...new Set(
+        items
+          .map((i) => Number(i.variantId))
+          .filter((v) => Number.isInteger(v) && v > 0),
+      ),
+    ];
+
+    const [products, locations, variants] = await Promise.all([
+      this.prisma.product.findMany({
+        where: { id: { in: productIds }, tenantId },
+        select: {
+          id: true,
+          brand: true,
+          baseName: true,
+          hasVariants: true,
+          currentBuyPrice: true,
+          reorderLevel: true,
+        },
+      }),
+      this.prisma.location.findMany({
+        where: { id: { in: locationIds }, tenantId },
+        select: { id: true, name: true, type: true },
+      }),
+      variantIds.length
+        ? this.prisma.productVariant.findMany({
+            where: { id: { in: variantIds }, tenantId },
+            select: {
+              id: true,
+              productId: true,
+              sku: true,
+              attributes: true,
+              reorderLevel: true,
+            },
+          })
+        : Promise.resolve([] as any[]),
+    ]);
+
+    const productById = new Map<number, any>(
+      (products as any[]).map((p) => [p.id, p]),
+    );
+    const locationById = new Map<number, any>(
+      (locations as any[]).map((l) => [l.id, l]),
+    );
+    const variantById = new Map<number, any>(
+      (variants as any[]).map((v) => [v.id, v]),
+    );
+
+    const errors: AdjustRowError[] = [];
+    const seen = new Set<string>();
+    // Prices are per variant/product, so the sheet may not price one item two ways.
+    const priceByKey = new Map<string, number>();
+    const targets: AdjustTarget[] = [];
+
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index];
+      const productId = Number(item.productId);
+      const variantId = item.variantId != null ? Number(item.variantId) : null;
+      const locationId = Number(item.locationId);
+      const fail = (message: string, status = 400) =>
+        errors.push({ index, productId, variantId, locationId, message, status });
+
+      const product = productById.get(productId);
+      if (!product) {
+        fail('Product not found', 404);
+        continue;
+      }
+      const location = locationById.get(locationId);
+      if (!location) {
+        fail('Location not found', 404);
+        continue;
+      }
+      // Stock lives on the variant rows for a variant product and on the plain
+      // (variantId = null) row otherwise, so a count must say which variant it is
+      // — writing the plain row for a variant product used to create a phantom
+      // row and leave the real variant stock (and the ledger) untouched.
+      if (product.hasVariants && variantId === null) {
+        fail(
+          'Select a variant to reconcile — this product keeps stock per variant.',
+        );
+        continue;
+      }
+      if (!product.hasVariants && variantId !== null) {
+        fail('This product has no variants.');
+        continue;
+      }
+      let variant: any = null;
+      if (variantId !== null) {
+        variant = variantById.get(variantId);
+        if (!variant || variant.productId !== productId) {
+          fail('That variant does not belong to this product.');
+          continue;
+        }
+      }
+      if (
+        typeof item.quantity !== 'number' ||
+        !Number.isFinite(item.quantity) ||
+        item.quantity < 0
+      ) {
+        fail('Counted quantity must be zero or more.');
+        continue;
+      }
+      // A count may correct the selling price, never the buying price (there is no
+      // buy field on the payload at all), and only for users who may edit prices.
+      if (item.sellPrice != null) {
+        if (!this.canChangePrices(user)) {
+          fail('You cannot change selling prices.', 403);
+          continue;
+        }
+        const rounded = round2(item.sellPrice);
+        const priceKey = `${productId}|${variantId ?? 'base'}`;
+        const already = priceByKey.get(priceKey);
+        if (already !== undefined && already !== rounded) {
+          fail(
+            'This item has two different selling prices in the sheet — use one price per item.',
+          );
+          continue;
+        }
+        priceByKey.set(priceKey, rounded);
+      }
+      try {
+        this.assertLocationAllowed(locationId, user);
+      } catch (err: any) {
+        fail(err?.message ?? 'Location not allowed', 403);
+        continue;
+      }
+      const key = `${productId}|${variantId ?? 'base'}|${locationId}`;
+      if (seen.has(key)) {
+        fail(
+          'This item is listed twice for the same variant and location — remove the duplicate row.',
+        );
+        continue;
+      }
+      seen.add(key);
+      targets.push({
+        index,
+        product,
+        variant,
+        location,
+        quantity: item.quantity,
+        sellPrice: item.sellPrice != null ? round2(item.sellPrice) : null,
+      });
     }
 
-    let variant: { sku: string | null; attributes: unknown } | null = null;
-    if (variantId !== null) {
-      variant = await this.prisma.productVariant.findFirst({
-        where: { id: variantId, productId, ...(tenantId != null ? { tenantId } : {}) },
-        select: { sku: true, attributes: true },
-      });
-      if (!variant) {
-        throw new BadRequestException(
-          'That variant does not belong to this product.',
-        );
+    if (errors.length > 0) {
+      const first = errors[0];
+      if (opts.single) {
+        if (first.status === 404) throw new NotFoundException(first.message);
+        if (first.status === 403) throw new ForbiddenException(first.message);
+        throw new BadRequestException(first.message);
       }
+      throw new BadRequestException({
+        message: 'Some rows could not be processed',
+        errors: errors.map((e) => ({
+          index: e.index,
+          productId: e.productId,
+          variantId: e.variantId,
+          locationId: e.locationId,
+          message: e.message,
+        })),
+      });
     }
+    return targets;
+  }
+
+  /**
+   * Apply one validated count inside an open transaction: read the row's current
+   * stock, set the counted quantity, and report what changed. Shared by the
+   * single-row and the bulk endpoints so their rules can never drift.
+   */
+  private async adjustRowInTx(
+    tx: Prisma.TransactionClient,
+    tenantId: number,
+    target: AdjustTarget,
+    ctx: { userId: number; reason?: string },
+  ) {
+    const { product, variant, location, quantity } = target;
+    const variantId = variant?.id ?? null;
     const label = itemDisplayName(product, variant);
 
-    // Reconciliation: compare the counted vs system stock, then book the value
-    // difference (surplus/shortage) via an Inventory Adjustment journal so the
-    // Inventory Asset ledger stays in sync with the physical count.
-    const before = await this.prisma.inventory.findFirst({
+    const before = await tx.inventory.findFirst({
       where: {
         tenantId,
-        productId,
+        productId: product.id,
         variantId,
-        locationId: dto.locationId,
+        locationId: location.id,
       },
     });
-    const delta = round2(dto.quantity - (before?.quantity ?? 0));
-
-    await inventorySet(this.prisma, {
+    await inventorySet(tx, {
       tenantId,
-      productId,
+      productId: product.id,
       variantId,
-      locationId: dto.locationId,
-      quantity: dto.quantity,
+      locationId: location.id,
+      quantity,
     });
 
-    if (delta !== 0) {
-      const unitCost = before?.avgCost ?? product.currentBuyPrice ?? 0;
+    const delta = round2(quantity - (before?.quantity ?? 0));
+    const unitCost = before?.avgCost ?? product.currentBuyPrice ?? 0;
+
+    await tx.auditLog.create({
+      data: {
+        userId: ctx.userId,
+        action: 'STOCK_ADJUST',
+        details: `Adjusted ${label} to ${quantity} at ${location.name}${ctx.reason ? ` — ${ctx.reason}` : ''}`,
+      },
+    });
+
+    // Per-row hint for the sheet: is this row now at or below its alert level?
+    const alertLevel = variant?.reorderLevel || product.reorderLevel || 0;
+    const lowStock = quantity === 0 || (alertLevel > 0 && quantity <= alertLevel);
+
+    return {
+      index: target.index,
+      productId: product.id,
+      variantId,
+      locationId: location.id,
+      locationName: location.name,
+      label,
+      before: before?.quantity ?? 0,
+      after: quantity,
+      delta,
+      unitCost: round2(unitCost),
+      valueDelta: round2(delta * unitCost),
+      lowStock,
+    };
+  }
+
+  /**
+   * Reconcile one counted row: compare the counted vs system stock, then book the
+   * value difference (surplus/shortage) via an Inventory Adjustment journal so the
+   * Inventory Asset ledger stays in sync with the physical count.
+   */
+  async adjustStock(productId: number, dto: AdjustStockDto, user: JwtPayload) {
+    const tenantId = requireTenantId();
+    const [target] = await this.validateAdjustItems(
+      [
+        {
+          productId,
+          variantId: dto.variantId ?? null,
+          locationId: dto.locationId,
+          quantity: dto.quantity,
+        },
+      ],
+      user,
+      tenantId,
+      { single: true },
+    );
+
+    const result = await this.prisma.$transaction((tx) =>
+      this.adjustRowInTx(tx as Prisma.TransactionClient, tenantId, target, {
+        userId: user.sub,
+        reason: dto.reason,
+      }),
+    );
+
+    if (result.delta !== 0) {
       await this.finance
         .postInventoryAdjustment({
-          ref: `ADJ-${productId}-${variantId ?? 'base'}-${dto.locationId}-${Date.now()}`,
-          description: `Inventory adjustment: ${label} at ${location.name} — count ${dto.quantity} (was ${before?.quantity ?? 0})${dto.reason ? ` — ${dto.reason}` : ''}`,
-          signedAmount: round2(delta * unitCost),
+          ref: `ADJ-${result.productId}-${result.variantId ?? 'base'}-${result.locationId}-${Date.now()}`,
+          description: `Inventory adjustment: ${result.label} at ${result.locationName} — count ${result.after} (was ${result.before})${dto.reason ? ` — ${dto.reason}` : ''}`,
+          signedAmount: result.valueDelta,
           createdById: user.sub,
           tenantId: getCurrentTenantId(),
         })
         .catch(() => false);
     }
 
-    await this.prisma.auditLog.create({
-      data: {
-        userId: user.sub,
-        action: 'STOCK_ADJUST',
-        details: `Adjusted ${label} to ${dto.quantity} at ${location.name}${dto.reason ? ` — ${dto.reason}` : ''}`,
-      },
-    });
-
     await this.notifications.checkAndNotifyLowStock(productId, dto.locationId);
 
     return { message: 'Stock adjusted successfully' };
+  }
+
+  /**
+   * Reconcile a whole counting session: many products / variants across many
+   * locations in one submission.
+   *
+   * The sheet is validated up front (see validateAdjustItems) and applied inside
+   * one transaction, so a bad row rejects the batch without writing anything —
+   * a half-counted store would be worse than a rejected sheet. The ledger gets
+   * ONE entry per location at the net value of that location's rows (a session is
+   * one accounting event per store) while every row keeps its own audit entry, and
+   * low stock is re-evaluated once per product/location pair.
+   */
+  async adjustStockBulk(dto: BulkAdjustStockDto, user: JwtPayload) {
+    const tenantId = requireTenantId();
+    const batchId =
+      dto.batchId?.trim() ||
+      `B${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const targets = await this.validateAdjustItems(dto.items, user, tenantId);
+    const priceBatchRef = newPriceBatchRef();
+    // Selling prices corrected while counting (filled inside the transaction).
+    const priceChanges: PriceChange[] = [];
+
+    const results = await this.prisma.$transaction(async (tx) => {
+      const applied: Awaited<ReturnType<ProductsService['adjustRowInTx']>>[] = [];
+      for (const target of targets) {
+        applied.push(
+          await this.adjustRowInTx(tx as Prisma.TransactionClient, tenantId, target, {
+            userId: user.sub,
+            reason: dto.reason,
+          }),
+        );
+      }
+
+      // Selling prices corrected while counting: one value per variant (or per
+      // plain product), applied once, with the product's own number kept as the
+      // variant AVERAGE. The buying price is never touched — the payload has no
+      // buy field, and the history rows record old == new for cost.
+      const priced = new Map<
+        string,
+        { productId: number; variantId: number | null; sellPrice: number }
+      >();
+      for (const target of targets) {
+        if (target.sellPrice == null) continue;
+        priced.set(`${target.product.id}|${target.variant?.id ?? 'base'}`, {
+          productId: target.product.id,
+          variantId: target.variant?.id ?? null,
+          sellPrice: target.sellPrice,
+        });
+      }
+
+      const touchedProducts = new Set<number>();
+      for (const entry of priced.values()) {
+        if (entry.variantId != null) {
+          const variant = await tx.productVariant.findFirst({
+            where: { id: entry.variantId },
+            select: { buyPrice: true, sellPrice: true },
+          });
+          if (!variant || variant.sellPrice === entry.sellPrice) continue;
+          await tx.productVariant.update({
+            where: { id: entry.variantId },
+            data: { sellPrice: entry.sellPrice },
+          });
+          priceChanges.push({
+            productId: entry.productId,
+            variantId: entry.variantId,
+            oldBuyPrice: variant.buyPrice ?? 0,
+            newBuyPrice: variant.buyPrice ?? 0,
+            oldSellPrice: variant.sellPrice ?? 0,
+            newSellPrice: entry.sellPrice,
+          });
+          touchedProducts.add(entry.productId);
+        } else {
+          const product = await tx.product.findFirst({
+            where: { id: entry.productId },
+            select: { currentBuyPrice: true, currentSellPrice: true },
+          });
+          if (!product || product.currentSellPrice === entry.sellPrice) continue;
+          await tx.product.update({
+            where: { id: entry.productId },
+            data: { currentSellPrice: entry.sellPrice },
+          });
+          priceChanges.push({
+            productId: entry.productId,
+            oldBuyPrice: product.currentBuyPrice,
+            newBuyPrice: product.currentBuyPrice,
+            oldSellPrice: product.currentSellPrice,
+            newSellPrice: entry.sellPrice,
+          });
+        }
+      }
+
+      for (const productId of touchedProducts) {
+        const sellRows = await tx.productVariant.findMany({
+          where: { productId },
+          select: { sellPrice: true },
+        });
+        if (sellRows.length === 0) continue;
+        const avgSell = round2(
+          sellRows.reduce((sum, r) => sum + (r.sellPrice ?? 0), 0) /
+            sellRows.length,
+        );
+        const parent = await tx.product.findFirst({
+          where: { id: productId },
+          select: { currentBuyPrice: true, currentSellPrice: true },
+        });
+        if (!parent || parent.currentSellPrice === avgSell) continue;
+        await tx.product.update({
+          where: { id: productId },
+          data: { currentSellPrice: avgSell },
+        });
+        priceChanges.push({
+          productId,
+          oldBuyPrice: parent.currentBuyPrice,
+          newBuyPrice: parent.currentBuyPrice,
+          oldSellPrice: parent.currentSellPrice,
+          newSellPrice: avgSell,
+        });
+      }
+
+      if (priceChanges.length > 0) {
+        await recordPriceChanges(tx as Prisma.TransactionClient, {
+          tenantId,
+          userId: user.sub,
+          source: 'COUNT',
+          batchRef: priceBatchRef,
+          changes: priceChanges,
+          keepUnchanged: true,
+        });
+        await tx.auditLog.create({
+          data: {
+            userId: user.sub,
+            action: 'PRICE_UPDATE',
+            details: `Selling price updated while counting: ${priceChanges
+              .map(
+                (c) =>
+                  `${c.productId}${c.variantId ? `/v${c.variantId}` : ''} ${c.oldSellPrice} → ${c.newSellPrice}`,
+              )
+              .join(', ')}${dto.reason ? ` — ${dto.reason}` : ''}`,
+          },
+        });
+      }
+
+      return applied;
+    });
+
+    const byLocation = new Map<number, any>();
+    for (const r of results) {
+      const acc =
+        byLocation.get(r.locationId) ??
+        {
+          locationId: r.locationId,
+          locationName: r.locationName,
+          items: 0,
+          changed: 0,
+          surplusValue: 0,
+          shortageValue: 0,
+          netValue: 0,
+          journalRef: null as string | null,
+        };
+      acc.items += 1;
+      if (r.delta !== 0) {
+        acc.changed += 1;
+        if (r.valueDelta > 0) acc.surplusValue = round2(acc.surplusValue + r.valueDelta);
+        else acc.shortageValue = round2(acc.shortageValue + r.valueDelta);
+      }
+      acc.netValue = round2(acc.netValue + r.valueDelta);
+      byLocation.set(r.locationId, acc);
+    }
+
+    for (const acc of byLocation.values()) {
+      if (acc.netValue === 0) continue;
+      const ref = `ADJ-BULK-${batchId}-${acc.locationId}`;
+      const posted = await this.finance
+        .postInventoryAdjustment({
+          ref,
+          description: `Inventory count (${acc.changed} item(s)) at ${acc.locationName}${dto.reason ? ` — ${dto.reason}` : ''}`,
+          signedAmount: acc.netValue,
+          createdById: user.sub,
+          tenantId: getCurrentTenantId(),
+        })
+        .catch(() => false);
+      acc.journalRef = posted ? ref : null;
+    }
+
+    // One re-evaluation per product/location — a sheet can hold many rows of the
+    // same product at the same location.
+    const pairs = [
+      ...new Set(results.map((r) => `${r.productId}:${r.locationId}`)),
+    ];
+    for (const pair of pairs) {
+      const [productId, locationId] = pair.split(':').map(Number);
+      await this.notifications.checkAndNotifyLowStock(productId, locationId);
+    }
+
+    return {
+      message: 'Stock adjusted',
+      batchId,
+      applied: results.filter((r) => r.delta !== 0).length,
+      unchanged: results.filter((r) => r.delta === 0).length,
+      priceUpdates: priceChanges.length,
+      byLocation: Array.from(byLocation.values()),
+      results,
+    };
+  }
+
+  /**
+   * Current stock rows for a set of products at a set of locations, plus those
+   * products with their variants — everything the count sheet needs for its
+   * "System" column and its matrix grid, in one request instead of one per item.
+   * A location-bound user only ever sees their own location's rows.
+   */
+  async stockLookup(
+    productIds: number[],
+    locationIds: number[],
+    user: JwtPayload,
+  ) {
+    const tenantId = requireTenantId();
+    const ids = [
+      ...new Set(productIds.filter((n) => Number.isInteger(n) && n > 0)),
+    ].slice(0, 200);
+    const requestedLocations = [
+      ...new Set(locationIds.filter((n) => Number.isInteger(n) && n > 0)),
+    ].slice(0, 50);
+    if (ids.length === 0) return { products: [], stock: [] };
+
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: ids }, tenantId },
+      select: {
+        id: true,
+        sku: true,
+        brand: true,
+        baseName: true,
+        hasVariants: true,
+        currentBuyPrice: true,
+        currentSellPrice: true,
+        reorderLevel: true,
+        variants: {
+          orderBy: { id: 'asc' },
+          select: {
+            id: true,
+            sku: true,
+            attributes: true,
+            buyPrice: true,
+            sellPrice: true,
+            reorderLevel: true,
+            reorderQty: true,
+          },
+        },
+      },
+    });
+
+    const scopedLocations =
+      user.isSuperuser ||
+      user.permissions?.includes('inventory.all-locations') ||
+      user.locationId == null
+        ? requestedLocations
+        : requestedLocations.filter((id) => id === user.locationId);
+
+    // No usable location scope (nothing chosen, or only foreign locations for a
+    // bound user) means nothing to report — never fall back to "all locations".
+    const stock =
+      scopedLocations.length === 0
+        ? []
+        : await this.prisma.inventory.findMany({
+            where: {
+              tenantId,
+              productId: { in: ids },
+              locationId: { in: scopedLocations },
+            },
+            select: {
+              productId: true,
+              variantId: true,
+              locationId: true,
+              quantity: true,
+              avgCost: true,
+            },
+          });
+
+    return { products, stock };
   }
 
   /**

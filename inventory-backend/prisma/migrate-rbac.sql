@@ -83,10 +83,22 @@ INSERT INTO "Permission" ("key", "label", "group") VALUES
 ('reports.view','View Reports','Reports'),
 ('reports.full','Full Reports & Exports','Reports'),
 ('prices.view','View Price History','Price History'),
+('inventory.shared-view','View Shared Inventory (All Locations)','Locations'),
+('inventory.all-locations','Restock & Count at Any Location','Locations'),
 ('users.view','View Users','Users'),
 ('users.manage','Manage Users','Users'),
 ('roles.manage','Manage Roles & Permissions','Roles')
 ON CONFLICT ("key") DO NOTHING;
+
+-- 5b. A permission added after this script first ran is not picked up by the
+-- "Owner gets every permission" statement below unless the role grant is
+-- re-applied, so it is re-stated here (idempotent).
+INSERT INTO "RolePermission" ("roleId","permissionId")
+SELECT r."id", p."id"
+FROM "Role" r
+JOIN "Permission" p ON p."key" IN ('inventory.all-locations','inventory.shared-view')
+WHERE r."name" = 'Owner'
+ON CONFLICT DO NOTHING;
 
 -- 5. Seed the three default roles (Owner is the locked system role)
 INSERT INTO "Role" ("name", "description", "isSystem") VALUES

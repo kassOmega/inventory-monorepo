@@ -85,6 +85,8 @@ export interface ReportVariantDetail {
   quantity: number;
   /** Names of the locations where this unit currently meets the filter. */
   locations?: string[];
+  /** The same locations as ids, so a caller can tick them (the stock sheet does). */
+  locationIds?: number[];
   /** This unit's own low-stock alert number (null → inherits the product's). */
   reorderLevel?: number | null;
   /** This unit's own suggested reorder qty (null → inherits the product's). */
@@ -96,6 +98,8 @@ export interface LowStockProduct {
   name: string;
   total: number;
   locationName?: string | null;
+  /** Where this item is below its alert level, as ids (first entry = locationName). */
+  locationIds?: number[];
   requestedStatus?: string | null;
   /** One entry per variant that is below threshold (plain products get one). */
   variants: ReportVariantDetail[];

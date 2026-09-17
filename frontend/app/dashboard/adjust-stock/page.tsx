@@ -1,14 +1,12 @@
 "use client";
-// Stock In (restock) — receive items across locations. This sheet ADDS to what is
-// on hand; it never sets a count (that is Stock Count). Each item is one card: pick
-// a category, pick the item, then type what arrived per location. Per-line costs
-// can be corrected by the owner, and POST /restock/batch decides per location
-// whether the stock lands directly, waits for the receiver to confirm, or becomes
-// a request for the owner to approve.
-import { useEffect, useState } from "react";
+// Stock Count — the count sheet. A count SETS what is on hand, and the selling
+// price can be corrected at the same time (the buying price is not reachable from
+// here at all). Each item is one card: pick a category, pick the item, then type
+// what you counted per location. Reached from the Stock tab, or from the product
+// page's Adjust modal (which shares the same prefill).
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import Modal from "@/app/components/Modal";
-import ProductForm from "@/app/components/ProductForm";
 import StockProductSheet, {
   defaultLocationColumns,
   lowStockColumns,
@@ -19,18 +17,23 @@ import { useAuth } from "@/context/AuthContext";
 import api, { markHandled } from "@/lib/api";
 import useStockSheet, { type StockSheetProduct } from "@/lib/useStockSheet";
 
-export default function StockInPage() {
+export default function StockCountPage() {
   const { t } = useTranslation();
+  const router = useRouter();
   const toast = useToast();
   const { user, hasPermission } = useAuth();
   const sheet = useStockSheet();
+  /** Items already opened from a deep link, so a re-render cannot duplicate them. */
+  const loadedRef = useRef<Set<number>>(new Set());
 
-  const isOwner = user?.isSuperuser === true;
-  const canRestock = hasPermission("restock.create");
+  const canCount = hasPermission("products.adjust-stock");
+  // Correcting a selling price rides on products.edit (owner + storekeeper).
+  const canEditSellPrice = hasPermission("products.edit");
   const canViewReports = hasPermission("reports.view");
-  // Prices on a restock stay owner-only (unchanged rule, enforced by the API).
-  const canEditPrice = isOwner;
-  const canAllLocations = isOwner || hasPermission("inventory.all-locations");
+  // A user bound to one location sees only that one unless the business granted
+  // them inventory.all-locations. The API enforces the same rule.
+  const canAllLocations =
+    user?.isSuperuser === true || hasPermission("inventory.all-locations");
   const boundLocationId =
     user?.locationType === "STORE" || user?.locationType === "SHOP"
       ? String(user?.locationId ?? "")
@@ -48,9 +51,6 @@ export default function StockInPage() {
   const [presetBusy, setPresetBusy] = useState(false);
   /** Where the low-stock quick add reads from ("" = every location). */
   const [lowStockLocationId, setLowStockLocationId] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [result, setResult] = useState<any | null>(null);
-  const [showProductModal, setShowProductModal] = useState(false);
 
   /** The one location this sheet is unambiguously about (own / only one). */
   const effectiveLocationId =
@@ -83,7 +83,8 @@ export default function StockInPage() {
       .catch((err) => markHandled(err));
   }, [canAllLocations, boundLocationId]);
 
-  // The picker list: every product, filtered per card by its category.
+  // The picker list: every product, filtered per card by its category (the same
+  // bare list the sale and request forms use).
   useEffect(() => {
     setProductsBusy(true);
     api
@@ -104,7 +105,28 @@ export default function StockInPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** Quick add: what is below its alert level — the usual reason to restock. */
+
+  /**
+   * "Adjust" from a product row used to arrive here as ?productId=…; the same
+   * handler is kept for deep links. The item opens as a card with today's numbers
+   * already in the cells (left untouched, so a save with no corrections changes
+   * nothing) and the chosen variant focused.
+   */
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const id = Number(params.get("productId"));
+    const variant = params.get("variant");
+    if (!id || locations.length === 0) return;
+    if (loadedRef.current.has(id)) return;
+    loadedRef.current.add(id);
+    void sheet.prefillProduct(id, {
+      variantId: variant,
+      locationIds: locations.map((l) => l.id),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locations]);
+
+  /** Quick add: the items the report says are below their alert level. */
   const addLowStockItems = async (): Promise<number> => {
     setPresetBusy(true);
     try {
@@ -132,6 +154,7 @@ export default function StockInPage() {
           .map((v: any) => Number(v.variantId))
           .filter((id: number) => id > 0);
         if (product.hasVariants) {
+          // Only the variants the report flagged; all of them when it lists none.
           const wanted = lowVariantIds.length
             ? (product.variants ?? []).filter((v) =>
                 lowVariantIds.includes(v.id),
@@ -186,55 +209,24 @@ export default function StockInPage() {
     }
   };
 
-  /**
-   * The page owns this save (not the hook) because the errors come back keyed by
-   * the index of the items that were sent — the same order as `touchedRows`. The
-   * receiving location of each line is in the line itself, so no batch-level
-   * location has to be chosen first.
-   */
   const handleSave = async (close: boolean) => {
-    const items = sheet.buildRestockItems();
-    if (items.length === 0) {
-      toast.error(t("sc.nothingToSave"));
-      return;
-    }
-    const filled = sheet.touchedRows;
-    setSaving(true);
-    sheet.setRowErrors({});
-    try {
-      const res = await api.post("/restock/batch", {
-        ...(note.trim() ? { vendor: note.trim() } : {}),
-        items,
-      });
-      setResult(res.data ?? null);
+    const res = await sheet.save(note);
+    if (res.ok) {
       toast.success(t("sc.saved"));
-      await sheet.refreshStock();
+      loadedRef.current.clear();
       if (close) {
         sheet.resetSheet();
-        setResult(null);
+        // Back to the Stock section's first tab after a finished count.
+        router.push("/dashboard/inventory");
       }
-    } catch (err: any) {
-      markHandled(err);
-      const errors = err?.response?.data?.errors;
-      if (Array.isArray(errors)) {
-        const mapped: Record<string, string> = {};
-        for (const e of errors) {
-          const row = filled[e.index];
-          if (row) mapped[row.key] = e.message ?? "rejected";
-        }
-        sheet.setRowErrors(mapped);
-        toast.error(t("sc.fixRows"));
-      } else {
-        toast.error(
-          err?.response?.data?.message || t("restock.errorRestocking"),
-        );
-      }
-    } finally {
-      setSaving(false);
+      return;
     }
+    if (res.reason === "empty") toast.error(t("sc.nothingToSave"));
+    else if (res.reason === "invalid") toast.error(t("sc.fixRows"));
+    else toast.error(res.message || t("sc.saveFailed"));
   };
 
-  if (!canRestock) {
+  if (!canCount) {
     return (
       <div className="bg-white rounded-xl shadow-sm border p-6 text-sm text-gray-500">
         {t("sc.noPermission")}
@@ -245,25 +237,16 @@ export default function StockInPage() {
   return (
     <div className="space-y-4">
       <StockTabs />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">
-            {t("nav.restock")}
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">{t("sc.inSubtitle")}</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowProductModal(true)}
-          className="text-sm text-blue-700 hover:underline"
-        >
-          + {t("products.addNewTitle")}
-        </button>
+      <div>
+        <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">
+          {t("nav.stockCount")}
+        </h1>
+        <p className="text-sm text-gray-500 mt-1">{t("sc.countSubtitle")}</p>
       </div>
 
       <StockProductSheet
         sheet={sheet}
-        kind="in"
+        kind="count"
         locations={locations}
         products={products}
         productsBusy={productsBusy}
@@ -271,7 +254,7 @@ export default function StockInPage() {
         boundLocationId={boundLocationId || null}
         note={note}
         onNoteChange={setNote}
-        saving={saving}
+        saving={sheet.saving}
         onSave={() => void handleSave(false)}
         onSaveAndClose={() => void handleSave(true)}
         onScanCode={handleScan}
@@ -279,45 +262,8 @@ export default function StockInPage() {
         lowStockLocationId={lowStockScope}
         onLowStockLocationChange={setLowStockLocationId}
         presetBusy={presetBusy}
-        canEditPrice={canEditPrice}
+        canEditSellPrice={canEditSellPrice}
       />
-
-      {/* What the last submission did, per receiving location. */}
-      {result?.byLocation && (
-        <div className="bg-white rounded-xl shadow-sm border p-4 space-y-1">
-          <p className="text-sm font-medium text-gray-700">
-            {isOwner ? t("restock.submittedOwner") : t("restock.submittedStaff")}
-          </p>
-          {result.byLocation.map((loc: any) => (
-            <p key={loc.locationId} className="text-xs text-gray-500">
-              {loc.locationName} — {loc.items} ·{" "}
-              {loc.mode === "direct"
-                ? t("restock.modeDirect")
-                : loc.mode === "deposit"
-                  ? t("restock.modeDeposit")
-                  : t("restock.modePending")}
-              {loc.requestId ? ` · #${loc.requestId}` : ""}
-              {loc.journalRef ? ` · ${loc.journalRef}` : ""}
-            </p>
-          ))}
-        </div>
-      )}
-
-      <Modal
-        isOpen={showProductModal}
-        onClose={() => setShowProductModal(false)}
-        title={t("products.addNewTitle")}
-      >
-        <ProductForm
-          onProductCreated={(product: any) => {
-            setShowProductModal(false);
-            sheet.registerProducts([product]);
-            const columns = defaultLocationColumns(locations, boundLocationId);
-            if (columns.length) sheet.addProduct(product, columns);
-          }}
-          onCancel={() => setShowProductModal(false)}
-        />
-      </Modal>
     </div>
   );
 }

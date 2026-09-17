@@ -25,6 +25,14 @@ export const PERMISSIONS: PermissionDefinition[] = [
     label: 'View Shared Inventory (All Locations)',
     group: 'Locations',
   },
+  {
+    // Lets a user who is assigned to one location restock and count at every
+    // location of the business (one key for both operations, which do the same
+    // kind of work). Without it they are limited to their own location.
+    key: 'inventory.all-locations',
+    label: 'Restock & Count at Any Location',
+    group: 'Locations',
+  },
   { key: 'sales.view', label: 'View Sales', group: 'Sales' },
   { key: 'sales.create', label: 'Create Sales', group: 'Sales' },
   { key: 'sales.edit', label: 'Edit Sales', group: 'Sales' },

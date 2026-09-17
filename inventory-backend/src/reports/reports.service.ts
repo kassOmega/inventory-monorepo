@@ -1471,7 +1471,8 @@ export class ReportsService {
     locationId?: string,
   ) {
     const targetLocationId =
-      user.locationId !== null
+      user.locationId !== null &&
+      !user.permissions?.includes('inventory.all-locations')
         ? user.locationId
         : locationId
           ? Number(locationId)
@@ -1533,6 +1534,7 @@ export class ReportsService {
         name: string;
         total: number;
         locations: string[];
+        locationIds: number[];
         variants: Map<number, ReportVariantDetail>;
       }
     >();
@@ -1552,12 +1554,14 @@ export class ReportsService {
           name: `${inv.product.brand} ${inv.product.baseName}`,
           total: 0,
           locations: [],
+          locationIds: [],
           variants: new Map(),
         };
         productMap.set(inv.productId, entry);
       }
       entry.total += inv.quantity;
       entry.locations.push(inv.location.name);
+      entry.locationIds.push(inv.locationId);
 
       const variantId = inv.variantId ?? -1;
       let variant = entry.variants.get(variantId);
@@ -1568,6 +1572,7 @@ export class ReportsService {
           attributes: (inv.variant?.attributes as Record<string, any>) ?? {},
           quantity: 0,
           locations: [],
+          locationIds: [],
           // The number this unit alerts at (null → inherits the product's) and
           // its own suggested reorder qty (null → inherits).
           reorderLevel: variantLevel > 0 ? variantLevel : null,
@@ -1577,6 +1582,7 @@ export class ReportsService {
       }
       variant.quantity += inv.quantity;
       variant.locations?.push(inv.location.name);
+      variant.locationIds?.push(inv.locationId);
     }
 
     // If Shopkeeper, find their active requests to prevent duplicates
@@ -1616,6 +1622,7 @@ export class ReportsService {
         name: p.name,
         total: p.total,
         locationName: p.locations[0] || null,
+        locationIds: Array.from(new Set(p.locationIds)),
         requestedStatus: pendingRequests.get(p.id) || null,
         variants: Array.from(p.variants.values()),
       }))

@@ -4,7 +4,11 @@
 // group manually. Links not assigned to a group yet render flat underneath.
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import type { DashboardNav } from "@/lib/dashboardNavigation";
+import {
+  isNavItemActive,
+  type DashboardNav,
+  type DashboardNavItem,
+} from "@/lib/dashboardNavigation";
 
 interface Props {
   nav: DashboardNav;
@@ -12,18 +16,13 @@ interface Props {
   onNavigate: () => void;
 }
 
-function isActive(href: string, pathname: string): boolean {
-  return (
-    pathname === href ||
-    (href !== "/dashboard" && pathname.startsWith(href + "/"))
-  );
-}
+const isActive = isNavItemActive;
 
 export default function SidebarMenu({ nav, pathname, onNavigate }: Props) {
   const [open, setOpen] = useState<Set<string>>(() => {
     const initial = new Set<string>();
     for (const g of nav.groups) {
-      if (g.items.some((i) => isActive(i.href, pathname))) initial.add(g.key);
+      if (g.items.some((i) => isActive(i, pathname))) initial.add(g.key);
     }
     return initial;
   });
@@ -33,7 +32,7 @@ export default function SidebarMenu({ nav, pathname, onNavigate }: Props) {
     setOpen((prev) => {
       const next = new Set(prev);
       for (const g of nav.groups) {
-        if (g.items.some((i) => isActive(i.href, pathname))) next.add(g.key);
+        if (g.items.some((i) => isActive(i, pathname))) next.add(g.key);
       }
       return next;
     });
@@ -47,9 +46,9 @@ export default function SidebarMenu({ nav, pathname, onNavigate }: Props) {
       return next;
     });
 
-  const linkClass = (href: string) =>
+  const linkClass = (item: DashboardNavItem) =>
     "block py-2 px-3 rounded text-sm font-medium transition " +
-    (isActive(href, pathname)
+    (isActive(item, pathname)
       ? "bg-blue-600 text-white"
       : "text-gray-300 hover:bg-gray-800 hover:text-white");
 
@@ -65,7 +64,7 @@ export default function SidebarMenu({ nav, pathname, onNavigate }: Props) {
                   key={item.href}
                   href={item.href}
                   onClick={onNavigate}
-                  className={linkClass(item.href)}
+                  className={linkClass(item)}
                 >
                   {item.label}
                 </Link>
@@ -108,7 +107,7 @@ export default function SidebarMenu({ nav, pathname, onNavigate }: Props) {
                     key={item.href}
                     href={item.href}
                     onClick={onNavigate}
-                    className={linkClass(item.href)}
+                    className={linkClass(item)}
                   >
                     {item.label}
                   </Link>
@@ -124,7 +123,7 @@ export default function SidebarMenu({ nav, pathname, onNavigate }: Props) {
           key={item.href}
           href={item.href}
           onClick={onNavigate}
-          className={linkClass(item.href)}
+          className={linkClass(item)}
         >
           {item.label}
         </Link>

@@ -52,6 +52,16 @@ function localizeText(text: string, locale: Locale): string {
 function localizeValue(value: unknown, locale: Locale): unknown {
   if (Array.isArray(value)) return value.map((v) => localizeValue(v, locale));
   if (typeof value === 'string') return localizeText(value, locale);
+  // Structured detail (error codes, per-row validation errors) keeps its shape —
+  // only the strings inside it are localized.
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        k,
+        localizeValue(v, locale),
+      ]),
+    );
+  }
   return value;
 }
 
@@ -65,6 +75,10 @@ export class LocalizedExceptionFilter implements ExceptionFilter {
     let message: unknown;
     let error = '';
     let handled = false;
+    // Extra structured detail thrown alongside the message (error codes, per-row
+    // validation errors) — part of the response contract, so it must survive the
+    // filter instead of being dropped.
+    const extras: Record<string, unknown> = {};
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -75,6 +89,14 @@ export class LocalizedExceptionFilter implements ExceptionFilter {
         const b = body as { message?: unknown; error?: unknown };
         message = b.message ?? exception.message;
         error = typeof b.error === 'string' ? b.error : '';
+        for (const [key, value] of Object.entries(
+          body as Record<string, unknown>,
+        )) {
+          if (key === 'message' || key === 'error' || key === 'statusCode') {
+            continue;
+          }
+          extras[key] = value;
+        }
       }
       handled = true;
     } else {
@@ -88,6 +110,9 @@ export class LocalizedExceptionFilter implements ExceptionFilter {
       message: localizeValue(message, locale),
     };
     if (error) payload.error = error;
+    for (const [key, value] of Object.entries(extras)) {
+      payload[key] = localizeValue(value, locale);
+    }
     if (!handled) {
       // Nest logs unexpected errors when they are re-thrown; the filter is the
       // terminal handler for the response, but keep the log line ourselves.

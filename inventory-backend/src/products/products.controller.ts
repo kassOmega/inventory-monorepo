@@ -15,6 +15,7 @@ import { RequestWithUser } from '../common/interfaces/request-with-user.interfac
 import { parsePaging } from '../common/pagination.util';
 import { AddVariantDto } from './dto/add-variant.dto';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
+import { BulkAdjustStockDto } from './dto/bulk-adjust-stock.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductsService } from './products.service';
@@ -104,6 +105,42 @@ export class ProductsController {
       excludeProductId: excludeProductId ? Number(excludeProductId) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
+  }
+
+  // Current stock rows for a set of products at a set of locations, plus those
+  // products with their variants — one request feeds the whole count sheet
+  // (System column + matrix grid). Declared before @Get(':id').
+  @Get('stock')
+  @Permissions('products.view', 'products.adjust-stock')
+  stock(
+    @Req() req: RequestWithUser,
+    @Query('productIds') productIds?: string,
+    @Query('locationIds') locationIds?: string,
+  ) {
+    const parseIds = (raw?: string) =>
+      (raw ?? '')
+        .split(',')
+        .map((s) => Number(s.trim()))
+        .filter((n) => Number.isInteger(n) && n > 0);
+    return this.service.stockLookup(
+      parseIds(productIds),
+      parseIds(locationIds),
+      req.user,
+    );
+  }
+
+  /**
+   * Bulk stock reconciliation ("count sheet"): many products / variants across
+   * many locations in one submission, so nobody has to reopen the form per item.
+   * Atomic — the whole sheet is validated before anything is written.
+   */
+  @Post('adjust-stock/bulk')
+  @Permissions('products.adjust-stock')
+  adjustStockBulk(
+    @Body() dto: BulkAdjustStockDto,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.service.adjustStockBulk(dto, req.user);
   }
 
   @Get(':id')

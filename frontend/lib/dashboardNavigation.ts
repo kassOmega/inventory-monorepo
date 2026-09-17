@@ -13,7 +13,14 @@
 export interface DashboardNavItem {
   href: string;
   label: string;
-  permission?: string;
+  /** One key, or several (any of them grants the item). */
+  permission?: string | string[];
+  /**
+   * Extra route prefixes that keep this item highlighted — a section whose pages
+   * are tabs (e.g. Stock: products, Stock In, Stock Count) stays lit on all of
+   * them even though its links have different paths.
+   */
+  match?: string[];
 }
 
 export interface DashboardNavGroup {
@@ -26,6 +33,22 @@ export interface DashboardNavGroup {
 export interface DashboardNav {
   groups: DashboardNavGroup[];
   loose: DashboardNavItem[];
+}
+
+/**
+ * Is this menu item the page the user is on? `href` is the item's own route and
+ * `match` lists the other routes of the same section (its tabs), so a section with
+ * tabbed pages stays highlighted on every one of them.
+ */
+export function isNavItemActive(
+  item: DashboardNavItem,
+  pathname: string,
+): boolean {
+  return [item.href, ...(item.match ?? [])].some(
+    (href) =>
+      pathname === href ||
+      (href !== "/dashboard" && pathname.startsWith(href + "/")),
+  );
 }
 
 export interface NavService {
@@ -68,6 +91,8 @@ export const routeFeatureMap: Record<
   "inventory" | "retail" | "pos" | "rooms"
 > = {
   "/dashboard/products": "inventory",
+  "/dashboard/adjust-stock": "inventory",
+  "/dashboard/inventory": "inventory",
   "/dashboard/locations": "inventory",
   "/dashboard/restock": "inventory",
   "/dashboard/requests": "retail",
@@ -84,10 +109,12 @@ export const routeFeatureMap: Record<
   "/dashboard/hotel": "rooms",
 };
 
-// Routes that require a specific permission (checked on top of the feature map).
+/** Routes that require a specific permission (checked on top of the feature map). */
 export const routePermissionMap: Record<string, string> = {
   // Retail / shared
   "/dashboard/products": "products.view",
+  "/dashboard/adjust-stock": "products.adjust-stock",
+  "/dashboard/inventory": "products.view",
   "/dashboard/restock": "restock.create",
   "/dashboard/requests": "requests.view",
   "/dashboard/sales": "sales.view",
@@ -236,18 +263,28 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
   }
 
   if (ctx.hasBusiness && ctx.isRetail) {
-    inventory.items.push(
-      {
-        href: "/dashboard/products",
-        label: t("nav.products"),
-        permission: "products.view",
-      },
-      {
-        href: "/dashboard/restock",
-        label: t("nav.restock"),
-        permission: "restock.create",
-      },
-    );
+    inventory.items.push({
+      href: "/dashboard/products",
+      label: t("nav.products"),
+      permission: "products.view",
+    });
+    // Stock is one menu item whose three pages are tabs: the stock tasks overview,
+    // receiving stock and counting it. The item lands on the first tab the user may
+    // open and stays highlighted on all three (see `match`).
+    const stockTabs = [
+      { href: "/dashboard/inventory", permission: "products.view" },
+      { href: "/dashboard/restock", permission: "restock.create" },
+      { href: "/dashboard/adjust-stock", permission: "products.adjust-stock" },
+    ];
+    const openTabs = stockTabs.filter((tab) => ctx.hasPermission(tab.permission));
+    if (openTabs.length > 0) {
+      inventory.items.push({
+        href: openTabs[0].href,
+        label: t("nav.stock"),
+        permission: openTabs.map((tab) => tab.permission),
+        match: stockTabs.map((tab) => tab.href),
+      });
+    }
     if (!ctx.standalone) {
       inventory.items.push({
         href: "/dashboard/locations",
@@ -418,20 +455,23 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
   }
 
 
+  /** An item shows when it declares no permission, or any one of them. */
+  const isPermitted = (permission?: string | string[]) =>
+    !permission ||
+    (Array.isArray(permission)
+      ? permission.some((key) => ctx.hasPermission(key))
+      : ctx.hasPermission(permission));
+
   return {
-    // Role-based visibility: drop every item whose declared permission the
-    // user's role doesn't grant. Items without a permission stay governed by
-    // the business-type/feature flags above (e.g. owner-only pages).
+    // Role-based visibility: drop every item whose declared permission(s) the
+    // user's role doesn't grant (see isPermitted). Items without a permission stay
+    // governed by the business-type/feature flags above (e.g. owner-only pages).
     groups: groups
       .map((g) => ({
         ...g,
-        items: g.items.filter(
-          (i) => !i.permission || ctx.hasPermission(i.permission),
-        ),
+        items: g.items.filter((i) => isPermitted(i.permission)),
       }))
       .filter((g) => g.items.length > 0),
-    loose: loose.filter(
-      (l) => !l.permission || ctx.hasPermission(l.permission),
-    ),
+    loose: loose.filter((l) => isPermitted(l.permission)),
   };
 }

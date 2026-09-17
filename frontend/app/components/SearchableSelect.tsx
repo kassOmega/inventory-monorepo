@@ -16,6 +16,12 @@ interface SearchableSelectProps {
   disabled?: boolean;
   required?: boolean;
   className?: string;
+  /**
+   * Optional: report the text as it is typed. Lets a caller drive a server-side
+   * search from the same box the user picks results from, instead of adding a
+   * second input next to this one.
+   */
+  onInputChange?: (query: string) => void;
 }
 
 /**
@@ -30,6 +36,7 @@ export default function SearchableSelect({
   disabled = false,
   required = false,
   className = "",
+  onInputChange,
 }: SearchableSelectProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -76,6 +83,7 @@ export default function SearchableSelect({
         onChange={(e) => {
           setQuery(e.target.value);
           setOpen(true);
+          onInputChange?.(e.target.value);
         }}
         className="border p-2 rounded-lg w-full bg-white text-sm"
       />

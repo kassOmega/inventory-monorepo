@@ -12,8 +12,10 @@ import { statusLabel } from "@/lib/statusLabel";
 import api, { markHandled } from "@/lib/api";
 import { QRCodeSVG } from "qrcode.react";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import Link from "next/link";
 import CategoriesManager from "@/app/components/CategoriesManager";
 import ProductDetailModal from "@/app/components/ProductDetailModal";
+import StockCountModal from "@/app/components/StockCountModal";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import useServerPaging from "@/lib/useServerPaging";
@@ -35,15 +37,12 @@ export default function ProductsPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editing, setEditing] = useState<any>(null);
-  const [showAdjustModal, setShowAdjustModal] = useState(false);
-  const [adjusting, setAdjusting] = useState<any>(null);
-  const [adjustForm, setAdjustForm] = useState({
-    locationId: "",
-    variantId: "",
-    quantity: 0,
-    reason: "",
-  });
   const [locations, setLocations] = useState<any[]>([]);
+  /** The item the Adjust modal is open on (null = closed). */
+  const [counting, setCounting] = useState<{
+    productId: number;
+    variantId?: string | number;
+  } | null>(null);
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrProduct, setQrProduct] = useState<any>(null);
   const [tab, setTab] = useState<"products" | "categories">("products");
@@ -164,79 +163,18 @@ export default function ProductsPage() {
   }, [canAdjust, user]);
 
   /**
-   * Stock of one item at one location, straight from the list payload: a variant
-   * row when `variantId` is given, the plain row otherwise. Used to prefill the
-   * reconciliation count — the modal used to show the product-wide total across
-   * variants *and* locations, which is also why the backend wrote the wrong row.
+   * "Adjust" opens the count modal on this item: its card is pre-loaded with
+   * today's numbers (left untouched) and the clicked variant focused, and more
+   * items can be added inside the modal before a single save.
    */
-  const stockAt = (product: any, locationId: string, variantId?: string) =>
-    (product?.inventory ?? [])
-      .filter(
-        (i: any) =>
-          String(i.locationId) === String(locationId) &&
-          (variantId === undefined ||
-            String(i.variantId ?? "") === String(variantId)),
-      )
-      .reduce((sum: number, i: any) => sum + (i.quantity ?? 0), 0);
-
-  /** Open the modal, optionally pinned to one variant (per-variant Adjust). */
-  const startAdjust = (p: any, variantId?: number | string) => {
-    const locationId = locations.length === 1 ? String(locations[0].id) : "";
-    const selectedVariant =
-      p?.hasVariants && variantId !== undefined ? String(variantId) : "";
-    setAdjusting(p);
-    setAdjustForm({
-      locationId,
-      variantId: selectedVariant,
-      quantity: locationId
-        ? stockAt(p, locationId, p?.hasVariants ? selectedVariant : undefined)
-        : 0,
-      reason: "",
+  const openCountModal = (p: any, variantId?: number | string) => {
+    setCounting({
+      productId: Number(p.id),
+      variantId:
+        variantId !== undefined && variantId !== null && variantId !== ""
+          ? variantId
+          : undefined,
     });
-    setShowAdjustModal(true);
-  };
-
-  /** Keep the counted quantity in step with the chosen location / variant. */
-  const syncAdjustTarget = (next: { locationId: string; variantId: string }) => {
-    const quantity = next.locationId
-      ? stockAt(
-          adjusting,
-          next.locationId,
-          adjusting?.hasVariants ? next.variantId : undefined,
-        )
-      : 0;
-    setAdjustForm((f) => ({ ...f, ...next, quantity }));
-  };
-
-  const handleAdjust = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!adjusting || !adjustForm.locationId) {
-      toast.error(t("products.pleaseSelectLocation"));
-      return;
-    }
-    if (adjusting.hasVariants && !adjustForm.variantId) {
-      toast.error(t("products.selectVariant"));
-      return;
-    }
-    try {
-      await api.post(`/products/${adjusting.id}/adjust-stock`, {
-        locationId: Number(adjustForm.locationId),
-        // Stock for a variant product lives on the variant rows, so the API needs
-        // to know which one is being counted (it rejects the request otherwise).
-        ...(adjusting.hasVariants
-          ? { variantId: Number(adjustForm.variantId) }
-          : {}),
-        quantity: Number(adjustForm.quantity),
-        reason: adjustForm.reason || undefined,
-      });
-      toast.success(t("products.stockAdjusted"));
-      setShowAdjustModal(false);
-      setAdjusting(null);
-      fetchProducts();
-    } catch (err: any) {
-      markHandled(err);
-      toast.error(t("products.failedAdjustStock"));
-    }
   };
 
   const handleDelete = async (p: any) => {
@@ -299,6 +237,15 @@ export default function ProductsPage() {
           onChange={(e) => setSearch(e.target.value)}
           className="border p-2 rounded-lg flex-1 text-sm"
         />
+        {/* Count many items (and variants, across locations) in one sheet. */}
+        {canAdjust && (
+          <Link
+            href="/dashboard/adjust-stock"
+            className="border border-blue-600 text-blue-700 rounded-lg px-3 py-2 text-sm whitespace-nowrap hover:bg-blue-50"
+          >
+            {t("nav.stockCount")}
+          </Link>
+        )}
         <select
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
@@ -391,7 +338,7 @@ export default function ProductsPage() {
                                   {
                                     label: t("products.adjust"),
                                     color: "text-green-600",
-                                    onClick: () => startAdjust(p),
+                                    onClick: () => openCountModal(p),
                                   },
                                 ]
                               : []),
@@ -452,7 +399,7 @@ export default function ProductsPage() {
                                         type="button"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          startAdjust(p, v.id);
+                                          openCountModal(p, v.id);
                                         }}
                                         className="text-emerald-600 hover:underline mr-2"
                                         title={t("products.adjustVariantTitle")}
@@ -554,117 +501,21 @@ export default function ProductsPage() {
         />
       </Modal>
 
-      {/* Adjust Stock Modal */}
-      <Modal
-        isOpen={showAdjustModal}
-        onClose={() => setShowAdjustModal(false)}
-        title={t("products.adjustStockTitle", {
-          name: `${adjusting?.brand ?? ""} ${adjusting?.baseName ?? ""}`.trim(),
-        })}
-      >
-        <form onSubmit={handleAdjust} className="grid grid-cols-1 gap-4">
-          <p className="text-[11px] text-gray-400">
-            {t("products.reconciliationHint")}
-          </p>
-          <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">
-              {t("common.location")}
-            </label>
-            <select
-              value={adjustForm.locationId}
-              onChange={(e) =>
-                syncAdjustTarget({
-                  locationId: e.target.value,
-                  variantId: adjustForm.variantId,
-                })
-              }
-              className="border p-2 rounded-lg w-full bg-white"
-              required
-            >
-              <option value="">{t("products.selectLocation")}</option>
-              {locations.map((l: any) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          {adjusting?.hasVariants && (
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">
-                {t("products.selectVariant")}
-              </label>
-              <select
-                value={adjustForm.variantId}
-                onChange={(e) =>
-                  syncAdjustTarget({
-                    locationId: adjustForm.locationId,
-                    variantId: e.target.value,
-                  })
-                }
-                className="border p-2 rounded-lg w-full bg-white"
-                required
-              >
-                <option value="">{t("products.selectVariant")}</option>
-                {(adjusting?.variants ?? []).map((v: any) => (
-                  <option key={v.id} value={v.id}>
-                    {variantLabel(v) || v.sku || `#${v.id}`}
-                    {v.sku ? ` — ${v.sku}` : ""}
-                  </option>
-                ))}
-              </select>
-              {adjustForm.locationId && adjustForm.variantId && (
-                <p className="text-[11px] text-gray-400 mt-1">
-                  {t("products.stockAtLocation", {
-                    n: stockAt(adjusting, adjustForm.locationId, adjustForm.variantId),
-                  })}
-                </p>
-              )}
-            </div>
-          )}
-          {!adjusting?.hasVariants && adjustForm.locationId && (
-            <p className="text-[11px] text-gray-400 -mt-2">
-              {t("products.stockAtLocation", {
-                n: stockAt(adjusting, adjustForm.locationId),
-              })}
-            </p>
-          )}
-          <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">
-              {t("products.newQuantity")}
-            </label>
-            <input
-              type="number"
-              min="0"
-              value={adjustForm.quantity}
-              onChange={(e) =>
-                setAdjustForm({ ...adjustForm, quantity: Number(e.target.value) })
-              }
-              className="border p-2 rounded-lg w-full"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">
-              {t("products.reasonOptional")}
-            </label>
-            <input
-              value={adjustForm.reason}
-              onChange={(e) =>
-                setAdjustForm({ ...adjustForm, reason: e.target.value })
-              }
-              className="border p-2 rounded-lg w-full"
-              placeholder={t("products.reasonPlaceholder")}
-            />
-          </div>
-          <button
-            type="submit"
-            className="bg-green-600 text-white p-2 rounded-lg mt-2 font-medium"
-          >
-            {t("products.saveAdjustment")}
-          </button>
-        </form>
-      </Modal>
+
+      {/* Count one item (or several) without leaving the list. */}
+      <StockCountModal
+        isOpen={!!counting}
+        onClose={() => setCounting(null)}
+        productId={counting?.productId ?? null}
+        variantId={counting?.variantId}
+        locations={locations}
+        boundLocationId={
+          user?.locationType === "STORE" || user?.locationType === "SHOP"
+            ? String(user?.locationId ?? "")
+            : null
+        }
+        onSaved={fetchProducts}
+      />
 
       {/* QR Code Modal */}
       <Modal

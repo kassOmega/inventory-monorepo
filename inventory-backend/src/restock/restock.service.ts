@@ -13,12 +13,19 @@ import {
 } from '@prisma/client';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { inventoryUpsert } from '../common/inventory.util';
+import {
+  PriceChange,
+  newPriceBatchRef,
+  recordPriceChanges,
+} from '../common/price-history.util';
 import { requireTenantId } from '../common/tenant/tenant.context';
+import { itemDisplayName } from '../common/variant-label.util';
 import { FinanceService } from '../finance/finance.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterPurchaseDto } from './dto/register-purchase.dto';
 import { RestockDto } from './dto/restock.dto';
+import { BatchRestockDto } from './dto/batch-restock.dto';
 
 @Injectable()
 export class RestockService {
@@ -126,7 +133,10 @@ export class RestockService {
 
     // Non-owners may only restock their own location and cannot change prices.
     if (!isOwner) {
-      if (user.locationId !== dto.storeId) {
+      if (
+        user.locationId !== dto.storeId &&
+        !user.permissions?.includes('inventory.all-locations')
+      ) {
         throw new ForbiddenException(
           'You can only restock your own store/shop',
         );
@@ -147,23 +157,26 @@ export class RestockService {
           product.currentBuyPrice !== newBuyPrice ||
           product.currentSellPrice !== newSellPrice
         ) {
-          await tx.priceHistory.create({
-            data: {
-              tenantId,
-              productId: dto.productId,
-              oldBuyPrice: product.currentBuyPrice,
-              newBuyPrice,
-              oldSellPrice: product.currentSellPrice,
-              newSellPrice,
-              updatedById: user.sub,
-            },
-          });
           await tx.product.update({
             where: { id: dto.productId },
             data: {
               currentBuyPrice: newBuyPrice,
               currentSellPrice: newSellPrice,
             },
+          });
+          await recordPriceChanges(tx, {
+            tenantId,
+            userId: user.sub,
+            source: 'RESTOCK',
+            changes: [
+              {
+                productId: dto.productId,
+                oldBuyPrice: product.currentBuyPrice,
+                newBuyPrice,
+                oldSellPrice: product.currentSellPrice,
+                newSellPrice,
+              },
+            ],
           });
         }
       }
@@ -422,6 +435,494 @@ export class RestockService {
   }
 
   /**
+   * Restock many items in one submission: several products (with their variants)
+   * across several locations.
+   *
+   * Validated up front and applied in one transaction. Items are grouped by
+   * receiving location and each location gets ONE request carrying all of its
+   * items — so a delivery is one document (and one procurement entry) per store
+   * instead of one per line. Per line prices are applied per variant and the
+   * product's own numbers are kept as the variant average.
+   */
+  async restockBatch(dto: BatchRestockDto, user: JwtPayload) {
+    const tenantId = requireTenantId();
+    const isOwner = user.isSuperuser === true;
+    const org = await this.prisma.organization.findUnique({
+      where: { id: tenantId },
+      select: { name: true, standalone: true },
+    });
+    const isStandaloneOrg = org?.standalone === true;
+
+    // Standalone businesses own a single hidden shop; resolve (or create) it once
+    // so every row has a real target even when the form sends no location.
+    let standaloneShopId: number | null = null;
+    if (isStandaloneOrg && dto.storeId == null) {
+      const existing = await this.prisma.location.findFirst({
+        where: { tenantId, type: LocationType.SHOP },
+        select: { id: true },
+      });
+      standaloneShopId =
+        existing?.id ??
+        (
+          await this.prisma.location.create({
+            data: { name: org?.name ?? 'Shop', type: LocationType.SHOP, tenantId },
+            select: { id: true },
+          })
+        ).id;
+    }
+
+    const items = dto.items;
+    const productIds = [...new Set(items.map((i) => Number(i.productId)))];
+    const requestedLocationIds = [
+      ...new Set(
+        items
+          .map((i) => Number(i.locationId ?? dto.storeId ?? standaloneShopId))
+          .filter((id) => Number.isInteger(id) && id > 0),
+      ),
+    ];
+    const variantIds = [
+      ...new Set(
+        items
+          .map((i) => Number(i.variantId))
+          .filter((v) => Number.isInteger(v) && v > 0),
+      ),
+    ];
+
+    const [products, locations, variants] = await Promise.all([
+      this.prisma.product.findMany({
+        where: { id: { in: productIds } },
+        select: {
+          id: true, brand: true, baseName: true, hasVariants: true, isPerishable: true,
+          currentBuyPrice: true, currentSellPrice: true,
+        },
+      }),
+      requestedLocationIds.length
+        ? this.prisma.location.findMany({
+            where: { id: { in: requestedLocationIds }, tenantId },
+            select: { id: true, name: true, type: true },
+          })
+        : Promise.resolve([] as any[]),
+      variantIds.length
+        ? this.prisma.productVariant.findMany({
+            where: { id: { in: variantIds } },
+            select: { id: true, productId: true, sku: true, attributes: true, buyPrice: true, sellPrice: true },
+          })
+        : Promise.resolve([] as any[]),
+    ]);
+    const productById = new Map((products as any[]).map((p) => [p.id, p]));
+    const locationById = new Map((locations as any[]).map((l) => [l.id, l]));
+    const variantById = new Map((variants as any[]).map((v) => [v.id, v]));
+
+    const errors: { index: number; productId?: number; locationId?: number; message: string }[] = [];
+    const seen = new Set<string>();
+    const targets: any[] = [];
+
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index];
+      const productId = Number(item.productId);
+      const variantId = item.variantId != null ? Number(item.variantId) : null;
+      const locationId = Number(item.locationId ?? dto.storeId ?? standaloneShopId);
+      const fail = (message: string) => errors.push({ index, productId, locationId, message });
+
+      const product = productById.get(productId);
+      if (!product) {
+        fail('Product not found');
+        continue;
+      }
+      const location = locationById.get(locationId);
+      if (!location || (location.type !== LocationType.STORE && location.type !== LocationType.SHOP)) {
+        fail('Location not found');
+        continue;
+      }
+      if (product.hasVariants && variantId === null) {
+        fail('Select a variant to restock — this product keeps stock per variant.');
+        continue;
+      }
+      if (!product.hasVariants && variantId !== null) {
+        fail('This product has no variants.');
+        continue;
+      }
+      let variant: any = null;
+      if (variantId !== null) {
+        variant = variantById.get(variantId);
+        if (!variant || variant.productId !== productId) {
+          fail('That variant does not belong to this product.');
+          continue;
+        }
+      }
+      if (!(Number(item.quantity) > 0)) {
+        fail('Quantity must be greater than zero.');
+        continue;
+      }
+      if (product.isPerishable && (!item.batchNumber || !item.expiryDate)) {
+        fail('Batch number and expiry date are required for perishable products.');
+        continue;
+      }
+      // Only owners may move prices, and only within their own business.
+      if (!isOwner) {
+        if (
+          user.locationId !== locationId &&
+          !user.permissions?.includes('inventory.all-locations')
+        ) {
+          fail('You can only restock your own store/shop.');
+          continue;
+        }
+        if (item.buyPrice != null || item.sellPrice != null) {
+          fail('Only the owner can change prices on a restock.');
+          continue;
+        }
+      }
+      const key = `${productId}|${variantId ?? 'base'}|${locationId}`;
+      if (seen.has(key)) {
+        fail('This item is listed twice for the same variant and location — remove the duplicate row.');
+        continue;
+      }
+      seen.add(key);
+      targets.push({ index, product, variant, location, ...item });
+    }
+
+    if (errors.length > 0) {
+      throw new BadRequestException({
+        message: 'Some rows could not be processed',
+        errors,
+      });
+    }
+
+    const priceBatchRef = newPriceBatchRef();
+    const touchedProducts = new Set<number>();
+
+    const results = await this.prisma.$transaction(async (tx) => {
+      // --- 1. Prices, line by line ---
+      const priceChanges: PriceChange[] = [];
+      if (isOwner) {
+        for (const target of targets) {
+          const { product, variant, buyPrice, sellPrice } = target;
+          if (buyPrice == null && sellPrice == null) continue;
+          if (variant) {
+            const newBuy = buyPrice ?? variant.buyPrice ?? 0;
+            const newSell = sellPrice ?? variant.sellPrice ?? 0;
+            if (
+              newBuy !== (variant.buyPrice ?? 0) ||
+              newSell !== (variant.sellPrice ?? 0)
+            ) {
+              await tx.productVariant.update({
+                where: { id: variant.id },
+                data: { buyPrice: newBuy, sellPrice: newSell },
+              });
+              priceChanges.push({
+                productId: product.id,
+                variantId: variant.id,
+                oldBuyPrice: variant.buyPrice ?? 0,
+                newBuyPrice: newBuy,
+                oldSellPrice: variant.sellPrice ?? 0,
+                newSellPrice: newSell,
+              });
+              touchedProducts.add(product.id);
+            }
+          } else {
+            const newBuy = buyPrice ?? product.currentBuyPrice;
+            const newSell = sellPrice ?? product.currentSellPrice;
+            if (
+              newBuy !== product.currentBuyPrice ||
+              newSell !== product.currentSellPrice
+            ) {
+              await tx.product.update({
+                where: { id: product.id },
+                data: { currentBuyPrice: newBuy, currentSellPrice: newSell },
+              });
+              priceChanges.push({
+                productId: product.id,
+                oldBuyPrice: product.currentBuyPrice,
+                newBuyPrice: newBuy,
+                oldSellPrice: product.currentSellPrice,
+                newSellPrice: newSell,
+              });
+              touchedProducts.add(product.id);
+            }
+          }
+        }
+
+        // A variant move updates the product's own numbers too: they are the
+        // average across variants, exactly as everywhere else.
+        for (const productId of touchedProducts) {
+          const product = productById.get(productId);
+          const rows = await tx.productVariant.findMany({
+            where: { productId },
+            select: { buyPrice: true, sellPrice: true },
+          });
+          if (!rows.length) continue;
+          const avg = (pick: (r: any) => number | null) =>
+            round2(
+              rows.reduce((sum: number, r: any) => sum + (pick(r) ?? 0), 0) /
+                rows.length,
+            );
+          const avgBuy = avg((r) => r.buyPrice);
+          const avgSell = avg((r) => r.sellPrice);
+          if (
+            product &&
+            (product.currentBuyPrice !== avgBuy ||
+              product.currentSellPrice !== avgSell)
+          ) {
+            await tx.product.update({
+              where: { id: productId },
+              data: { currentBuyPrice: avgBuy, currentSellPrice: avgSell },
+            });
+            priceChanges.push({
+              productId,
+              oldBuyPrice: product.currentBuyPrice,
+              newBuyPrice: avgBuy,
+              oldSellPrice: product.currentSellPrice,
+              newSellPrice: avgSell,
+            });
+          }
+        }
+      }
+
+      // --- 2. One request (and one procurement entry) per receiving location ---
+      const byLocation = new Map<number, any[]>();
+      for (const target of targets) {
+        const list = byLocation.get(target.location.id) ?? [];
+        list.push(target);
+        byLocation.set(target.location.id, list);
+      }
+
+      const perLocation: any[] = [];
+      for (const [locationId, lines] of byLocation) {
+        const location = locationById.get(locationId);
+        const shopId = location.type === LocationType.SHOP ? location.id : null;
+        // Whether staff must confirm is a property of the LOCATION, so it is
+        // decided once per location instead of once per line.
+        const receiverCount = await tx.user.count({
+          where: {
+            locationId,
+            isOwnerAccount: false,
+            NOT: [{ role: { isSystem: true } }, { id: user.sub }],
+          },
+        });
+        const mode = !isOwner
+          ? 'pending'
+          : receiverCount === 0
+            ? 'direct'
+            : 'deposit';
+
+        const itemRows: any[] = [];
+        let totalCost = 0;
+        for (const line of lines) {
+          const unitCost =
+            line.buyPrice ??
+            line.variant?.buyPrice ??
+            line.product.currentBuyPrice ??
+            0;
+          line.unitCost = unitCost;
+          line.lineCost = round2(unitCost * Number(line.quantity));
+          totalCost = round2(totalCost + line.lineCost);
+
+          if (mode === 'direct') {
+            await inventoryUpsert(tx, {
+              tenantId,
+              productId: line.product.id,
+              variantId: line.variant?.id ?? null,
+              locationId,
+              increment: line.quantity,
+              unitCost,
+            });
+          }
+
+          let batchId: number | null = null;
+          if (line.product.isPerishable) {
+            batchId = await this.upsertBatch(tx, {
+              tenantId,
+              productId: line.product.id,
+              batchNumber: line.batchNumber!,
+              manufactureDate: line.manufactureDate,
+              expiryDate: line.expiryDate,
+              increment: mode === 'direct' ? line.quantity : 0,
+            });
+          }
+
+          const base = {
+            productId: line.product.id,
+            variantId: line.variant?.id ?? null,
+            batchId,
+          };
+          if (mode === 'direct') {
+            itemRows.push({
+              ...base,
+              quantityStored: line.quantity,
+              quantityReceived: line.quantity,
+              status: RequestItemStatus.RECEIVED,
+              confirmedById: user.sub,
+              confirmedAt: new Date(),
+            });
+          } else if (mode === 'deposit') {
+            itemRows.push({
+              ...base,
+              tenantId,
+              quantityStored: line.quantity,
+              status: RequestItemStatus.STORED,
+            });
+          } else {
+            itemRows.push({
+              ...base,
+              tenantId,
+              quantityRequested: line.quantity,
+              status: RequestItemStatus.PENDING,
+            });
+          }
+        }
+
+        const status =
+          mode === 'direct'
+            ? RequestStatus.COMPLETED
+            : mode === 'deposit'
+              ? RequestStatus.AWAITING_CONFIRMATION
+              : RequestStatus.PENDING;
+        const req = await tx.stockRequest.create({
+          data: {
+            tenantId,
+            requestType: RequestType.STORE_TO_OWNER,
+            storeId: locationId,
+            shopId,
+            createdById: user.sub,
+            ...(mode === 'direct' ? { approvedById: user.sub } : {}),
+            status,
+            items: { create: itemRows },
+          },
+          include: { items: true },
+        });
+
+        // One procurement posting per store, at the value of its items.
+        let journalRef: string | null = null;
+        if (mode === 'direct') {
+          const ref = `RST-${req.id}`;
+          const posted = await this.finance
+            .postProcurement({
+              ref,
+              description: `Restock ${lines.length} item(s) at ${location.name}${
+                dto.vendor ? ` — ${dto.vendor}` : ''
+              }`,
+              amount: totalCost,
+              entryDate: new Date(),
+              createdById: user.sub,
+              paid: false, // goods received on account (AP)
+              tenantId,
+              tx,
+            })
+            .catch(() => false);
+          journalRef = posted ? ref : null;
+        }
+
+        await tx.requestActivity.create({
+          data: {
+            requestId: req.id,
+            action: 'CREATED',
+            actorId: user.sub,
+            details:
+              mode === 'direct'
+                ? `Stocked directly — ${lines.length} item(s), no confirmation required`
+                : mode === 'deposit'
+                  ? `${lines.length} item(s) deposited — awaiting receipt confirmation`
+                  : `${lines.length} item(s) requested — awaiting owner approval`,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            tenantId,
+            userId: user.sub,
+            action: 'RESTOCK',
+            details: `Restock at ${location.name}: ${lines.length} item(s) — ${
+              mode === 'direct'
+                ? 'stocked directly'
+                : mode === 'deposit'
+                  ? 'awaiting receipt'
+                  : 'awaiting approval'
+            }`,
+          },
+        });
+
+        perLocation.push({
+          locationId,
+          locationName: location.name,
+          mode,
+          requestId: req.id,
+          items: lines.length,
+          quantity: round2(
+            lines.reduce((s, l) => s + Number(l.quantity), 0),
+          ),
+          totalCost,
+          journalRef,
+        });
+      }
+
+      if (priceChanges.length > 0) {
+        // Variant moves keep the product's own row, so the history page can group
+        // the detail under one main row for the whole action.
+        await recordPriceChanges(tx, {
+          tenantId,
+          userId: user.sub,
+          source: 'RESTOCK',
+          batchRef: priceBatchRef,
+          changes: priceChanges,
+          keepUnchanged: true,
+        });
+      }
+
+      return perLocation;
+    });
+
+    // --- Notifications, mirroring the single-item restock ---
+    for (const loc of results) {
+      if (loc.mode === 'direct') {
+        await this.notifications
+          .notifyLocation(
+            'Stock Added',
+            `${loc.quantity} unit(s) were stocked directly at ${loc.locationName}`,
+            loc.locationId,
+            {},
+          )
+          .catch(() => undefined);
+      } else if (loc.mode === 'deposit') {
+        await this.notifications
+          .notifyLocation(
+            'Stock Ready for Receipt',
+            `Request #${loc.requestId}: ${loc.quantity} unit(s) ready for you to confirm`,
+            loc.locationId,
+            {},
+          )
+          .catch(() => undefined);
+      } else {
+        await this.notifications
+          .notifyOwner(
+            'Restock Awaiting Approval',
+            `${loc.quantity} unit(s) for ${loc.locationName} are waiting for your approval (store) or rejection.`,
+            { locationId: loc.locationId },
+          )
+          .catch(() => undefined);
+      }
+    }
+
+    const anyPending = results.some((l) => l.mode !== 'direct');
+    return {
+      message: anyPending
+        ? 'Restock submitted — awaiting confirmation.'
+        : 'Restock stocked directly — no confirmation needed.',
+      byLocation: results,
+      results: targets.map((t) => ({
+        index: t.index,
+        productId: t.product.id,
+        variantId: t.variant?.id ?? null,
+        locationId: t.location.id,
+        label: itemDisplayName(t.product, t.variant),
+        quantity: t.quantity,
+        unitCost: t.unitCost ?? 0,
+        lineCost: t.lineCost ?? 0,
+      })),
+    };
+  }
+
+
+  /**
    * Find-or-create a product batch and increment its quantity. ProductBatch is
    * product-level (unique per tenant/product/batchNumber) — the batch tracks
    * the expiry timeline; per-variant availability lives on Inventory.
@@ -613,7 +1114,11 @@ export class RestockService {
         'No store or location is set up for this business yet — create one before recording a purchase.',
       );
     }
-    if (!isOwner && user.locationId !== target.id) {
+    if (
+      !isOwner &&
+      !user.permissions?.includes('inventory.all-locations') &&
+      user.locationId !== target.id
+    ) {
       throw new ForbiddenException(
         'You can only purchase stock for your own store/shop',
       );
@@ -784,67 +1289,106 @@ export class RestockService {
       }
 
       // --- 2. Buy-price updates ---
+      const priceChanges: PriceChange[] = [];
       if (variantLines.length > 0) {
         // Per-variant lines: each variant's buy price is its own total / qty;
         // the root item reflects the weighted-average cost across the purchase.
         for (const line of variantLines) {
           const variant = await tx.productVariant.findUnique({
             where: { id: line.variantId },
-            select: { buyPrice: true },
+            select: { buyPrice: true, sellPrice: true },
           });
-          if (variant && variant.buyPrice !== line.unitBuyPrice) {
+          if (!variant) continue;
+          if (variant.buyPrice !== line.unitBuyPrice) {
             await tx.productVariant.update({
               where: { id: line.variantId },
               data: { buyPrice: line.unitBuyPrice },
             });
           }
+          if (
+            variant.buyPrice !== line.unitBuyPrice ||
+            variant.sellPrice !== sellPrice
+          ) {
+            priceChanges.push({
+              productId,
+              variantId: line.variantId,
+              oldBuyPrice: variant.buyPrice ?? 0,
+              newBuyPrice: line.unitBuyPrice,
+              oldSellPrice: variant.sellPrice ?? 0,
+              newSellPrice: sellPrice,
+            });
+          }
         }
         if (product.currentBuyPrice !== unitBuyPrice) {
-          await tx.priceHistory.create({
-            data: {
-              tenantId,
-              productId,
-              oldBuyPrice: product.currentBuyPrice,
-              newBuyPrice: unitBuyPrice,
-              oldSellPrice: product.currentSellPrice,
-              newSellPrice: sellPrice,
-              updatedById: user.sub,
-            },
-          });
           await tx.product.update({
             where: { id: productId },
             data: { currentBuyPrice: unitBuyPrice },
+          });
+          priceChanges.push({
+            productId,
+            oldBuyPrice: product.currentBuyPrice,
+            newBuyPrice: unitBuyPrice,
+            oldSellPrice: product.currentSellPrice,
+            newSellPrice: sellPrice,
           });
         }
       } else if (variantId != null) {
         const variant = await tx.productVariant.findUnique({
           where: { id: variantId },
-          select: { buyPrice: true },
+          select: { buyPrice: true, sellPrice: true },
         });
         if (variant && variant.buyPrice !== unitBuyPrice) {
           await tx.productVariant.update({
             where: { id: variantId },
             data: { buyPrice: unitBuyPrice },
           });
+          priceChanges.push({
+            productId,
+            variantId,
+            oldBuyPrice: variant.buyPrice ?? 0,
+            newBuyPrice: unitBuyPrice,
+            oldSellPrice: variant.sellPrice ?? 0,
+            newSellPrice: variant.sellPrice ?? 0,
+          });
         }
       } else {
         if (product.currentBuyPrice !== unitBuyPrice) {
-          await tx.priceHistory.create({
-            data: {
-              tenantId,
-              productId,
-              oldBuyPrice: product.currentBuyPrice,
-              newBuyPrice: unitBuyPrice,
-              oldSellPrice: product.currentSellPrice,
-              newSellPrice: sellPrice,
-              updatedById: user.sub,
-            },
-          });
           await tx.product.update({
             where: { id: productId },
             data: { currentBuyPrice: unitBuyPrice },
           });
+          priceChanges.push({
+            productId,
+            oldBuyPrice: product.currentBuyPrice,
+            newBuyPrice: unitBuyPrice,
+            oldSellPrice: product.currentSellPrice,
+            newSellPrice: sellPrice,
+          });
         }
+      }
+
+      // Per-variant moves still record the product's own row, so the history page
+      // always has a main row to group the detail under.
+      if (
+        priceChanges.length > 0 &&
+        !priceChanges.some((c) => !c.variantId)
+      ) {
+        priceChanges.push({
+          productId,
+          oldBuyPrice: product.currentBuyPrice,
+          newBuyPrice: product.currentBuyPrice,
+          oldSellPrice: product.currentSellPrice,
+          newSellPrice: product.currentSellPrice,
+        });
+      }
+      if (priceChanges.length > 0) {
+        await recordPriceChanges(tx, {
+          tenantId,
+          userId: user.sub,
+          source: 'PURCHASE',
+          changes: priceChanges,
+          keepUnchanged: true,
+        });
       }
 
       // --- 3. Physical stock increments at the resolved location ---
