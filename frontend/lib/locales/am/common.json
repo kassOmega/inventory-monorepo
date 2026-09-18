@@ -605,7 +605,8 @@
     "itemDeleted": "በተሳካ ሁኔታ ተሰርዟል።",
     "saving": "በማስቀመጥ ላይ...",
     "deleting": "በመሰረዝ ላይ...",
-    "confirmAction": "እባክዎ ይህን እርምጃ ያረጋግጡ።"
+    "confirmAction": "እባክዎ ይህን እርምጃ ያረጋግጡ።",
+    "clearField": "መስኩን አጽዳ"
   },
   "notifications": {
     "lowStockAlert": "ዝቅተኛ ክምችት ማስጠንቀቂያ",
@@ -1840,7 +1841,6 @@
     "shortage": "ጉድለት",
     "net": "የተጣራ",
     "saving": "በማስቀመጥ ላይ…",
-    "saveClose": "አስቀምጥ እና ዝጋ",
     "saved": "ቆጠራዎች ተቀምጠዋል",
     "nothingToSave": "የሚቀመጥ ነገር የለም — ቢያንስ አንድ ቆጠራ ያስገቡ።",
     "fixRows": "አንዳንድ ረድፎች ትኩረት ይፈልጋሉ (በቀይ ምልክት የተደረጉ)።",

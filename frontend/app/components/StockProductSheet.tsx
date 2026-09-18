@@ -44,7 +44,6 @@ interface StockProductSheetProps {
   onNoteChange: (value: string) => void;
   saving: boolean;
   onSave: () => void;
-  onSaveAndClose?: () => void;
   /** Scan-to-add: resolves a code to the cell it added (null = unknown code). */
   onScanCode?: (code: string) => Promise<string | null>;
   /** Quick add: the items currently below their alert level ({n} added). */
@@ -221,7 +220,6 @@ export default function StockProductSheet({
   onNoteChange,
   saving,
   onSave,
-  onSaveAndClose,
   onScanCode,
   onAddLowStock,
   lowStockLocationId = "",
@@ -298,9 +296,9 @@ export default function StockProductSheet({
   };
 
   /** Choosing another product on a filled card swaps it for the new one. */
-  const handleReplaceProduct = (currentId: number, productId: string) => {
+  const handleReplaceProduct = async (currentId: number, productId: string) => {
     if (String(currentId) === productId) return;
-    const ok = window.confirm(t("sc.replaceItemConfirm"));
+    const ok = await confirm(t("sc.replaceItemConfirm"));
     if (!ok) return;
     sheet.removeProduct(currentId);
     addToSheet(productId);
@@ -568,12 +566,16 @@ export default function StockProductSheet({
                   <SearchableSelect
                     options={productOptionsFor(categoryFor(product), product.id)}
                     value={String(product.id)}
-                    onChange={(value) => handleReplaceProduct(product.id, value)}
+                    onChange={(value) =>
+                      void handleReplaceProduct(product.id, value)
+                    }
                     placeholder={
                       productsBusy
                         ? t("sc.searching")
                         : t("restock.searchProduct")
                     }
+                    clearable
+                    clearLabel={t("common.clearField")}
                     className="w-full"
                   />
                 </div>
@@ -856,6 +858,8 @@ export default function StockProductSheet({
                 placeholder={
                   productsBusy ? t("sc.searching") : t("restock.searchProduct")
                 }
+                clearable
+                clearLabel={t("common.clearField")}
                 className="w-full"
               />
             </div>
@@ -929,16 +933,6 @@ export default function StockProductSheet({
           )}
         </div>
         <div className="flex items-center gap-2 ml-auto">
-          {onSaveAndClose && (
-            <button
-              type="button"
-              disabled={saving || touchedCount === 0}
-              onClick={onSaveAndClose}
-              className="text-sm px-3 py-2 rounded-lg border text-gray-700 disabled:opacity-50"
-            >
-              {t("sc.saveClose")}
-            </button>
-          )}
           <button
             type="button"
             disabled={saving || touchedCount === 0}

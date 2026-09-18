@@ -90,12 +90,11 @@ export default function StockCountModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  const handleSave = async (close: boolean) => {
+  const handleSave = async () => {
     const res = await sheet.save(note);
     if (res.ok) {
       toast.success(t("sc.saved"));
       onSaved?.();
-      if (close) onClose();
       return;
     }
     if (res.reason === "empty") toast.error(t("sc.nothingToSave"));
@@ -122,8 +121,7 @@ export default function StockCountModal({
         note={note}
         onNoteChange={setNote}
         saving={sheet.saving}
-        onSave={() => void handleSave(false)}
-        onSaveAndClose={() => void handleSave(true)}
+        onSave={() => void handleSave()}
         canEditSellPrice={canEditSellPrice}
       />
     </Modal>

@@ -192,7 +192,7 @@ export default function StockInPage() {
    * receiving location of each line is in the line itself, so no batch-level
    * location has to be chosen first.
    */
-  const handleSave = async (close: boolean) => {
+  const handleSave = async () => {
     const items = sheet.buildRestockItems();
     if (items.length === 0) {
       toast.error(t("sc.nothingToSave"));
@@ -209,10 +209,6 @@ export default function StockInPage() {
       setResult(res.data ?? null);
       toast.success(t("sc.saved"));
       await sheet.refreshStock();
-      if (close) {
-        sheet.resetSheet();
-        setResult(null);
-      }
     } catch (err: any) {
       markHandled(err);
       const errors = err?.response?.data?.errors;
@@ -272,8 +268,7 @@ export default function StockInPage() {
         note={note}
         onNoteChange={setNote}
         saving={saving}
-        onSave={() => void handleSave(false)}
-        onSaveAndClose={() => void handleSave(true)}
+        onSave={() => void handleSave()}
         onScanCode={handleScan}
         onAddLowStock={canViewReports ? addLowStockItems : undefined}
         lowStockLocationId={lowStockScope}

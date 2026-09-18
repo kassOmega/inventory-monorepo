@@ -5,7 +5,6 @@
 // what you counted per location. Reached from the Stock tab, or from the product
 // page's Adjust modal (which shares the same prefill).
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import StockProductSheet, {
   defaultLocationColumns,
@@ -19,7 +18,6 @@ import useStockSheet, { type StockSheetProduct } from "@/lib/useStockSheet";
 
 export default function StockCountPage() {
   const { t } = useTranslation();
-  const router = useRouter();
   const toast = useToast();
   const { user, hasPermission } = useAuth();
   const sheet = useStockSheet();
@@ -209,16 +207,10 @@ export default function StockCountPage() {
     }
   };
 
-  const handleSave = async (close: boolean) => {
+  const handleSave = async () => {
     const res = await sheet.save(note);
     if (res.ok) {
       toast.success(t("sc.saved"));
-      loadedRef.current.clear();
-      if (close) {
-        sheet.resetSheet();
-        // Back to the Stock section's first tab after a finished count.
-        router.push("/dashboard/inventory");
-      }
       return;
     }
     if (res.reason === "empty") toast.error(t("sc.nothingToSave"));
@@ -255,8 +247,7 @@ export default function StockCountPage() {
         note={note}
         onNoteChange={setNote}
         saving={sheet.saving}
-        onSave={() => void handleSave(false)}
-        onSaveAndClose={() => void handleSave(true)}
+        onSave={() => void handleSave()}
         onScanCode={handleScan}
         onAddLowStock={canViewReports ? addLowStockItems : undefined}
         lowStockLocationId={lowStockScope}

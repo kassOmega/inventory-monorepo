@@ -605,7 +605,8 @@
     "itemDeleted": "Deleted successfully.",
     "saving": "Saving…",
     "deleting": "Deleting…",
-    "confirmAction": "Confirm action"
+    "confirmAction": "Confirm action",
+    "clearField": "Clear the field"
   },
   "notifications": {
     "lowStockAlert": "Low Stock Alert",
@@ -1840,7 +1841,6 @@
     "shortage": "Shortage",
     "net": "Net",
     "saving": "Saving…",
-    "saveClose": "Save & close",
     "saved": "Counts saved",
     "nothingToSave": "Nothing to save — enter at least one count.",
     "fixRows": "Some rows need attention (highlighted in red).",
