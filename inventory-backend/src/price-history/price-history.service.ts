@@ -76,8 +76,13 @@ export class PriceHistoryService {
   }
 
   /**
-   * Attach each action's per-variant rows in ONE extra query (grouped by the batch
-   * reference every row of that action shares).
+   * Attach each action's per-variant rows in ONE extra query.
+   *
+   * A batch reference covers a whole user action, and one action can touch several
+   * products (a count sheet or a restock batch often does), so detail rows are
+   * matched on (batchRef, productId). Keying on the reference alone hangs every
+   * variant row of the action under every product in it — including a product with
+   * no variants at all.
    */
   private async attachVariantDetails(rows: any[]): Promise<any[]> {
     const refs = [
@@ -85,18 +90,23 @@ export class PriceHistoryService {
     ];
     if (refs.length === 0) return rows.map((r) => ({ ...r, variants: [] }));
 
+    const productIds = [...new Set(rows.map((r) => r.productId))];
     const details = await this.prisma.priceHistory.findMany({
-      where: { batchRef: { in: refs }, variantId: { not: null } },
+      where: {
+        batchRef: { in: refs },
+        variantId: { not: null },
+        productId: { in: productIds },
+      },
       include: {
         variant: { select: { id: true, sku: true, attributes: true } },
       },
       orderBy: { id: 'asc' },
     });
 
-    const byRef = new Map<string, VariantPriceChange[]>();
+    const byRefAndProduct = new Map<string, VariantPriceChange[]>();
     for (const detail of details) {
-      const key = detail.batchRef as string;
-      const list = byRef.get(key) ?? [];
+      const key = `${detail.batchRef}|${detail.productId}`;
+      const list = byRefAndProduct.get(key) ?? [];
       list.push({
         variantId: detail.variantId,
         sku: detail.variant?.sku ?? null,
@@ -106,12 +116,15 @@ export class PriceHistoryService {
         oldSellPrice: detail.oldSellPrice,
         newSellPrice: detail.newSellPrice,
       });
-      byRef.set(key, list);
+      byRefAndProduct.set(key, list);
     }
 
     return rows.map((row) => ({
       ...row,
-      variants: (row.batchRef && byRef.get(row.batchRef)) || [],
+      variants:
+        (row.batchRef &&
+          byRefAndProduct.get(`${row.batchRef}|${row.productId}`)) ||
+        [],
     }));
   }
 

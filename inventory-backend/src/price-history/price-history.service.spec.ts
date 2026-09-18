@@ -46,7 +46,14 @@ const make = (
     priceHistory: {
       findMany: jest.fn(async (args: any) =>
         args?.where?.variantId && typeof args.where.variantId === 'object'
-          ? details
+          ? // The real query scopes detail rows to the products on the page, so the
+            // mock filters the same way — otherwise a cross-product leak could not be
+            // told apart from a correct result.
+            details.filter((d) =>
+              Array.isArray(args?.where?.productId?.in)
+                ? args.where.productId.in.includes(d.productId)
+                : true,
+            )
           : rows,
       ),
       count: jest.fn(async () => opts.count ?? rows.length),
@@ -83,7 +90,11 @@ describe('PriceHistoryService.findAll', () => {
     expect(prisma.priceHistory.findMany).toHaveBeenCalledTimes(2);
     expect(prisma.priceHistory.findMany).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        where: { batchRef: { in: ['PH1'] }, variantId: { not: null } },
+        where: {
+          batchRef: { in: ['PH1'] },
+          variantId: { not: null },
+          productId: { in: [5] },
+        },
       }),
     );
     expect((rows as any[])[0].variants).toEqual([
@@ -112,6 +123,49 @@ describe('PriceHistoryService.findAll', () => {
 
     expect(rows[0].variants.map((v: any) => v.variantId)).toEqual([847]);
     expect(rows[1].variants.map((v: any) => v.variantId)).toEqual([848]);
+  });
+
+  it('never hangs one product’s variants under another product in the same action', async () => {
+    // A count sheet that touched a plain product and a variant product: both parent
+    // rows share the sheet's batch reference and only the variant product owns detail
+    // rows. Keying the details on the reference alone put a "variant" on the product
+    // that has none.
+    const { service } = make({
+      rows: [
+        parentRow({
+          id: 20,
+          productId: 190,
+          batchRef: 'PHsheet',
+          source: 'COUNT',
+          product: { id: 190, brand: 'Copper', baseName: 'Wire Roll' },
+        }),
+        parentRow({
+          id: 21,
+          productId: 325,
+          batchRef: 'PHsheet',
+          source: 'COUNT',
+          product: { id: 325, brand: 'Led', baseName: 'panel light' },
+        }),
+      ],
+      details: [
+        detailRow({
+          id: 22,
+          productId: 325,
+          variantId: 847,
+          batchRef: 'PHsheet',
+          source: 'COUNT',
+        }),
+      ],
+    });
+
+    const rows = (await service.findAll(undefined, {
+      withDetails: true,
+    })) as any[];
+
+    const plain = rows.find((r: any) => r.productId === 190);
+    const variantProduct = rows.find((r: any) => r.productId === 325);
+    expect(plain.variants).toEqual([]);
+    expect(variantProduct.variants.map((v: any) => v.variantId)).toEqual([847]);
   });
 
   it('reports no detail when an action has no batch reference', async () => {
