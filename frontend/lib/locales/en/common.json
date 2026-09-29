@@ -475,6 +475,28 @@
     "accLabel": "Acc:"
   },
   "products": {
+    "priceList": {
+      "generate": "Generate Price List",
+      "modalTitle": "Generate Price List",
+      "searchPlaceholder": "Search product or variation...",
+      "selectAll": "Select all",
+      "clearAll": "Clear all",
+      "selectedOne": "{{count}} item selected",
+      "selectedPlural": "{{count}} items selected",
+      "includeHeader": "Include business name and address on the sheet",
+      "generatePdf": "Generate PDF",
+      "noProducts": "No products to list yet.",
+      "nothingSelected": "Select at least one item for the price list.",
+      "docTitle": "Price List",
+      "generatedOn": "Generated on {{date}}",
+      "item": "Item",
+      "price": "Price",
+      "footer": "Thank you for your business!",
+      "phoneLabel": "Tel",
+      "failed": "Failed to load the product list",
+      "failedPdf": "Failed to generate the price list",
+      "downloaded": "Price list downloaded"
+    },
     "title": "Products",
     "newProduct": "+ New Product",
     "tabProducts": "Products",

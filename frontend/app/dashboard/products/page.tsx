@@ -16,6 +16,7 @@ import Link from "next/link";
 import CategoriesManager from "@/app/components/CategoriesManager";
 import ProductDetailModal from "@/app/components/ProductDetailModal";
 import StockCountModal from "@/app/components/StockCountModal";
+import PriceListModal from "@/app/components/PriceListModal";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import useServerPaging from "@/lib/useServerPaging";
@@ -44,6 +45,7 @@ export default function ProductsPage() {
     variantId?: string | number;
   } | null>(null);
   const [showQrModal, setShowQrModal] = useState(false);
+  const [showPriceListModal, setShowPriceListModal] = useState(false);
   const [qrProduct, setQrProduct] = useState<any>(null);
   const [tab, setTab] = useState<"products" | "categories">("products");
   const [loading, setLoading] = useState(true);
@@ -205,13 +207,26 @@ export default function ProductsPage() {
         <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">
           {t("products.title")}
         </h1>
-        {tab === "products" && canCreate && (
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg whitespace-nowrap text-sm"
-          >
-            + {t("common.add")}
-          </button>
+        {tab === "products" && (
+          <div className="flex items-center gap-2">
+            {/* Customer-facing sheet of selling prices — no cost data is printed,
+                so this needs no extra permission beyond viewing the catalog. */}
+            <button
+              type="button"
+              onClick={() => setShowPriceListModal(true)}
+              className="border border-blue-600 text-blue-600 px-4 py-2 rounded-lg whitespace-nowrap text-sm"
+            >
+              {t("products.priceList.generate")}
+            </button>
+            {canCreate && (
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg whitespace-nowrap text-sm"
+              >
+                + {t("common.add")}
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -566,6 +581,15 @@ export default function ProductsPage() {
         product={detailProduct}
         onClose={() => setDetailProduct(null)}
       />
+
+      {/* Generate a customer-facing price list PDF. Mounted only while open, so
+          each open starts with a fresh catalog + empty selection. */}
+      {showPriceListModal && (
+        <PriceListModal
+          isOpen
+          onClose={() => setShowPriceListModal(false)}
+        />
+      )}
     </div>
   );
 }

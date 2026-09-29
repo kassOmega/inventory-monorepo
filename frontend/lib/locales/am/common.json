@@ -475,6 +475,28 @@
     "accLabel": "ክምችት:"
   },
   "products": {
+    "priceList": {
+      "generate": "የዋጋ ዝርዝር አዘጋጅ",
+      "modalTitle": "የዋጋ ዝርዝር ማዘጋጀት",
+      "searchPlaceholder": "ምርት ወይም ልዩነት ይፈልጉ...",
+      "selectAll": "ሁሉንም ምረጥ",
+      "clearAll": "ሁሉንም አጽዳ",
+      "selectedOne": "{{count}} ዕቃ ተመርጧል",
+      "selectedPlural": "{{count}} ዕቃዎች ተመርጠዋል",
+      "includeHeader": "የንግዱ ስምና አድራሻ በዝርዝሩ ላይ ይካተት",
+      "generatePdf": "PDF አዘጋጅ",
+      "noProducts": "እስካሁን የሚዘረዘር ምርት የለም።",
+      "nothingSelected": "ለዋጋ ዝርዝሩ ቢያንስ አንድ ዕቃ ይምረጡ።",
+      "docTitle": "Price List",
+      "generatedOn": "Generated on {{date}}",
+      "item": "Item",
+      "price": "Price",
+      "footer": "Thank you for your business!",
+      "phoneLabel": "Tel",
+      "failed": "የምርት ዝርዝሩን መጫን አልተቻለም",
+      "failedPdf": "የዋጋ ዝርዝሩን ማዘጋጀት አልተቻለም",
+      "downloaded": "የዋጋ ዝርዝሩ ወርዷል"
+    },
     "title": "ምርቶች",
     "newProduct": "+ አዲስ ምርት",
     "tabProducts": "ምርቶች",
