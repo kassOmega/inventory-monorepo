@@ -1,18 +1,26 @@
 "use client";
 // Generate a customer-facing price list PDF: pick products/variants from a
 // searchable tree, then render a two-column (Item | Price) document in the
-// browser and download it — one click, no server round-trip, no preview step
-// (the app's CSP forbids framing documents anyway).
+// browser — one click, no server round-trip, no preview step (the app's CSP
+// forbids framing documents anyway).
+//
+// The document can leave the app two ways, and both build the very same bytes:
+// Download saves it to the device, while Share hands it to the OS share sheet
+// (WhatsApp/Telegram/…) without saving anything — that button only appears on
+// platforms that support file sharing (see lib/shareFile.ts).
 //
 // Only selling information is printed: buy price, product/variant SKUs,
 // barcodes and stock levels are deliberately left out, so the sheet is safe to
 // hand to a customer (and to staff who may not be allowed to see cost prices).
+// Per product the brand can be dropped from the printed lines (never from the
+// picker, where it identifies the product), and the optional header carries the
+// business name, address and contact number.
 //
 // The products page mounts this only while it is open, so each open starts with
 // a clean search box, selection and expansion state.
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Share2 } from "lucide-react";
 import Modal from "./Modal";
 import Loading from "./Loading";
 import { useToast } from "./ToastProvider";
@@ -20,10 +28,12 @@ import { useAuth } from "@/context/AuthContext";
 import api, { markHandled } from "@/lib/api";
 import { fmtCurrency } from "@/lib/currency";
 import { formatDate } from "@/lib/datetime";
+import { canShareFiles, shareFile } from "@/lib/shareFile";
 import {
   buildPriceListPdf,
   priceListFileName,
   priceListItemLabel,
+  priceListProductName,
   specLabel,
   type PriceListRow,
 } from "@/lib/priceListPdf";
@@ -79,7 +89,7 @@ function money(value: unknown): string {
 export default function PriceListModal({ isOpen, onClose }: PriceListModalProps) {
   const { t } = useTranslation();
   const toast = useToast();
-  const { activeMembership } = useAuth();
+  const { activeMembership, user } = useAuth();
 
   const [products, setProducts] = useState<PriceListProduct[]>([]);
   // True from the start: the catalog is fetched as soon as this modal mounts,
@@ -92,9 +102,26 @@ export default function PriceListModal({ isOpen, onClose }: PriceListModalProps)
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [includeHeader, setIncludeHeader] = useState(true);
   const [generating, setGenerating] = useState(false);
+  /**
+   * Products whose brand is left off the printed lines, by product id. Empty by
+   * default, so the sheet is unchanged unless the user unticks a Brand box (an
+   * exclusion set keeps that default even for products loaded later).
+   */
+  const [noBrand, setNoBrand] = useState<Set<string>>(new Set());
   /** Optional header lines from the tenant's fiscal config (best effort). */
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
+  /**
+   * The signed-in user's own number, seeded from the session and refreshed from
+   * /auth/profile: the cached user object in context can be older than the
+   * number saved on the profile page.
+   */
+  const [userPhone, setUserPhone] = useState(() =>
+    String(user?.phone ?? "").trim(),
+  );
+  // Asked once per mount: the answer only changes with the browser/platform,
+  // and it decides whether a Share action exists at all.
+  const shareSupported = useMemo(() => canShareFiles(), []);
 
   // Fresh catalog on mount: the same full-list call the stock-count sheet makes.
   useEffect(() => {
@@ -123,6 +150,13 @@ export default function PriceListModal({ isOpen, onClose }: PriceListModalProps)
         setAddress("");
         setPhone("");
       });
+    // The user's own contact number for the header's "Contact" line. The
+    // session copy above can lag behind the profile page, so this refresh is
+    // best effort: on failure the seeded value simply stays.
+    api
+      .get("/auth/profile")
+      .then((res) => setUserPhone(String(res.data?.phone ?? "").trim()))
+      .catch(markHandled);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
@@ -198,11 +232,26 @@ export default function PriceListModal({ isOpen, onClose }: PriceListModalProps)
       return next;
     });
 
+  /** Whether a product's brand appears on its printed lines (default: yes). */
+  const brandShown = (product: PriceListProduct) =>
+    !noBrand.has(String(product.id));
+
+  const toggleBrand = (productId: number | string) =>
+    setNoBrand((prev) => {
+      const next = new Set(prev);
+      const key = String(productId);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
   /** The printed rows, in catalog order rather than click order. */
   const buildRows = (): PriceListRow[] => {
     const rows: PriceListRow[] = [];
     for (const product of products) {
-      const name = displayName(product);
+      // The brand can be dropped per product; the picker above keeps showing it
+      // (displayName) so rows stay identifiable while the user is choosing.
+      const name = priceListProductName(product, brandShown(product));
       const variants: PriceListVariant[] = product.variants ?? [];
       if (variants.length === 0) {
         if (selected.has(rowKey(product.id))) {
@@ -222,8 +271,47 @@ export default function PriceListModal({ isOpen, onClose }: PriceListModalProps)
     return rows;
   };
 
-  /** Build the PDF, download it, and close the modal on success. */
-  const handleGenerate = async () => {
+  /**
+   * The document options shared by Download and Share, so both actions always
+   * produce identical bytes. The Contact line is dropped when there is no
+   * number on file or when it merely repeats the business number above it.
+   */
+  const buildDocOptions = (rows: PriceListRow[]) => {
+    const contact = userPhone && userPhone !== phone ? userPhone : "";
+    return {
+      rows,
+      title: t("products.priceList.docTitle"),
+      // Latin date text, so the core (non-embedded) font can render it.
+      generatedOnLabel: t("products.priceList.generatedOn", {
+        date: formatDate(new Date().toISOString(), "en"),
+      }),
+      labels: {
+        // Document text is drawn with the built-in Helvetica font, which has no
+        // Ethiopic glyphs: these values stay Latin until an Amharic font is
+        // embedded (the `am` catalog repeats the same Latin values for exactly
+        // this reason — see the note in lib/priceListPdf.ts).
+        item: t("products.priceList.item"),
+        price: t("products.priceList.price"),
+        footer: t("products.priceList.footer"),
+      },
+      headerLines: includeHeader
+        ? [
+            activeMembership?.organizationName ?? "",
+            address,
+            phone ? `${t("products.priceList.phoneLabel")}: ${phone}` : "",
+            contact ? `${t("products.priceList.contactLabel")}: ${contact}` : "",
+          ]
+        : [],
+    };
+  };
+
+  /**
+   * Build the PDF and hand it over: "download" saves it to the device, "share"
+   * passes the very same bytes to the OS share sheet without saving anything.
+   * Either way the modal closes once the user is done — a dismissed share sheet
+   * closes it too, quietly, because cancelling is not a failure.
+   */
+  const handleGenerate = async (action: "download" | "share" = "download") => {
     const rows = buildRows();
     if (rows.length === 0) {
       toast.error(t("products.priceList.nothingSelected"));
@@ -231,36 +319,32 @@ export default function PriceListModal({ isOpen, onClose }: PriceListModalProps)
     }
     setGenerating(true);
     try {
+      if (action === "share") {
+        const doc = await buildPriceListPdf(buildDocOptions(rows));
+        // Memory to share sheet, never to the file system.
+        const file = new File([doc.output("blob")], priceListFileName(), {
+          type: "application/pdf",
+        });
+        const outcome = await shareFile(file, t("products.priceList.docTitle"));
+        if (outcome === "shared") toast.success(t("products.priceList.shared"));
+        onClose();
+        return;
+      }
       await buildPriceListPdf({
-        rows,
-        title: t("products.priceList.docTitle"),
-        // Latin date text, so the core (non-embedded) font can render it.
-        generatedOnLabel: t("products.priceList.generatedOn", {
-          date: formatDate(new Date().toISOString(), "en"),
-        }),
-        labels: {
-          // Document text is drawn with the built-in Helvetica font, which has no
-          // Ethiopic glyphs: these values stay Latin until an Amharic font is
-          // embedded (the `am` catalog repeats the same Latin values for exactly
-          // this reason — see the note in lib/priceListPdf.ts).
-          item: t("products.priceList.item"),
-          price: t("products.priceList.price"),
-          footer: t("products.priceList.footer"),
-        },
-        headerLines: includeHeader
-          ? [
-              activeMembership?.organizationName ?? "",
-              address,
-              phone ? `${t("products.priceList.phoneLabel")}: ${phone}` : "",
-            ]
-          : [],
+        ...buildDocOptions(rows),
         fileName: priceListFileName(),
       });
       toast.success(t("products.priceList.downloaded"));
       onClose();
     } catch (err) {
       markHandled(err);
-      toast.error(t("products.priceList.failedPdf"));
+      toast.error(
+        t(
+          action === "share"
+            ? "products.shareFailed"
+            : "products.priceList.failedPdf",
+        ),
+      );
     } finally {
       setGenerating(false);
     }
@@ -355,6 +439,21 @@ export default function PriceListModal({ isOpen, onClose }: PriceListModalProps)
                         {money(product.currentSellPrice)}
                       </span>
                     )}
+                    {/* Printed-brand opt-out, per product, ticked by default. */}
+                    <label
+                      className={`flex items-center gap-1 text-xs text-gray-500 cursor-pointer ${
+                        variantsAll.length === 0 ? "ml-3" : "ml-auto"
+                      }`}
+                      title={t("products.priceList.brandHint")}
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 accent-blue-600"
+                        checked={brandShown(product)}
+                        onChange={() => toggleBrand(product.id)}
+                      />
+                      {t("products.priceList.brandToggle")}
+                    </label>
                   </div>
 
                   {open && variantsAll.length > 0 && (
@@ -395,7 +494,7 @@ export default function PriceListModal({ isOpen, onClose }: PriceListModalProps)
           {t("products.priceList.includeHeader")}
         </label>
 
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
@@ -403,11 +502,29 @@ export default function PriceListModal({ isOpen, onClose }: PriceListModalProps)
           >
             {t("common.cancel")}
           </button>
+          {/* Share leads where the platform can carry the file (phones); the
+              download keeps the same styling when it cannot. */}
+          {shareSupported && (
+            <button
+              type="button"
+              onClick={() => handleGenerate("share")}
+              disabled={selectedCount === 0 || generating || loading}
+              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+            >
+              {generating && <Loading size="sm" />}
+              <Share2 size={16} />
+              {t("products.shareLabel")}
+            </button>
+          )}
           <button
             type="button"
-            onClick={handleGenerate}
+            onClick={() => handleGenerate("download")}
             disabled={selectedCount === 0 || generating || loading}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+            className={
+              shareSupported
+                ? "flex items-center gap-2 border border-blue-600 text-blue-600 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+                : "flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+            }
           >
             {generating && <Loading size="sm" />}
             {t("products.priceList.generatePdf")}

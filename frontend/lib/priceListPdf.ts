@@ -72,6 +72,23 @@ export function priceListFileName(date: Date = new Date()): string {
 }
 
 /**
+ * Printed item name: "Brand Base Name", or just the base name when the caller
+ * asked for the brand to be left off that product's rows.
+ *
+ * A brand is only ever omitted from the printed sheet — never from the picker
+ * or from search, which must keep identifying products the way the rest of the
+ * app does (see PriceListModal's displayName()).
+ */
+export function priceListProductName(
+  product: { brand?: string | null; baseName?: string | null },
+  includeBrand = true,
+): string {
+  const base = String(product?.baseName ?? "").trim();
+  const brand = includeBrand ? String(product?.brand ?? "").trim() : "";
+  return brand ? `${brand} ${base}`.trim() : base;
+}
+
+/**
  * Variant "Variation / Spec" label, built from the variant's attribute values.
  *
  * Unlike lib/variantLabel.ts this never falls back to the SKU: a variant

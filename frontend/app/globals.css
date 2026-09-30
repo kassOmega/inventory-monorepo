@@ -131,4 +131,41 @@ table td {
     width: 100% !important;
     white-space: normal !important;
   }
+
+  /* QR label sheets: while the QR modal is open it renders one entry per label
+     into #print-root, so printing produces every label instead of the handful
+     that fitted in the modal's scroll container. */
+  .qr-print-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4mm;
+    padding: 6mm;
+  }
+  .qr-print-label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5mm;
+    border: 1px solid #e5e7eb;
+    border-radius: 2mm;
+    padding: 3mm;
+    text-align: center;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .qr-print-sku {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11pt;
+    font-weight: 600;
+    color: #111827;
+    overflow-wrap: anywhere;
+  }
+  .qr-print-name {
+    font-size: 9pt;
+    color: #4b5563;
+  }
+  .qr-print-barcode {
+    font-size: 8pt;
+    color: #6b7280;
+  }
 }

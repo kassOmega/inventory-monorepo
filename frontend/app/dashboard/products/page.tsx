@@ -10,14 +10,23 @@ import { variantLabel } from "@/lib/variantLabel";
 import { fmtCurrency } from "@/lib/currency";
 import { statusLabel } from "@/lib/statusLabel";
 import api, { markHandled } from "@/lib/api";
-import { QRCodeSVG } from "qrcode.react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
+import { ChevronDown, ChevronRight, Share2 } from "lucide-react";
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import CategoriesManager from "@/app/components/CategoriesManager";
 import ProductDetailModal from "@/app/components/ProductDetailModal";
 import StockCountModal from "@/app/components/StockCountModal";
 import PriceListModal from "@/app/components/PriceListModal";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { canShareFiles, shareFile } from "@/lib/shareFile";
+import { formatDate } from "@/lib/datetime";
+import {
+  buildQrLabelPdf,
+  qrLabelFileName,
+  qrPngDataUrls,
+  type QrLabel,
+} from "@/lib/qrLabelPdf";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import useServerPaging from "@/lib/useServerPaging";
 import Pagination from "@/app/components/Pagination";
@@ -50,6 +59,39 @@ export default function ProductsPage() {
   const [tab, setTab] = useState<"products" | "categories">("products");
   const [loading, setLoading] = useState(true);
   const [detailProduct, setDetailProduct] = useState<any>(null);
+  /** True while a label sheet is being built (Share/Download in the QR modal). */
+  const [qrPdfBusy, setQrPdfBusy] = useState(false);
+  /** Off-screen canvases, rendered only to rasterise the codes for the PDF. */
+  const qrCanvasRef = useRef<HTMLDivElement | null>(null);
+  // Asked once: file sharing exists only on some platforms, and it decides
+  // whether a Share button is offered next to the Print/Download actions.
+  const shareSupported = useMemo(() => canShareFiles(), []);
+
+  /**
+   * Every QR label for the open product: its own label first, then one per
+   * variant. This single list feeds the on-screen cards, the print portal and
+   * the PDF, so all three always carry the same set of labels.
+   */
+  const qrLabels: QrLabel[] = useMemo(() => {
+    if (!qrProduct) return [];
+    const labels: QrLabel[] = [
+      {
+        key: String(qrProduct.id),
+        sku: qrProduct.sku || "",
+        name: `${qrProduct.brand ?? ""} ${qrProduct.baseName ?? ""}`.trim(),
+        barcode: qrProduct.barcode ?? "",
+      },
+    ];
+    for (const v of qrProduct.variants ?? []) {
+      labels.push({
+        key: `${qrProduct.id}-${v.id}`,
+        sku: v.sku || "",
+        name: variantLabel(v),
+        barcode: v.barcode ?? "",
+      });
+    }
+    return labels;
+  }, [qrProduct]);
 
   const fetchProducts = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -130,6 +172,9 @@ export default function ProductsPage() {
   // sales.view-profit permission see Buy Price + margin; everyone else sees
   // only retail/selling prices).
   const canViewProfit = hasPermission("sales.view-profit");
+  // The Actions column only exists when the user may act on a row, so expanded
+  // rows and empty states must span exactly this many columns.
+  const tableColCount = 6 + (canEdit || canDelete || canAdjust ? 1 : 0);
   // Expandable variant subtable rows (per-product detail incl. prices).
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const toggleRow = (id: string) => {
@@ -197,6 +242,52 @@ export default function ProductsPage() {
   const startQr = (p: any) => {
     setQrProduct(p);
     setShowQrModal(true);
+  };
+
+  /**
+   * Build the label sheet and hand it over: "download" saves the PDF, "share"
+   * passes the same bytes to the OS share sheet without saving anything. Both
+   * paths use one rasterisation pass over the same label list, so they cannot
+   * drift apart. A dismissed share sheet closes quietly — cancelling is not a
+   * failure.
+   */
+  const handleQrPdf = async (action: "download" | "share") => {
+    if (qrLabels.length === 0) return;
+    setQrPdfBusy(true);
+    try {
+      const doc = await buildQrLabelPdf({
+        labels: qrLabels,
+        // Document text is drawn with the built-in Helvetica font, which has no
+        // Ethiopic glyphs, so the sheet takes the Latin-only strings from
+        // `qrSheet` while the modal and the print sheet use the localized ones.
+        title: t("products.qrSheet.docTitle"),
+        // The same "Generated on <date>" line as the price list.
+        generatedOnLabel: t("products.priceList.generatedOn", {
+          date: formatDate(new Date().toISOString(), "en"),
+        }),
+        barcodePrefix: t("products.qrSheet.barcodeLabel"),
+        images: qrPngDataUrls(qrCanvasRef.current),
+      });
+      const fileName = qrLabelFileName();
+      if (action === "share") {
+        // Memory to share sheet, never to the file system.
+        const file = new File([doc.output("blob")], fileName, {
+          type: "application/pdf",
+        });
+        const outcome = await shareFile(file, t("products.productQrCodes"));
+        if (outcome === "shared") toast.success(t("products.qrShared"));
+        return;
+      }
+      doc.save(fileName);
+      toast.success(t("products.qrPdfDownloaded"));
+    } catch (err) {
+      markHandled(err);
+      toast.error(
+        t(action === "share" ? "products.shareFailed" : "products.qrPdfFailed"),
+      );
+    } finally {
+      setQrPdfBusy(false);
+    }
   };
 
   if (loading) return <Loading className="py-24" />;
@@ -277,10 +368,11 @@ export default function ProductsPage() {
 
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left min-w-[600px] sm:min-w-[700px] text-xs sm:text-sm">
+          <table className="w-full text-left min-w-[720px] sm:min-w-[880px] text-xs sm:text-sm whitespace-nowrap">
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="p-2 sm:p-3 md:p-4">{t("products.sku")}</th>
+                <th className="p-2 sm:p-3 md:p-4">{t("products.brand")}</th>
                 <th className="p-2 sm:p-3 md:p-4">{t("products.name")}</th>
                 <th className="p-2 sm:p-3 md:p-4">{t("products.category")}</th>
                 <th className="p-2 sm:p-3 md:p-4">{t("products.stock")}</th>
@@ -291,6 +383,15 @@ export default function ProductsPage() {
             <tbody>
               {products.map((p: any) => {
                 const stock = getTotalStock(p);
+                // Shown in the inline details panel of variant-less products.
+                const specsText = Object.values(
+                  (p.attributes ?? {}) as Record<string, unknown>,
+                )
+                  .filter(
+                    (x) => x !== null && x !== undefined && String(x).trim() !== "",
+                  )
+                  .map((x) => String(x).trim())
+                  .join(" · ");
                 return (
                   <Fragment key={p.id}>
                   <tr onClick={() => setDetailProduct(p)} className="border-b hover:bg-gray-50 cursor-pointer">
@@ -307,12 +408,20 @@ export default function ProductsPage() {
                           <ChevronRight className="w-4 h-4" />
                         )}
                       </button>
-                      <span className="font-mono text-xs sm:text-sm">
+                      {/* Internal codes can be long: keep each row on one line
+                          and ellipsise instead of wrapping the table. */}
+                      <span
+                        className="inline-block max-w-[9rem] truncate align-middle font-mono text-xs sm:text-sm"
+                        title={p.sku ?? ""}
+                      >
                         {p.sku}
                       </span>
                     </td>
+                    <td className="p-2 sm:p-3 md:p-4 text-gray-600">
+                      {p.brand || t("common.notAvailable")}
+                    </td>
                     <td className="p-2 sm:p-3 md:p-4 font-medium">
-                      {p.brand} {p.baseName}
+                      {p.baseName}
                       {p.kind && p.kind !== "GOODS" && (
                         <span className="ml-1 text-[10px] text-blue-600">{statusLabel(p.kind)}</span>
                       )}
@@ -373,8 +482,98 @@ export default function ProductsPage() {
                   </tr>
                   {expandedIds.has(String(p.id)) && (
                     <tr key={`${p.id}-variants`} className="bg-slate-50/60">
-                      <td colSpan={7} className="p-2 sm:p-3 md:p-4 pl-8 sm:pl-12">
-                        <table className="w-full bg-slate-50/60 text-xs">
+                      <td
+                        colSpan={tableColCount}
+                        className="p-2 sm:p-3 md:p-4 pl-8 sm:pl-12 whitespace-normal"
+                      >
+                        {(p.variants ?? []).length === 0 ? (
+                          /* No variants: the same details the variant table
+                             would carry, laid out inline so a simple product
+                             still has an expansion worth opening. */
+                          <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs sm:grid-cols-3 lg:grid-cols-4">
+                            <div>
+                              <span className="block text-gray-400">
+                                {t("products.barcode")}
+                              </span>
+                              <span className="font-mono">
+                                {p.barcode || t("common.notAvailable")}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="block text-gray-400">
+                                {t("products.category")}
+                              </span>
+                              <span>
+                                {p.category?.name || t("common.notAvailable")}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="block text-gray-400">
+                                {t("products.unit")}
+                              </span>
+                              <span>
+                                {p.unit?.name || t("common.notAvailable")}
+                              </span>
+                            </div>
+                            {canViewProfit && (
+                              <div>
+                                <span className="block text-gray-400">
+                                  {t("products.buyPrice")}
+                                </span>
+                                <span>
+                                  {p.currentBuyPrice != null
+                                    ? fmtCurrency(p.currentBuyPrice)
+                                    : "—"}
+                                </span>
+                              </div>
+                            )}
+                            <div>
+                              <span className="block text-gray-400">
+                                {t("products.sellPrice")}
+                              </span>
+                              <span>
+                                {p.currentSellPrice != null
+                                  ? fmtCurrency(p.currentSellPrice)
+                                  : "—"}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="block text-gray-400">
+                                {t("products.stock")}
+                              </span>
+                              <span
+                                className={`font-bold ${stock < 10 ? "text-red-500" : "text-gray-800"}`}
+                              >
+                                {stock}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="block text-gray-400">
+                                {t("pf.lowStockLevel")}
+                              </span>
+                              <span>{p.reorderLevel ?? 0}</span>
+                            </div>
+                            <div>
+                              <span className="block text-gray-400">
+                                {t("products.attributes")}
+                              </span>
+                              <span>{specsText || t("common.notAvailable")}</span>
+                            </div>
+                            <div className="col-span-2 sm:col-span-3 lg:col-span-4">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDetailProduct(p);
+                                }}
+                                className="text-blue-600 hover:underline"
+                              >
+                                {t("products.viewDetails")}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                        <table className="w-full bg-slate-50/60 text-xs whitespace-nowrap">
                           <thead>
                             <tr className="text-gray-400">
                               <th className="text-left p-1 font-medium">{t("products.variationSpec")}</th>
@@ -444,18 +643,9 @@ export default function ProductsPage() {
                                 </tr>
                               );
                             })}
-                            {(p.variants ?? []).length === 0 && (
-                              <tr>
-                                <td
-                                  colSpan={7}
-                                  className="p-1 text-gray-400"
-                                >
-                                  {t("products.noVariants")}
-                                </td>
-                              </tr>
-                            )}
                           </tbody>
                         </table>
+                        )}
                       </td>
                     </tr>
                   )}
@@ -539,43 +729,99 @@ export default function ProductsPage() {
         title={t("products.productQrCodes")}
       >
         <div className="flex flex-col gap-4 py-2 max-h-[70vh] overflow-y-auto">
-          <div className="flex flex-col items-center gap-2 border rounded-lg p-3">
-            <QRCodeSVG value={qrProduct?.sku || ""} size={140} />
-            <p className="font-mono text-sm font-semibold">{qrProduct?.sku}</p>
-            <p className="text-gray-500 text-sm text-center">
-              {qrProduct?.brand} {qrProduct?.baseName}
-            </p>
-            {qrProduct?.barcode && (
-              <p className="text-xs text-gray-400">{t("products.barcodePrefix")} {qrProduct.barcode}</p>
-            )}
+          {/* One card per label, straight from qrLabels: the same list the
+              print portal and the PDF sheet are built from. */}
+          {qrLabels.map((label) => (
+            <div
+              key={label.key}
+              className="flex flex-col items-center gap-2 border rounded-lg p-3"
+            >
+              <QRCodeSVG value={label.sku} size={140} />
+              <p className="font-mono text-sm font-semibold">{label.sku}</p>
+              {label.name && (
+                <p className="text-gray-500 text-sm text-center">{label.name}</p>
+              )}
+              {label.barcode && (
+                <p className="text-xs text-gray-400">
+                  {t("products.barcodePrefix")} {label.barcode}
+                </p>
+              )}
+            </div>
+          ))}
+
+          {/* Hidden 256 px canvases, rendered only to rasterise each code for
+              the PDF. A canvas keeps its bitmap while it is not displayed, so
+              qrPngDataUrls() can read them without anything flashing on screen. */}
+          <div ref={qrCanvasRef} className="hidden" aria-hidden="true">
+            {qrLabels.map((label) => (
+              <QRCodeCanvas key={label.key} value={label.sku} size={256} />
+            ))}
           </div>
 
-          {(qrProduct?.variants ?? []).map((v: any) => {
-            const label = variantLabel(v);
-            return (
-              <div
-                key={v.id}
-                className="flex flex-col items-center gap-2 border rounded-lg p-3"
+          <div className="flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="border border-blue-600 text-blue-600 py-2 px-4 rounded-lg text-sm font-medium"
+            >
+              {t("products.printLabels")}
+            </button>
+            {/* Share leads where the platform can carry the file (phones); the
+                download takes over the primary styling where it cannot. */}
+            {shareSupported && (
+              <button
+                type="button"
+                onClick={() => handleQrPdf("share")}
+                disabled={qrPdfBusy}
+                className="flex items-center gap-2 bg-blue-600 text-white py-2 px-4 rounded-lg text-sm font-medium disabled:opacity-50"
               >
-                <QRCodeSVG value={v.sku || ""} size={140} />
-                <p className="font-mono text-sm font-semibold">{v.sku}</p>
-                <p className="text-gray-500 text-sm">{label}</p>
-                {v.barcode && (
-                  <p className="text-xs text-gray-400">{t("products.barcodePrefix")} {v.barcode}</p>
-                )}
-              </div>
-            );
-          })}
-
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="bg-blue-600 text-white py-2 px-4 rounded-lg text-sm font-medium self-center"
-          >
-            {t("products.printLabels")}
-          </button>
+                {qrPdfBusy && <Loading size="sm" />}
+                <Share2 size={16} />
+                {t("products.shareLabel")}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => handleQrPdf("download")}
+              disabled={qrPdfBusy}
+              className={
+                shareSupported
+                  ? "border border-blue-600 text-blue-600 py-2 px-4 rounded-lg text-sm font-medium disabled:opacity-50"
+                  : "bg-blue-600 text-white py-2 px-4 rounded-lg text-sm font-medium disabled:opacity-50"
+              }
+            >
+              {t("products.downloadQrPdf")}
+            </button>
+          </div>
         </div>
       </Modal>
+
+      {/* The sheet `window.print()` prints. It lives outside the app because the
+          modal body scrolls (max-h-[70vh] + overflow-y-auto) and browsers only
+          print the visible part of a scroll container: labels past the first
+          screen used to be dropped. globals.css hides the rest of the page
+          while this portal exists, so every label reaches the paper. */}
+      {showQrModal &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div id="print-root">
+            <div className="qr-print-grid">
+              {qrLabels.map((label) => (
+                <div key={label.key} className="qr-print-label">
+                  <QRCodeSVG value={label.sku} size={128} />
+                  <p className="qr-print-sku">{label.sku}</p>
+                  {label.name && <p className="qr-print-name">{label.name}</p>}
+                  {label.barcode && (
+                    <p className="qr-print-barcode">
+                      {t("products.barcodePrefix")} {label.barcode}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>,
+          document.body,
+        )}
 
       <ProductDetailModal
         product={detailProduct}

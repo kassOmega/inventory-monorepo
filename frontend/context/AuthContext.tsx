@@ -47,6 +47,11 @@ export interface User {
   verificationAttempts?: number;
   /** User-level UI language preference persisted server-side. */
   preferredLanguage?: string | null;
+  /**
+   * Contact number, returned by /auth/me. Printed as the "Contact" line of
+   * generated customer documents (see PriceListModal).
+   */
+  phone?: string | null;
 }
 
 interface AuthContextType {
