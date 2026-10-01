@@ -8,8 +8,8 @@ section 0.
 
 | Gate | Command | Baseline |
 | --- | --- | --- |
-| Catalog | `cd frontend && node scripts/i18n-check.mjs` | **all gates clean** — parity 2403/2403 ✓, no identical-value misses, 0 glossary violations |
-| Frontend UI | `cd frontend && node scripts/i18n-audit.mjs [--list --file X --strict]` | 178 files scanned, 89 dirty, 1091 hardcoded strings |
+| Catalog | `cd frontend && node scripts/i18n-check.mjs` | **all gates clean** — parity 2569/2569 ✓, no identical-value misses, 0 glossary violations |
+| Frontend UI | `cd frontend && node scripts/i18n-audit.mjs [--list --file X --strict]` | 178 files scanned, 86 dirty, 1298 hardcoded strings |
 | Backend messages | `cd inventory-backend && node scripts/i18n-audit.mjs [--list --strict]` | 667 `throw` sites, 239 localized, 428 remaining (398 static + 30 interpolated) |
 
 - `docs/i18n-glossary.md` is the single source of truth for terminology; `i18n-check.mjs`
@@ -22,6 +22,12 @@ section 0.
 - Audit counts are heuristic and deliberately over-report; `// i18n-ignore` silences a
   known-good line. The previous ledger figure (~1017 hits) came from a wider-net matcher
   that counted arrow functions and JSX tags, so it is not comparable.
+- The frontend scanner gained a real JSX-text pass (`jtext`): inline `>text<` segments plus
+  multi-line prose continuation, with guards that keep code out (statement keywords, `foo(`
+  call syntax, lines after `(`/`{`/`,`/`=>`/`=`, JSDoc/block comments, `? …`/`"…"` ternary
+  arms). Re-measured on unchanged code it lifted the count 1091 → 1459 (368 genuinely
+  localizable prose lines the older matcher never saw), so 1459 is the recalibrated
+  pre-batch baseline; the sweep below is measured against it, not the old 1091.
 - Open: imperative register (77 values) and Delete-vs-Cancel wording — see the glossary.
 
 ## 1. Architecture (working)
@@ -115,6 +121,14 @@ categories automatically (`tenants.service.ts`, `common/verticals.ts`).
   `bd*` keys, `common.actions`.
   Amounts in reports now follow the active locale currency (`orders.birr`), and hospitality
   status/role tokens are localized via `orders.st.*`/`act.role*`.
+- **Finance** (latest batch): the tabbed dashboard (Overview/Breakdown/Comparison/Expenses/
+  Income/Itemized tabs, P&L + vertical cards, expense & income ledgers, income-category form),
+  the **Account Mappings** settings page, and the **General Ledger** page — its `ledger.*` group now
+  covers the journal-entry modal, the journal table (expandable lines, filters, pagination, footer
+  totals), trial balance, per-account ledger and the coverage/posting-health cards, plus the
+  CSV/print exports. `fin.*` gained the dashboard/mapping keys, and the module-level label maps
+  (`SOURCE_KEYS`, `MODULE_OPTIONS`, `STATUS_OPTIONS`) now hold catalog keys resolved through
+  `t()`/`i18n.t()` instead of literals. `app/dashboard/finance/**` audits **0 hits**.
 - Fiscal print preview & PDF exports (Ethiopic font work).
 - Forms gaining **optional Amharic name fields** (write `nameI18n.am`, backend DTO `IsObject`
   + `mergeLocalized`) — DTOs not yet extended for every entity.

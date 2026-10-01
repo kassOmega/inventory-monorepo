@@ -41,7 +41,76 @@ const KINDS = {
   // lines such as `Array.isArray(body) ? rows.length : …` are not read as prose.
   bare: /^\s*([A-Z][A-Za-z0-9 ,'’&.!%+*#/-]{2,})\s*$/g,
   str: /^\s*["']([A-Za-z][^"']{2,})["'],?\s*$/g,
+  // `?? "Fallback message"` and `: "Label"` — error text and inline defaults.
+  fallback: /(?:\?\?|:)\s*["']([A-Z][^"'{}]{3,})["']/g,
 };
+
+// JSX text that `jsx`/`bare` miss: typographic punctuation (em dashes, slashes)
+// and multi-line prose. Inline segments are read permissively because they sit
+// between a real `>` and `<`; a tagless continuation line only counts when it
+// looks like prose, which keeps code lines (quantity: 1, setSaleItems() …) out.
+const TEXT_REGION = /(?<![=!])>([^<>]*)</g;
+const EXPRESSION = /[{}"';`]|=>|==/;
+// A tagless line only reads as JSX prose when it starts like prose (not with the
+// `?`/`:` of a wrapped ternary), carries no string/expression punctuation, and
+// ends on a word — so `sum +` or `? r.isOwner` stay out.
+const PROSE_START = /^[\p{L}\p{N}+*[(—–]/u;
+const PROSE_CONTINUATION = /^[\p{L}\p{N} ,.!?%+*#/&'’—–()[\]+-]+$/u;
+// Statement keywords and `foo(` call syntax are code, not JSX prose.
+const CODE_START =
+  /^(?:if|for|while|return|await|const|let|var|new|else|switch|case|catch|typeof|function|import|export|throw|yield|do)\b/;
+const CALL_SYNTAX = /[\p{L}\p{N}_$]\(/u;
+// A line that follows `(`/`{`/`,`/`=>`/`=`/`:` continues a JS expression, not prose.
+const AFTER_EXPR = /(?:[{(,\[]|=>|=|:)\s*$/;
+
+function scanJsxText(lines, hits) {
+  let inText = false;
+  let inComment = false;
+  lines.forEach((raw, i) => {
+    // JSDoc/block comments (`* prose`, `/* … */`) are documentation, not UI text.
+    if (inComment) {
+      if (raw.includes("*/")) inComment = false;
+      return;
+    }
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.startsWith("//")) return;
+    if (/i18n-ignore/.test(raw) || /i18n-ignore/.test(lines[i - 1] ?? "")) return;
+    if (trimmed.startsWith("/*") || trimmed.startsWith("{/*")) {
+      if (!trimmed.includes("*/")) inComment = true;
+      return;
+    }
+    if (inText && !/[<>]/.test(raw)) {
+      const last = trimmed.split(/\s+/).pop() ?? "";
+      const prev = (lines[i - 1] ?? "").trim();
+      if (
+        trimmed.includes(" ") &&
+        PROSE_START.test(trimmed) &&
+        PROSE_CONTINUATION.test(trimmed) &&
+        !EXPRESSION.test(trimmed) &&
+        !CODE_START.test(trimmed) &&
+        !CALL_SYNTAX.test(trimmed) &&
+        !AFTER_EXPR.test(prev) &&
+        /\p{L}/u.test(last) &&
+        keep(trimmed)
+      ) {
+        hits.push({ line: i + 1, kind: "jtext", text: trimmed });
+      }
+      return;
+    }
+    // Inline block comments can carry stray `<`/`>`; drop them before reading tags.
+    const code = raw.replace(/\/\*.*?\*\//g, " ");
+    TEXT_REGION.lastIndex = 0;
+    let m;
+    while ((m = TEXT_REGION.exec(code)) !== null) {
+      const seg = m[1].trim();
+      if (seg && !EXPRESSION.test(seg) && keep(seg)) {
+        hits.push({ line: i + 1, kind: "jtext", text: seg });
+      }
+    }
+    inText = raw.lastIndexOf(">") > raw.lastIndexOf("<");
+    if (!inComment && !/\/\*.*\*\//.test(raw) && raw.includes("/*")) inComment = true;
+  });
+}
 
 // Every pattern must be global: exec() ignores lastIndex otherwise and the
 // scan loop below spins on the same match forever.
@@ -142,7 +211,16 @@ function scanFile(abs) {
     if (/^\s*(import|export|interface|type|enum|declare)\b/.test(code)) return;
     for (const hit of scanLine(code)) hits.push({ line: i + 1, ...hit });
   });
-  return hits;
+  scanJsxText(lines, hits);
+  // One hit per line per distinct string: `jsx`/`bare`/`jtext` all read the same
+  // text, and a module total should not count it three times.
+  const seen = new Set();
+  return hits.filter((h) => {
+    const id = `${h.line}:${h.text}`;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
 function moduleOf(rel) {

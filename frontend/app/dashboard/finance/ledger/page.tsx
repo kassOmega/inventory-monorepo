@@ -12,42 +12,47 @@ import {
   type JournalLineLike,
 } from "@/lib/glExport";
 import { downloadApiFile } from "@/lib/downloadFile";
+import i18n from "@/lib/i18n";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 type Tab = "journal" | "trial" | "account" | "coverage";
 
-const SOURCE_LABELS: Record<string, string> = {
-  SALE: "Retail sales / POS",
-  RTRN: "Returns",
-  EXP: "Expenses",
-  INC: "Income",
-  MGI: "Mfg services",
-  ORD: "Orders",
-  FOL: "Folios",
-  PO: "Purchase orders",
-  PUR: "Purchases",
-  RST: "Restock",
-  PRDV: "Initial stock",
-  ADJ: "Adjustments",
-  WST: "Wastage",
-  MANUAL: "Manual / custom",
+// Source code -> catalog key. Resolved through `sourceLabel()` so the journal
+// table, the coverage cards and the exports all read the same wording.
+const SOURCE_KEYS: Record<string, string> = {
+  SALE: "ledger.srcSale",
+  RTRN: "ledger.srcReturns",
+  EXP: "ledger.srcExpenses",
+  INC: "ledger.srcIncome",
+  MGI: "ledger.srcMfgServices",
+  ORD: "ledger.srcOrders",
+  FOL: "ledger.srcFolios",
+  PO: "ledger.srcPurchaseOrders",
+  PUR: "ledger.srcPurchases",
+  RST: "ledger.srcRestock",
+  PRDV: "ledger.srcInitialStock",
+  ADJ: "ledger.srcAdjustments",
+  WST: "ledger.srcWastage",
+  MANUAL: "ledger.srcManual",
 };
+const sourceLabel = (s?: string | null) =>
+  s && SOURCE_KEYS[s] ? i18n.t(SOURCE_KEYS[s]) : s ?? "";
 const SOURCE_ORDER = ["SALE","RTRN","EXP","INC","MGI","ORD","FOL","PO","PUR","RST","PRDV","ADJ","WST","MANUAL"];
 const MODULE_OPTIONS = [
-  { key: "ALL", label: "All modules" },
-  { key: "retail", label: "Retail / POS" },
-  { key: "hospitality", label: "Orders & Folios" },
-  { key: "manufacturing", label: "Manufacturing" },
-  { key: "procurement", label: "Procurement" },
-  { key: "manual", label: "Manual & adjustments" },
+  { key: "ALL", labelKey: "ledger.modAll" },
+  { key: "retail", labelKey: "ledger.modRetail" },
+  { key: "hospitality", labelKey: "ledger.modHospitality" },
+  { key: "manufacturing", labelKey: "ledger.modManufacturing" },
+  { key: "procurement", labelKey: "ledger.modProcurement" },
+  { key: "manual", labelKey: "ledger.modManual" },
 ];
 const STATUS_OPTIONS = [
-  { key: "ALL", label: "All statuses" },
-  { key: "POSTED", label: "Posted" },
-  { key: "REVERSED", label: "Reversed" },
-  { key: "VOIDED", label: "Voided" },
+  { key: "ALL", labelKey: "ledger.statusAll" },
+  { key: "POSTED", labelKey: "ledger.statusPosted" },
+  { key: "REVERSED", labelKey: "ledger.statusReversed" },
+  { key: "VOIDED", labelKey: "ledger.statusVoided" },
 ];
 const STATUS_BADGES: Record<string, string> = {
   POSTED: "bg-green-50 text-green-700",
@@ -56,10 +61,10 @@ const STATUS_BADGES: Record<string, string> = {
 };
 const statusBadge = (s?: string | null) =>
   s && s !== "POSTED" ? (
-    <span className={`text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5 ${STATUS_BADGES[s] ?? "bg-gray-100 text-gray-600"}`}>{s}</span>
+    <span className={`text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5 ${STATUS_BADGES[s] ?? "bg-gray-100 text-gray-600"}`}>{statusLabel(s)}</span>
   ) : null;
 const locName = (locations: any[], id?: number | null) =>
-  id ? locations.find((l) => l.id === id)?.name ?? `#${id}` : "All";
+  id ? locations.find((l) => l.id === id)?.name ?? `#${id}` : i18n.t("common.all");
 
 function downloadCsv(filename: string, columns: string[], rows: (string | number)[][]) {
   const esc = (v: any) => {
@@ -81,7 +86,7 @@ function downloadCsv(filename: string, columns: string[], rows: (string | number
 /** Message from an API failure (axios-shaped), for the export error banner. */
 const exportErrorMessage = (e: unknown): string =>
   (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-  "Export failed.";
+  i18n.t("ledger.exportFailed");
 
 /**
  * Printable report. Rows may be plain arrays (as before) or
@@ -152,6 +157,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 function EntryModal({ open, onClose, accounts, onSaved }: any) {
+  const { t } = useTranslation();
   const empty = () => ({ accountId: "", debit: "", credit: "" });
   const [reference, setReference] = useState("");
   const [description, setDescription] = useState("");
@@ -169,9 +175,9 @@ function EntryModal({ open, onClose, accounts, onSaved }: any) {
     const clean = lines.filter(
       (l: any) => l.accountId && ((Number(l.debit) || 0) > 0 || (Number(l.credit) || 0) > 0),
     );
-    if (!clean.length) return setError("Add at least one line with an account and an amount.");
+    if (!clean.length) return setError(t("ledger.lineRequired"));
     if (Math.abs(totalDebit - totalCredit) > 0.001)
-      return setError("Journal must balance - debits must equal credits.");
+      return setError(t("ledger.mustBalance"));
     setSaving(true);
     try {
       await api.post("/finance/journal", {
@@ -189,35 +195,35 @@ function EntryModal({ open, onClose, accounts, onSaved }: any) {
       setDescription("");
       onSaved();
     } catch (ex: any) {
-      setError(ex?.response?.data?.message ?? "Failed to save the journal entry.");
+      setError(ex?.response?.data?.message ?? t("ledger.entrySaveFailed"));
     } finally {
       setSaving(false);
     }
   };
   return (
-    <Modal isOpen={open} onClose={onClose} title="New Journal Entry">
+    <Modal isOpen={open} onClose={onClose} title={t("ledger.newEntry")}>
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t("common.date")}</label>
             <input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="border border-gray-300 rounded p-2 text-sm w-full" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Reference (optional)</label>
-            <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. ADJ-1" className="border border-gray-300 rounded p-2 text-sm w-full" />
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t("hotel.referenceOptional")}</label>
+            <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder={t("ledger.referencePh")} className="border border-gray-300 rounded p-2 text-sm w-full" />
           </div>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
-          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What is this entry for?" className="border border-gray-300 rounded p-2 text-sm w-full" />
+          <label className="block text-xs font-medium text-gray-500 mb-1">{t("common.description")}</label>
+          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("ledger.descriptionPh")} className="border border-gray-300 rounded p-2 text-sm w-full" />
         </div>
         <div className="space-y-2">
-          <p className="text-xs font-medium text-gray-500">Lines</p>
+          <p className="text-xs font-medium text-gray-500">{t("ledger.lines")}</p>
           {lines.map((l: any, i: number) => (
             <div key={i} className="border border-gray-200 rounded p-2 space-y-2">
               <div className="flex items-center gap-2">
                 <select value={l.accountId} onChange={(e) => update(i, { accountId: e.target.value })} className="border border-gray-300 rounded p-2 text-sm flex-1">
-                  <option value="">Account…</option>
+                  <option value="">{t("ledger.selectAccount")}</option>
                   {accounts.map((a: any) => (
                     <option key={a.id} value={a.id}>{a.code ? `${a.code} · ` : ""}{a.name}</option>
                   ))}
@@ -225,17 +231,17 @@ function EntryModal({ open, onClose, accounts, onSaved }: any) {
                 <button type="button" onClick={() => setLines((ls) => ls.filter((_, x) => x !== i))} className="text-red-500 hover:text-red-700 text-lg leading-none">×</button>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <input type="number" step="0.01" value={l.debit} onChange={(e) => update(i, { debit: e.target.value })} placeholder="Debit" className="border border-gray-300 rounded p-2 text-sm w-full" />
-                <input type="number" step="0.01" value={l.credit} onChange={(e) => update(i, { credit: e.target.value })} placeholder="Credit" className="border border-gray-300 rounded p-2 text-sm w-full" />
+                <input type="number" step="0.01" value={l.debit} onChange={(e) => update(i, { debit: e.target.value })} placeholder={t("fin.colDebit")} className="border border-gray-300 rounded p-2 text-sm w-full" />
+                <input type="number" step="0.01" value={l.credit} onChange={(e) => update(i, { credit: e.target.value })} placeholder={t("fin.colCredit")} className="border border-gray-300 rounded p-2 text-sm w-full" />
               </div>
             </div>
           ))}
-          <button type="button" onClick={() => setLines((ls) => [...ls, empty()])} className="text-sm text-blue-600 hover:underline">+ Add line</button>
+          <button type="button" onClick={() => setLines((ls) => [...ls, empty()])} className="text-sm text-blue-600 hover:underline">{t("ledger.addLine")}</button>
         </div>
         {error && <div className="bg-red-50 text-red-600 p-2 rounded text-sm">{error}</div>}
         <div className="flex justify-end gap-2 pt-1">
-          <button type="button" onClick={onClose} disabled={saving} className="px-3 py-2 text-sm text-gray-600">Cancel</button>
-          <button type="submit" disabled={saving} className="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2 text-sm font-medium">{saving ? "Saving…" : "Save Entry"}</button>
+          <button type="button" onClick={onClose} disabled={saving} className="px-3 py-2 text-sm text-gray-600">{t("common.cancel")}</button>
+          <button type="submit" disabled={saving} className="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2 text-sm font-medium">{saving ? t("common.saving") : t("ledger.saveEntry")}</button>
         </div>
       </form>
     </Modal>
@@ -243,6 +249,7 @@ function EntryModal({ open, onClose, accounts, onSaved }: any) {
 }
 
 function JournalTab({ startDate, endDate, accounts, canManage, locations, filters }: any) {
+  const { t } = useTranslation();
   const [accountId, setAccountId] = useState("");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<any>(null);
@@ -268,9 +275,9 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
       setData(r.data);
       setError("");
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load the journal.");
+      setError(e?.response?.data?.message ?? t("ledger.journalLoadFailed"));
     }
-  }, [startDate, endDate, accountId, page, extraQs]);
+  }, [startDate, endDate, accountId, page, extraQs, t]);
   useEffect(() => {
     setPage(1);
   }, [accountId, startDate, endDate, extraQs]);
@@ -287,7 +294,7 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
   const exportDeps = {
     money,
     shortDate,
-    sourceLabel: (e: JournalEntryLike) => SOURCE_LABELS[e.source ?? ""] ?? e.source ?? "",
+    sourceLabel: (e: JournalEntryLike) => sourceLabel(e.source),
     locationLabel: (e: JournalEntryLike) => locName(locations, e.locationId),
     accountLabel: (l: JournalLineLike) =>
       `${l.account?.code ? `${l.account.code} · ` : ""}${l.account?.name ?? `#${l.accountId}`}`,
@@ -354,15 +361,15 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <div className="flex flex-wrap items-center gap-2">
           <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="border border-gray-300 rounded p-2 text-sm">
-            <option value="">All accounts</option>
+            <option value="">{t("ledger.allAccounts")}</option>
             {accounts.map((a: any) => (
               <option key={a.id} value={a.id}>{a.code ? `${a.code} · ` : ""}{a.name}</option>
             ))}
           </select>
           {(filters.moduleSource !== "ALL" || filters.status !== "ALL" || filters.locationId) && (
             <span className="text-xs text-gray-500 bg-gray-100 rounded px-2 py-1">
-              {MODULE_OPTIONS.find((m) => m.key === filters.moduleSource)?.label ?? "All modules"} ·{" "}
-              {STATUS_OPTIONS.find((s) => s.key === filters.status)?.label ?? "All statuses"} · {locName(locations, filters.locationId ? Number(filters.locationId) : undefined)}
+              {t(MODULE_OPTIONS.find((m) => m.key === filters.moduleSource)?.labelKey ?? "ledger.modAll")} ·{" "}
+              {t(STATUS_OPTIONS.find((s) => s.key === filters.status)?.labelKey ?? "ledger.statusAll")} · {locName(locations, filters.locationId ? Number(filters.locationId) : undefined)}
             </span>
           )}
         </div>
@@ -381,7 +388,7 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
             }
             className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
           >
-            {exporting === "csv" ? "Preparing…" : "CSV"}
+            {exporting === "csv" ? t("ledger.preparing") : "CSV"}
           </button>
           <button
             disabled={exporting !== ""}
@@ -400,31 +407,31 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
             }
             className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
           >
-            {exporting === "pdf" ? "Preparing…" : "Download PDF"}
+            {exporting === "pdf" ? t("ledger.preparing") : t("ledger.downloadPdf")}
           </button>
           {canManage && (
-            <button onClick={() => setShowModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-3 py-2 text-sm font-medium">+ New Journal Entry</button>
+            <button onClick={() => setShowModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-3 py-2 text-sm font-medium">{t("ledger.newEntryBtn")}</button>
           )}
         </div>
       </div>
       {!data ? (
-        <p className="text-gray-400 text-sm py-8 text-center">Loading journal…</p>
+        <p className="text-gray-400 text-sm py-8 text-center">{t("ledger.loadingJournal")}</p>
       ) : entries.length === 0 ? (
-        <p className="text-gray-400 text-sm py-8 text-center">No journal entries in this period.</p>
+        <p className="text-gray-400 text-sm py-8 text-center">{t("ledger.noJournal")}</p>
       ) : (
         <div className="gl-print-card bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="gl-print-scroll overflow-x-auto">
             <table className="gl-print-table w-full text-sm whitespace-nowrap min-w-[1000px]">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-100 bg-gray-50/60">
-                  <th className="px-3 py-2">Date</th>
-                  <th className="px-3 py-2">Reference</th>
-                  <th className="px-3 py-2">Description</th>
-                  <th className="px-3 py-2">Source</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Location</th>
-                  <th className="px-3 py-2 text-right">Debit</th>
-                  <th className="px-3 py-2 text-right">Credit</th>
+                  <th className="px-3 py-2">{t("common.date")}</th>
+                  <th className="px-3 py-2">{t("ledger.colReference")}</th>
+                  <th className="px-3 py-2">{t("common.description")}</th>
+                  <th className="px-3 py-2">{t("ledger.colSource")}</th>
+                  <th className="px-3 py-2">{t("common.status")}</th>
+                  <th className="px-3 py-2">{t("common.location")}</th>
+                  <th className="px-3 py-2 text-right">{t("fin.colDebit")}</th>
+                  <th className="px-3 py-2 text-right">{t("fin.colCredit")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -434,8 +441,8 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
                       <td className="px-3 py-2">{shortDate(e.entryDate)}</td>
                       <td className="px-3 py-2 font-medium text-gray-800">{e.reference ?? "—"}</td>
                       <td className="px-3 py-2 text-gray-500">{e.description ?? ""}</td>
-                      <td className="px-3 py-2"><span className={`text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5 ${srcBadge(e.source)}`}>{SOURCE_LABELS[e.source] ?? e.source}</span></td>
-                      <td className="px-3 py-2">{statusBadge(e.postingStatus) ?? <span className="text-[10px] text-gray-300 font-semibold uppercase tracking-wide">Posted</span>}</td>
+                      <td className="px-3 py-2"><span className={`text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5 ${srcBadge(e.source)}`}>{sourceLabel(e.source)}</span></td>
+                      <td className="px-3 py-2">{statusBadge(e.postingStatus) ?? <span className="text-[10px] text-gray-300 font-semibold uppercase tracking-wide">{t("ledger.statusPosted")}</span>}</td>
                       <td className="px-3 py-2 text-xs text-gray-500">{locName(locations, e.locationId)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{money(e.totalDebit)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{money(e.totalCredit)}</td>
@@ -449,7 +456,7 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
                             (expanded[e.id] ? "" : "hidden")
                           }
                         >
-                          <td className="px-3 py-1.5 pl-6 text-gray-400">↳ line</td>
+                          <td className="px-3 py-1.5 pl-6 text-gray-400">{t("ledger.subLine")}</td>
                           <td className="px-3 py-1.5">{l.account?.code ? `${l.account.code} · ` : ""}{l.account?.name ?? `#${l.accountId}`}</td>
                           <td className="px-3 py-1.5" colSpan={4}>{l.account?.type ? statusLabel(l.account.type) : ""}</td>
                           <td className="px-3 py-1.5 text-right tabular-nums">{money(l.debit)}</td>
@@ -462,11 +469,11 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
               </table>
           </div>
           <div className="px-4 py-2 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2 text-sm bg-gray-50/60">
-            <span className="text-gray-500">{data?.total ?? 0} entries · {money(data?.totals?.debit)} debit / {money(data?.totals?.credit)} credit</span>
+            <span className="text-gray-500">{t("ledger.journalFooter", { count: data?.total ?? 0, debit: money(data?.totals?.debit), credit: money(data?.totals?.credit) })}</span>
             <div className="flex items-center gap-2">
-              <button disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="px-2 py-1 text-xs border border-gray-200 rounded disabled:opacity-40">Previous</button>
-              <span className="text-xs text-gray-400">Page {page} / {totalPages}</span>
-              <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)} className="px-2 py-1 text-xs border border-gray-200 rounded disabled:opacity-40">Next</button>
+              <button disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="px-2 py-1 text-xs border border-gray-200 rounded disabled:opacity-40">{t("pg.previous")}</button>
+              <span className="text-xs text-gray-400">{t("ledger.pageOf", { page, total: totalPages })}</span>
+              <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)} className="px-2 py-1 text-xs border border-gray-200 rounded disabled:opacity-40">{t("pg.next")}</button>
             </div>
           </div>
         </div>
@@ -477,7 +484,7 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
         accounts={accounts}
         onSaved={() => {
           setShowModal(false);
-          setSavedMsg("Journal entry saved");
+          setSavedMsg(t("ledger.entrySaved"));
           setTimeout(() => setSavedMsg(""), 2500);
           load();
         }}
@@ -487,6 +494,7 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
 }
 
 function TrialTab({ startDate, endDate, locations, filters }: any) {
+  const { t } = useTranslation();
   const [rows, setRows] = useState<any[]>([]);
   const [totals, setTotals] = useState<any>(null);
   const [balanced, setBalanced] = useState(true);
@@ -511,29 +519,29 @@ function TrialTab({ startDate, endDate, locations, filters }: any) {
       setBalanced(r.data.balanced ?? true);
       setError("");
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load the trial balance.");
+      setError(e?.response?.data?.message ?? t("ledger.trialLoadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate, extraQs]);
+  }, [startDate, endDate, extraQs, t]);
   useEffect(() => {
     load();
   }, [load]);
-  if (loading) return <p className="text-gray-400 text-sm py-8 text-center">Loading trial balance…</p>;
+  if (loading) return <p className="text-gray-400 text-sm py-8 text-center">{t("ledger.loadingTrial")}</p>;
+  const cols = [t("common.code"), t("ledger.colAccount"), t("common.type"), t("fin.colDebit"), t("fin.colCredit"), t("ledger.colBalance")];
   return (
     <div className="space-y-3">
       {error && <div className="bg-red-50 text-red-600 p-2 rounded text-sm">{error}</div>}
       <div className="flex items-center gap-2 flex-wrap">
         <span className={`text-xs font-semibold rounded px-2 py-1 ${balanced ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
-          {balanced ? "✓ Balanced" : "Out of balance"}
+          {balanced ? t("ledger.balanced") : t("ledger.unbalanced")}
         </span>
-        <span className="text-xs text-gray-400">Totals · Debit {money(totals?.debit)} · Credit {money(totals?.credit)}</span>
+        <span className="text-xs text-gray-400">{t("ledger.totalsLine", { debit: money(totals?.debit), credit: money(totals?.credit) })}</span>
         <span className="flex-1" />
         <button
           onClick={() => {
-            const cols = ["Code", "Account", "Type", "Debit", "Credit", "Balance"];
             const body = rows.map((r: any) => [r.code ?? "", r.name, r.type ?? "", r.debit ?? 0, r.credit ?? 0, r.balance ?? 0]);
-            const withTotals = [...body, ["", "TOTALS", "", totals?.debit ?? 0, totals?.credit ?? 0, totals?.difference ?? 0]];
+            const withTotals = [...body, ["", t("ledger.totalsRow"), "", totals?.debit ?? 0, totals?.credit ?? 0, totals?.difference ?? 0]];
             downloadCsv("trial-balance.csv", cols, withTotals);
           }}
           className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
@@ -543,20 +551,20 @@ function TrialTab({ startDate, endDate, locations, filters }: any) {
         <button
           onClick={() => {
             setPrintDoc({
-              title: "Trial Balance",
+              title: t("ledger.tabs.trial"),
               meta: [
                 `${startDate} → ${endDate}`,
-                MODULE_OPTIONS.find((m) => m.key === filters.moduleSource)?.label ?? "All modules",
+                t(MODULE_OPTIONS.find((m) => m.key === filters.moduleSource)?.labelKey ?? "ledger.modAll"),
                 locName(locations, filters.locationId ? Number(filters.locationId) : undefined),
               ],
-              columns: ["Code", "Account", "Type", "Debit", "Credit", "Balance"],
+              columns: cols,
               rows: [...rows.map((r: any) => [r.code ?? "", r.name, r.type ?? "", r.debit ?? 0, r.credit ?? 0, r.balance ?? 0]), ["", "TOTALS", "", totals?.debit ?? 0, totals?.credit ?? 0, totals?.difference ?? 0]],
             });
             setTimeout(() => window.print(), 120);
           }}
           className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
         >
-          Print / PDF
+          {t("ledger.printPdf")}
         </button>
       </div>
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -564,12 +572,12 @@ function TrialTab({ startDate, endDate, locations, filters }: any) {
           <table className="w-full text-sm whitespace-nowrap min-w-[800px]">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-100 bg-gray-50/60">
-                <th className="px-3 py-2">Code</th>
-                <th className="px-3 py-2">Account</th>
-                <th className="px-3 py-2">Type</th>
-                <th className="px-3 py-2 text-right">Debit</th>
-                <th className="px-3 py-2 text-right">Credit</th>
-                <th className="px-3 py-2 text-right">Balance</th>
+                <th className="px-3 py-2">{t("common.code")}</th>
+                <th className="px-3 py-2">{t("ledger.colAccount")}</th>
+                <th className="px-3 py-2">{t("common.type")}</th>
+                <th className="px-3 py-2 text-right">{t("fin.colDebit")}</th>
+                <th className="px-3 py-2 text-right">{t("fin.colCredit")}</th>
+                <th className="px-3 py-2 text-right">{t("ledger.colBalance")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -586,7 +594,7 @@ function TrialTab({ startDate, endDate, locations, filters }: any) {
             </tbody>
             <tfoot>
               <tr className="border-t border-gray-200 bg-gray-50/60 font-semibold">
-                <td className="px-3 py-2 text-gray-500" colSpan={3}>Totals</td>
+                <td className="px-3 py-2 text-gray-500" colSpan={3}>{t("common.total")}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{money(totals?.debit)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{money(totals?.credit)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{money(totals?.difference)}</td>
@@ -594,7 +602,7 @@ function TrialTab({ startDate, endDate, locations, filters }: any) {
             </tfoot>
           </table>
         </div>
-        {rows.length === 0 && <p className="text-gray-400 text-sm py-8 text-center">No journal activity in this period.</p>}
+        {rows.length === 0 && <p className="text-gray-400 text-sm py-8 text-center">{t("ledger.noActivity")}</p>}
       </div>
       {printDoc && <PrintReport {...printDoc} />}
     </div>
@@ -602,6 +610,7 @@ function TrialTab({ startDate, endDate, locations, filters }: any) {
 }
 
 function AccountTab({ startDate, endDate, accounts, locations, filters }: any) {
+  const { t } = useTranslation();
   const [accountId, setAccountId] = useState("");
   const [ledger, setLedger] = useState<any>(null);
   const [error, setError] = useState("");
@@ -627,35 +636,35 @@ function AccountTab({ startDate, endDate, accounts, locations, filters }: any) {
       setLedger(r.data);
       setError("");
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load the account ledger.");
+      setError(e?.response?.data?.message ?? t("ledger.accountLoadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [accountId, startDate, endDate, extraQs]);
+  }, [accountId, startDate, endDate, extraQs, t]);
   useEffect(() => {
     load();
   }, [load]);
-  const normal = ledger?.normal === "DEBIT" ? "Debit-normal" : "Credit-normal";
+  const normal = ledger?.normal === "DEBIT" ? t("ledger.debitNormal") : t("ledger.creditNormal");
   const rows = ledger?.rows ?? [];
+  const cols = [t("common.date"), t("ledger.colReference"), t("common.description"), t("fin.colDebit"), t("fin.colCredit"), t("ledger.colBalance")];
   return (
     <div className="space-y-3">
       {error && <div className="bg-red-50 text-red-600 p-2 rounded text-sm">{error}</div>}
       <div className="flex flex-wrap items-center gap-2">
         <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="border border-gray-300 rounded p-2 text-sm">
-          <option value="">Select account…</option>
+          <option value="">{t("ledger.selectAccount")}</option>
           {accounts.map((a: any) => (
             <option key={a.id} value={a.id}>{a.code ? `${a.code} · ` : ""}{a.name}</option>
           ))}
         </select>
         {ledger && (
           <span className="text-xs text-gray-400">
-            {ledger.account?.name} · {normal} · Opening {money(ledger.openingBalance)} · Closing {money(ledger.closingBalance)}
+            {ledger.account?.name} · {normal} · {t("ledger.openingClosing", { opening: money(ledger.openingBalance), closing: money(ledger.closingBalance) })}
           </span>
         )}
         <span className="flex-1" />
         <button
           onClick={() => {
-            const cols = ["Date", "Reference", "Description", "Debit", "Credit", "Balance"];
             const body = rows.map((r: any) => [shortDate(r.date), r.reference ?? "", r.description ?? "", r.debit ?? 0, r.credit ?? 0, r.balance ?? 0]);
             downloadCsv(`account-ledger-${accountId}.csv`, cols, body);
           }}
@@ -666,41 +675,41 @@ function AccountTab({ startDate, endDate, accounts, locations, filters }: any) {
         <button
           onClick={() => {
             setPrintDoc({
-              title: `Account Ledger — ${ledger?.account?.name ?? ""}`,
+              title: t("ledger.accountLedgerTitle", { name: ledger?.account?.name ?? "" }),
               meta: [
                 `${startDate} → ${endDate}`,
-                MODULE_OPTIONS.find((m) => m.key === filters.moduleSource)?.label ?? "All modules",
+                t(MODULE_OPTIONS.find((m) => m.key === filters.moduleSource)?.labelKey ?? "ledger.modAll"),
                 locName(locations, filters.locationId ? Number(filters.locationId) : undefined),
-                `Opening ${money(ledger?.openingBalance)} · Closing ${money(ledger?.closingBalance)}`,
+                t("ledger.openingClosing", { opening: money(ledger?.openingBalance), closing: money(ledger?.closingBalance) }),
               ],
-              columns: ["Date", "Reference", "Description", "Debit", "Credit", "Balance"],
+              columns: cols,
               rows: rows.map((r: any) => [shortDate(r.date), r.reference ?? "", r.description ?? "", r.debit ?? 0, r.credit ?? 0, r.balance ?? 0]),
             });
             setTimeout(() => window.print(), 120);
           }}
           className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
         >
-          Print / PDF
+          {t("ledger.printPdf")}
         </button>
       </div>
       {loading ? (
-        <p className="text-gray-400 text-sm py-8 text-center">Loading account ledger…</p>
+        <p className="text-gray-400 text-sm py-8 text-center">{t("ledger.loadingAccount")}</p>
       ) : !ledger ? (
-        <p className="text-gray-400 text-sm py-8 text-center">Select an account to see its ledger.</p>
+        <p className="text-gray-400 text-sm py-8 text-center">{t("ledger.selectAccountHint")}</p>
       ) : rows.length === 0 ? (
-        <p className="text-gray-400 text-sm py-8 text-center">No activity for this account in the period.</p>
+        <p className="text-gray-400 text-sm py-8 text-center">{t("ledger.accountNoActivity")}</p>
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm whitespace-nowrap min-w-[900px]">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-100 bg-gray-50/60">
-                  <th className="px-3 py-2">Date</th>
-                  <th className="px-3 py-2">Reference</th>
-                  <th className="px-3 py-2">Description</th>
-                  <th className="px-3 py-2 text-right">Debit</th>
-                  <th className="px-3 py-2 text-right">Credit</th>
-                  <th className="px-3 py-2 text-right">Balance</th>
+                  <th className="px-3 py-2">{t("common.date")}</th>
+                  <th className="px-3 py-2">{t("ledger.colReference")}</th>
+                  <th className="px-3 py-2">{t("common.description")}</th>
+                  <th className="px-3 py-2 text-right">{t("fin.colDebit")}</th>
+                  <th className="px-3 py-2 text-right">{t("fin.colCredit")}</th>
+                  <th className="px-3 py-2 text-right">{t("ledger.colBalance")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -725,6 +734,7 @@ function AccountTab({ startDate, endDate, accounts, locations, filters }: any) {
 }
 
 function CoverageTab({ startDate, endDate }: any) {
+  const { t } = useTranslation();
   const [cov, setCov] = useState<any>(null);
   const [error, setError] = useState("");
   const load = useCallback(async () => {
@@ -733,51 +743,57 @@ function CoverageTab({ startDate, endDate }: any) {
       setCov(r.data);
       setError("");
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load coverage.");
+      setError(e?.response?.data?.message ?? t("ledger.coverageLoadFailed"));
     }
-  }, [startDate, endDate]);
+  }, [startDate, endDate, t]);
   useEffect(() => {
     load();
   }, [load]);
-  if (!cov && !error) return <p className="text-gray-400 text-sm py-8 text-center">Loading coverage…</p>;
+  if (!cov && !error) return <p className="text-gray-400 text-sm py-8 text-center">{t("ledger.loadingCoverage")}</p>;
   const total = cov?.totals;
   const statusText = (s: string) =>
-    s === "ok" ? "OK" : s === "partial" ? "Partial" : s === "missing" ? "Missing" : "No activity";
+    s === "ok"
+      ? t("ledger.covOk")
+      : s === "partial"
+        ? t("ledger.covPartial")
+        : s === "missing"
+          ? t("ledger.covMissing")
+          : t("ledger.noActivityStatus");
   return (
     <div className="space-y-4">
       {error && <div className="bg-red-50 text-red-600 p-2 rounded text-sm">{error}</div>}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Journal entries</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t("ledger.kpiEntries")}</p>
           <p className="text-xl font-bold text-gray-800 tabular-nums">{total?.journalEntries ?? 0}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Journal lines</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t("ledger.kpiLines")}</p>
           <p className="text-xl font-bold text-gray-800 tabular-nums">{total?.journalLines ?? 0}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Total debit</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t("ledger.kpiTotalDebit")}</p>
           <p className="text-xl font-bold text-gray-800 tabular-nums">{money(total?.debit)}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Total credit</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t("ledger.kpiTotalCredit")}</p>
           <p className="text-xl font-bold text-gray-800 tabular-nums">{money(total?.credit)}</p>
         </div>
       </div>
       <span className={`inline-block text-xs font-semibold rounded px-2 py-1 ${total?.balanced ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
-        {total?.balanced ? "✓ Ledger balanced" : `Out of balance · difference ${money(total?.difference)}`}
+        {total?.balanced ? t("ledger.ledgerBalanced") : t("ledger.balanceDiff", { diff: money(total?.difference) })}
       </span>
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm whitespace-nowrap min-w-[900px]">
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-100 bg-gray-50/60">
-              <th className="px-3 py-2">Source</th>
-              <th className="px-3 py-2 text-right">Expected</th>
-              <th className="px-3 py-2 text-right">Journal</th>
-              <th className="px-3 py-2 text-right">Income</th>
-              <th className="px-3 py-2 text-right">COGS</th>
-              <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">{t("ledger.colSource")}</th>
+              <th className="px-3 py-2 text-right">{t("ledger.colExpected")}</th>
+              <th className="px-3 py-2 text-right">{t("ledger.tabs.journal")}</th>
+              <th className="px-3 py-2 text-right">{t("status.income")}</th>
+              <th className="px-3 py-2 text-right">{t("ledger.colCogs")}</th>
+              <th className="px-3 py-2">{t("common.status")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -799,15 +815,15 @@ function CoverageTab({ startDate, endDate }: any) {
         </div>
       </div>
       <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <p className="text-xs font-semibold text-gray-500 mb-2">Postings by reference</p>
+        <p className="text-xs font-semibold text-gray-500 mb-2">{t("ledger.byReference")}</p>
         <div className="flex flex-wrap gap-2">
           {(cov?.byReference ?? []).map((b: any) => (
-            <span key={b.key} className={`text-xs rounded px-2 py-1 ${srcBadge(b.key)}`}>{SOURCE_LABELS[b.key] ?? b.key} · {b.count}</span>
+            <span key={b.key} className={`text-xs rounded px-2 py-1 ${srcBadge(b.key)}`}>{sourceLabel(b.key)} · {b.count}</span>
           ))}
         </div>
       </div>
       <p className="text-[11px] text-gray-400">
-        Retail/POS coverage: sales post Income + COGS (plus VAT when an Output VAT Payable account exists) and returns post automatic reversals on return/delete. A missing or partial status exposes chart-of-account gaps instead of a silent ledger skip.
+        {t("ledger.coverageNote")}
       </p>
     </div>
   );
@@ -871,7 +887,7 @@ export default function LedgerPage() {
             onChange={(e) => setFilters((f) => ({ ...f, locationId: e.target.value }))}
             className="border border-gray-300 rounded p-2 text-sm"
           >
-            <option value="">All locations</option>
+            <option value="">{t("sales.allLocations")}</option>
             {locations.map((l: any) => (
               <option key={l.id} value={l.id}>{l.name}</option>
             ))}
@@ -882,7 +898,7 @@ export default function LedgerPage() {
             className="border border-gray-300 rounded p-2 text-sm"
           >
             {MODULE_OPTIONS.map((m) => (
-              <option key={m.key} value={m.key}>{m.label}</option>
+              <option key={m.key} value={m.key}>{t(m.labelKey)}</option>
             ))}
           </select>
           <select
@@ -891,13 +907,13 @@ export default function LedgerPage() {
             className="border border-gray-300 rounded p-2 text-sm"
           >
             {STATUS_OPTIONS.map((s) => (
-              <option key={s.key} value={s.key}>{s.label}</option>
+              <option key={s.key} value={s.key}>{t(s.labelKey)}</option>
             ))}
           </select>
           <input
             value={filters.search}
             onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-            placeholder="Search reference or description…"
+            placeholder={t("ledger.searchPh")}
             className="border border-gray-300 rounded p-2 text-sm flex-1 min-w-[180px]"
           />
           {(filters.locationId || filters.moduleSource !== "ALL" || filters.status !== "ALL" || filters.search) && (
@@ -905,7 +921,7 @@ export default function LedgerPage() {
               onClick={() => setFilters({ locationId: "", moduleSource: "ALL", status: "ALL", search: "" })}
               className="text-xs text-gray-500 hover:text-gray-700 underline"
             >
-              Reset filters
+              {t("ledger.resetFilters")}
             </button>
           )}
         </div>

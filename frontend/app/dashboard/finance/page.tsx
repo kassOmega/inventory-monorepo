@@ -11,14 +11,22 @@ import { useAuth } from "@/context/AuthContext";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 const TABS = ["Overview", "Breakdown", "Comparison", "Expenses", "Income", "Itemized"];
 
 export default function FinancePage() {
   const { hasPermission, activeMembership, user } = useAuth();
   const confirm = useConfirm();
+  const { t } = useTranslation();
   const canManage = hasPermission("finance.manage");
   const businessType = activeMembership?.businessType ?? user?.businessType ?? "";
+  const bizKey: Record<string, string> = {
+    MANUFACTURING: "fin.bizManufacturing",
+    HOSPITALITY: "fin.bizHospitality",
+    SERVICE: "fin.bizService",
+  };
+  const bizLabel = t(bizKey[businessType] ?? "fin.bizRetail");
 
   const [tab, setTab] = useState("Overview");
   const [pl, setPl] = useState<any>(null);
@@ -63,11 +71,11 @@ export default function FinancePage() {
         (mapRes.data ?? []).find((m: any) => m.transactionType === "INCOME")?.mapping ?? null,
       );
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load finance data");
+      setError(e?.response?.data?.message ?? t("fin.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate]);
+  }, [startDate, endDate, t]);
 
   useEffect(() => {
     load();
@@ -100,13 +108,13 @@ export default function FinancePage() {
       notes: x.notes ?? "",
     });
   const deleteExpense = async (x: any) => {
-    if (!(await confirm("Delete this expense?"))) return;
+    if (!(await confirm(t("fin.delExpenseConfirm")))) return;
     try {
       await api.delete(`/finance/expenses/${x.id}`);
-      flash("Expense deleted");
+      flash(t("fin.expenseDeleted"));
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to delete expense");
+      setError(err?.response?.data?.message ?? t("fin.delExpenseFailed"));
     }
   };
 
@@ -123,7 +131,7 @@ export default function FinancePage() {
   };
   const addIncomeCategory = async () => {
     if (!newIncomeCatName.trim()) {
-      setError("Enter a category name first.");
+      setError(t("fin.catNameRequired"));
       return;
     }
     try {
@@ -135,9 +143,9 @@ export default function FinancePage() {
       setIncForm((f: any) => (f ? { ...f, accountId: String(res.data.id) } : f));
       setShowNewIncomeCat(false);
       setNewIncomeCatName("");
-      flash("Category created");
+      flash(t("fin.categoryCreated"));
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to create category");
+      setError(err?.response?.data?.message ?? t("fin.createCatFailed"));
     }
   };
   const saveIncome = async (e: React.FormEvent) => {
@@ -152,24 +160,24 @@ export default function FinancePage() {
       if (incForm.id) await api.patch(`/finance/incomes/${incForm.id}`, payload);
       else await api.post("/finance/incomes", payload);
       setIncForm(null);
-      flash("Income saved");
+      flash(t("fin.incomeSaved"));
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to save income");
+      setError(err?.response?.data?.message ?? t("fin.saveIncomeFailed"));
     }
   };
   const deleteIncome = async (x: any) => {
-    if (!(await confirm("Delete this income entry?"))) return;
+    if (!(await confirm(t("fin.delIncomeConfirm")))) return;
     try {
       await api.delete(`/finance/incomes/${x.id}`);
-      flash("Income deleted");
+      flash(t("fin.incomeDeleted"));
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to delete income");
+      setError(err?.response?.data?.message ?? t("fin.delIncomeFailed"));
     }
   };
 
-  if (loading) return <p className="text-gray-500 p-6">Loading finance…</p>;
+  if (loading) return <p className="text-gray-500 p-6">{t("fin.loading")}</p>;
 
   const money = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
   const totalMoneyOut = expenseLedger.totals?.totalMoneyOut ?? 0;
@@ -194,52 +202,52 @@ export default function FinancePage() {
   const verticalCards = (() => {
     if (businessType === "MANUFACTURING")
       return [
-        { label: "Production Revenue", value: incomeCard(["Production Revenue"], ["4010"]), tone: "gray" },
-        { label: "Raw Materials + Labor", value: expenseCard(["Raw Materials Cost", "Direct Labor"], ["5020", "5030"]), tone: "red" },
-        { label: "Spoilage & Scrap", value: expenseCard(["Spoilage & Wastage"], ["7100"]), tone: "red" },
-        { label: "Finished COGS", value: expenseCard(["Cost of Goods Sold"], ["5000"]), tone: "red" },
+        { label: t("fin.cardProductionRevenue"), value: incomeCard(["Production Revenue"], ["4010"]), tone: "gray" },
+        { label: t("fin.cardRawMaterialsLabor"), value: expenseCard(["Raw Materials Cost", "Direct Labor"], ["5020", "5030"]), tone: "red" },
+        { label: t("fin.cardSpoilageScrap"), value: expenseCard(["Spoilage & Wastage"], ["7100"]), tone: "red" },
+        { label: t("fin.cardFinishedCogs"), value: expenseCard(["Cost of Goods Sold"], ["5000"]), tone: "red" },
       ];
     if (businessType === "HOSPITALITY")
       return [
-        { label: "Room Revenue", value: incomeCard(["Room Revenue"], ["4030"]), tone: "gray" },
-        { label: "Food Sales", value: incomeCard(["Food Sales"], ["4010"]), tone: "gray" },
-        { label: "Beverage Sales", value: incomeCard(["Beverage Sales"], ["4020"]), tone: "gray" },
-        { label: "Food & Beverage Cost", value: expenseCard(["Food Cost", "Beverage Cost"], ["5020", "5030"]), tone: "red" },
+        { label: t("fin.cardRoomRevenue"), value: incomeCard(["Room Revenue"], ["4030"]), tone: "gray" },
+        { label: t("fin.cardFoodSales"), value: incomeCard(["Food Sales"], ["4010"]), tone: "gray" },
+        { label: t("fin.cardBeverageSales"), value: incomeCard(["Beverage Sales"], ["4020"]), tone: "gray" },
+        { label: t("fin.cardFoodBeverageCost"), value: expenseCard(["Food Cost", "Beverage Cost"], ["5020", "5030"]), tone: "red" },
       ];
     if (businessType === "SERVICE")
       return [
-        { label: "Service Revenue", value: incomeCard(["Service Revenue", "Sales Revenue"], ["4000", "4010"]), tone: "gray" },
-        { label: "Cost of Service", value: expenseCard(["Cost of Service"], ["5010"]), tone: "red" },
+        { label: t("fin.cardServiceRevenue"), value: incomeCard(["Service Revenue", "Sales Revenue"], ["4000", "4010"]), tone: "gray" },
+        { label: t("fin.cardServiceCost"), value: expenseCard(["Cost of Service"], ["5010"]), tone: "red" },
       ];
     // Retail & Distribution (default)
     return [
-      { label: "Retail Sales Revenue", value: incomeCard(["Sales Revenue", "Production Revenue"], ["4000", "4010"]), tone: "gray" },
-      { label: "Cost of Goods Sold", value: expenseCard(["Cost of Goods Sold", "Raw Materials Cost"], ["5000", "5020"]), tone: "red" },
-      { label: "Spoilage / Stock Variance", value: expenseCard(["Spoilage & Wastage", "Inventory Adjustment"], ["7100", "7200"]), tone: "red" },
+      { label: t("fin.cardRetailRevenue"), value: incomeCard(["Sales Revenue", "Production Revenue"], ["4000", "4010"]), tone: "gray" },
+      { label: t("fin.cardCogs"), value: expenseCard(["Cost of Goods Sold", "Raw Materials Cost"], ["5000", "5020"]), tone: "red" },
+      { label: t("fin.cardStockVariance"), value: expenseCard(["Spoilage & Wastage", "Inventory Adjustment"], ["7100", "7200"]), tone: "red" },
     ];
   })();
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-800">Finance</h1>
+        <h1 className="text-2xl font-bold text-gray-800">{t("nav.finance")}</h1>
         <Link href="/dashboard/accounts" className="text-sm text-blue-600 hover:underline font-medium">
-          Chart of Accounts →
+          {t("accounts.title")} →
         </Link>
       </div>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
       {msg && <div className="bg-green-50 text-green-700 p-3 rounded text-sm">{msg}</div>}
 
       <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-2">
-        {TABS.map((t) => (
+        {TABS.map((tb) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
+            key={tb}
+            onClick={() => setTab(tb)}
             className={`px-3 py-1.5 rounded text-sm font-medium ${
-              tab === t ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-100"
+              tab === tb ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-100"
             }`}
           >
-            {t}
+            {t(`fin.tab${tb}`)}
           </button>
         ))}
       </div>
@@ -259,27 +267,27 @@ export default function FinancePage() {
         <>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <div className="bg-white p-4 rounded-lg border border-gray-200">
-            <p className="text-xs text-gray-400">Total Revenue</p>
+            <p className="text-xs text-gray-400">{t("fin.colRevenue")}</p>
             <p className="text-lg font-bold text-gray-800">{money(pl.totalRevenue)}</p>
           </div>
           <div className="bg-white p-4 rounded-lg border border-gray-200">
-            <p className="text-xs text-gray-400">Cost of Goods Expense</p>
+            <p className="text-xs text-gray-400">{t("fin.cogsExpense")}</p>
             <p className="text-lg font-bold text-red-600">{money(pl.costOfGoodsSold)}</p>
           </div>
           <div className="bg-white p-4 rounded-lg border border-gray-200">
-            <p className="text-xs text-gray-400">Operational Expenses</p>
+            <p className="text-xs text-gray-400">{t("fin.opExpenses")}</p>
             <p className="text-lg font-bold text-red-600">{money(pl.expenses)}</p>
           </div>
           <div className="bg-white p-4 rounded-lg border border-gray-200">
-            <p className="text-xs text-gray-400">Total Expenses</p>
+            <p className="text-xs text-gray-400">{t("fin.totalExpenses")}</p>
             <p className="text-lg font-bold text-red-600">{money(pl.totalCosts)}</p>
           </div>
           <div className="bg-white p-4 rounded-lg border border-gray-200">
-            <p className="text-xs text-gray-400">Gross Profit</p>
+            <p className="text-xs text-gray-400">{t("fin.grossProfit")}</p>
             <p className="text-lg font-bold text-gray-800">{money(pl.grossProfit)}</p>
           </div>
           <div className="bg-white p-4 rounded-lg border border-gray-200">
-            <p className="text-xs text-gray-400">Net Profit</p>
+            <p className="text-xs text-gray-400">{t("fin.chartNetProfit")}</p>
             <p className={`text-lg font-bold ${(pl.netProfit ?? 0) >= 0 ? "text-green-700" : "text-red-600"}`}>{money(pl.netProfit)}</p>
           </div>
         </div>
@@ -287,7 +295,7 @@ export default function FinancePage() {
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <div className="col-span-full">
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                {businessType} pulse · this period
+                {t("fin.pulseHeading", { type: bizLabel })}
               </p>
             </div>
             {verticalCards.map((c) => (
@@ -320,20 +328,20 @@ export default function FinancePage() {
         <div className="space-y-4">
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="font-semibold text-gray-800">Expenses & Outgoings</h2>
+              <h2 className="font-semibold text-gray-800">{t("fin.expensesOutgoings")}</h2>
               {canManage && (
                 <button onClick={openNewExpense} className="text-sm text-blue-600 hover:underline">
-                  + Add Expense
+                  {t("fin.addExpense")}
                 </button>
               )}
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="bg-gray-50 rounded p-3">
-                <p className="text-xs text-gray-400">Total Money Out</p>
+                <p className="text-xs text-gray-400">{t("fin.totalMoneyOut")}</p>
                 <p className="font-semibold text-gray-800">{money(totalMoneyOut)} ETB</p>
               </div>
               <div className="bg-gray-50 rounded p-3">
-                <p className="text-xs text-gray-400">P&L Overhead Impact</p>
+                <p className="text-xs text-gray-400">{t("fin.plOverheadImpact")}</p>
                 <p className="font-semibold text-gray-800">{money(expenseLedger.totals?.overheadTotal ?? 0)} ETB</p>
               </div>
             </div>
@@ -351,11 +359,11 @@ export default function FinancePage() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         {x.badge === "INVENTORY_RESTOCK" ? (
-                          <span className="text-[10px] font-semibold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">[Inventory Restock]</span>
+                          <span className="text-[10px] font-semibold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">{t("fin.badgeInventoryRestock")}</span>
                         ) : (
-                          <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded">[Operational Expense]</span>
+                          <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded">{t("fin.badgeOperationalExpense")}</span>
                         )}
-                        <p className="text-gray-800 truncate">{x.categoryName ?? x.description ?? "Expense"}</p>
+                        <p className="text-gray-800 truncate">{x.categoryName ?? x.description ?? t("status.expense")}</p>
                       </div>
                       <p className="text-xs text-gray-400">
                         {x.vendor ? `${x.vendor} · ` : ""}
@@ -366,15 +374,15 @@ export default function FinancePage() {
                       <span className="text-red-600 font-medium">-{money(x.amount)}</span>
                       {x.badge === "OPERATIONAL" && canManage && (
                         <>
-                          <button onClick={() => openEditExpense(x)} className="text-xs text-blue-600 hover:underline">Edit</button>
-                          <button onClick={() => deleteExpense(x)} className="text-xs text-red-600 hover:underline">Del</button>
+                          <button onClick={() => openEditExpense(x)} className="text-xs text-blue-600 hover:underline">{t("common.edit")}</button>
+                          <button onClick={() => deleteExpense(x)} className="text-xs text-red-600 hover:underline">{t("common.del")}</button>
                         </>
                       )}
                     </div>
                   </li>
                 ))}
               {(expenseLedger.overhead?.length ?? 0) + (expenseLedger.procurements?.length ?? 0) === 0 && (
-                <li className="text-gray-400 py-2">No outgoings yet.</li>
+                <li className="text-gray-400 py-2">{t("fin.noOutgoings")}</li>
               )}
             </ul>
           </div>
@@ -384,10 +392,10 @@ export default function FinancePage() {
       {tab === "Income" && (
         <div className="bg-white rounded-lg border border-gray-200 p-4">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-gray-800">Income <span className="text-green-600 font-normal">· {money(totalIncomes)}</span></h2>
+            <h2 className="font-semibold text-gray-800">{t("status.income")} <span className="text-green-600 font-normal">· {money(totalIncomes)}</span></h2>
             {canManage && (
               <button onClick={openNewIncome} className="text-sm text-blue-600 hover:underline">
-                + Add Income
+                {t("fin.addIncome")}
               </button>
             )}
           </div>
@@ -402,14 +410,14 @@ export default function FinancePage() {
                   <span className="text-green-600 font-medium">+{money(x.amount)}</span>
                   {canManage && (
                     <>
-                      <button onClick={() => openEditIncome(x)} className="text-xs text-blue-600 hover:underline">Edit</button>
-                      <button onClick={() => deleteIncome(x)} className="text-xs text-red-600 hover:underline">Del</button>
+                      <button onClick={() => openEditIncome(x)} className="text-xs text-blue-600 hover:underline">{t("common.edit")}</button>
+                      <button onClick={() => deleteIncome(x)} className="text-xs text-red-600 hover:underline">{t("common.del")}</button>
                     </>
                   )}
                 </div>
               </li>
             ))}
-            {incomes.length === 0 && <li className="text-gray-400 py-2">No income yet.</li>}
+            {incomes.length === 0 && <li className="text-gray-400 py-2">{t("fin.noIncome")}</li>}
           </ul>
         </div>
       )}
@@ -429,7 +437,7 @@ export default function FinancePage() {
         onClose={() => setExpForm(null)}
         onSaved={() => {
           setExpForm(null);
-          flash("Saved");
+          flash(t("fin.saved"));
           load();
         }}
       />
@@ -437,10 +445,10 @@ export default function FinancePage() {
       {incForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-5 w-full max-w-sm shadow-xl">
-            <h2 className="font-semibold text-gray-800 mb-3">{incForm.id ? "Edit Income" : "New Income"}</h2>
+            <h2 className="font-semibold text-gray-800 mb-3">{incForm.id ? t("fin.editIncome") : t("fin.newIncome")}</h2>
             <form onSubmit={saveIncome} className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Category *</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t("fin.categoryRequired")}</label>
                 {!showNewIncomeCat ? (
                   <SearchableSelect
                     options={[...incomeAccounts, ...extraIncome].map((a: any) => ({
@@ -450,7 +458,7 @@ export default function FinancePage() {
                     }))}
                     value={incForm.accountId}
                     onChange={(v: string) => setIncForm({ ...incForm, accountId: v })}
-                    placeholder="Select a category…"
+                    placeholder={t("fin.selectCategory")}
                     className="w-full"
                   />
                 ) : (
@@ -458,7 +466,7 @@ export default function FinancePage() {
                     <input
                       value={newIncomeCatName}
                       onChange={(e) => setNewIncomeCatName(e.target.value)}
-                      placeholder="New category name"
+                      placeholder={t("fin.newCategoryName")}
                       className="border border-gray-300 rounded p-2 text-sm flex-1"
                     />
                     <button
@@ -466,7 +474,7 @@ export default function FinancePage() {
                       onClick={addIncomeCategory}
                       className="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm font-medium"
                     >
-                      Add
+                      {t("common.add")}
                     </button>
                   </div>
                 )}
@@ -476,7 +484,7 @@ export default function FinancePage() {
                     onClick={() => setShowNewIncomeCat(true)}
                     className="text-xs text-blue-600 hover:underline mt-1"
                   >
-                    + New category (create an account)
+                    {t("fin.newCategoryHint")}
                   </button>
                 )}
                 {incForm.accountId &&
@@ -485,25 +493,25 @@ export default function FinancePage() {
                     const sel = [...incomeAccounts, ...extraIncome].find(
                       (a: any) => String(a.id) === incForm.accountId,
                     );
-                    const debitName = incomeMapping?.debitAccount?.name ?? "Cash";
+                    const debitName = incomeMapping?.debitAccount?.name ?? t("fin.cash");
                     return sel ? (
                       <p className="text-[11px] text-gray-400 mt-1">
-                        Posts: Debit {debitName} ↔ Credit {sel.name}
+                        {t("fin.postsHint", { debit: debitName, credit: sel.name })}
                       </p>
                     ) : null;
                   })()}
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Amount (ETB) *</label>
-                <input type="number" step="0.01" value={incForm.amount} onChange={(e) => setIncForm({ ...incForm, amount: e.target.value })} placeholder="Amount" className="border border-gray-300 rounded p-2 text-sm w-full" required />
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t("fin.amountEtb")}</label>
+                <input type="number" step="0.01" value={incForm.amount} onChange={(e) => setIncForm({ ...incForm, amount: e.target.value })} placeholder={t("common.amount")} className="border border-gray-300 rounded p-2 text-sm w-full" required />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
-                <input value={incForm.description} onChange={(e) => setIncForm({ ...incForm, description: e.target.value })} placeholder="e.g. Equipment sale, Refund" className="border border-gray-300 rounded p-2 text-sm w-full" />
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t("common.description")}</label>
+                <input value={incForm.description} onChange={(e) => setIncForm({ ...incForm, description: e.target.value })} placeholder={t("fin.descriptionPh")} className="border border-gray-300 rounded p-2 text-sm w-full" />
               </div>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setIncForm(null)} className="px-3 py-2 text-sm text-gray-600">Cancel</button>
-                <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm font-medium">Save</button>
+                <button type="button" onClick={() => setIncForm(null)} className="px-3 py-2 text-sm text-gray-600">{t("common.cancel")}</button>
+                <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm font-medium">{t("common.save")}</button>
               </div>
             </form>
           </div>
