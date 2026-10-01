@@ -1,24 +1,18 @@
 "use client";
-import Modal from "@/app/components/Modal";
+import CategoriesManager from "@/app/components/CategoriesManager";
+import { useConfirm } from "@/app/components/ConfirmProvider";
 import Loading from "@/app/components/Loading";
+import Modal from "@/app/components/Modal";
+import Pagination from "@/app/components/Pagination";
+import PriceListModal from "@/app/components/PriceListModal";
+import ProductDetailModal from "@/app/components/ProductDetailModal";
 import ProductForm from "@/app/components/ProductForm";
 import RowActionsMenu from "@/app/components/RowActionsMenu";
-import { useToast } from "@/app/components/ToastProvider";
-import { useConfirm } from "@/app/components/ConfirmProvider";
-import { useAuth } from "@/context/AuthContext";
-import { variantLabel } from "@/lib/variantLabel";
-import { fmtCurrency } from "@/lib/currency";
-import { statusLabel } from "@/lib/statusLabel";
-import api, { markHandled } from "@/lib/api";
-import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
-import { ChevronDown, ChevronRight, Share2 } from "lucide-react";
-import Link from "next/link";
-import { createPortal } from "react-dom";
-import CategoriesManager from "@/app/components/CategoriesManager";
-import ProductDetailModal from "@/app/components/ProductDetailModal";
 import StockCountModal from "@/app/components/StockCountModal";
-import PriceListModal from "@/app/components/PriceListModal";
-import { canShareFiles, shareFile } from "@/lib/shareFile";
+import { useToast } from "@/app/components/ToastProvider";
+import { useAuth } from "@/context/AuthContext";
+import api, { markHandled } from "@/lib/api";
+import { fmtCurrency } from "@/lib/currency";
 import { formatDate } from "@/lib/datetime";
 import {
   buildQrLabelPdf,
@@ -26,10 +20,16 @@ import {
   qrPngDataUrls,
   type QrLabel,
 } from "@/lib/qrLabelPdf";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
+import { canShareFiles, shareFile } from "@/lib/shareFile";
+import { statusLabel } from "@/lib/statusLabel";
 import useServerPaging from "@/lib/useServerPaging";
-import Pagination from "@/app/components/Pagination";
+import { variantLabel } from "@/lib/variantLabel";
+import { ChevronDown, ChevronRight, Share2 } from "lucide-react";
+import Link from "next/link";
+import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 
 export default function ProductsPage() {
   const { t } = useTranslation();
@@ -102,7 +102,9 @@ export default function ProductsPage() {
       const body = res.data;
       const rows = Array.isArray(body) ? body : (body?.data ?? []);
       setProducts(rows);
-      paged.setTotal(Array.isArray(body) ? rows.length : (body?.total ?? rows.length));
+      paged.setTotal(
+        Array.isArray(body) ? rows.length : (body?.total ?? rows.length),
+      );
     } finally {
       // Always clear loading (silent fetches skip showing the spinner but still
       // must resolve the initial loading state).
@@ -148,7 +150,8 @@ export default function ProductsPage() {
   useEffect(() => {
     const id = setInterval(() => productsFetchRef.current(true), 5000);
     const onVisibility = () => {
-      if (document.visibilityState === "visible") productsFetchRef.current(true);
+      if (document.visibilityState === "visible")
+        productsFetchRef.current(true);
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onVisibility);
@@ -235,7 +238,9 @@ export default function ProductsPage() {
       fetchProducts();
     } catch (err: any) {
       markHandled(err);
-      toast.error(err.response?.data?.message || t("products.failedDeleteProduct"));
+      toast.error(
+        err.response?.data?.message || t("products.failedDeleteProduct"),
+      );
     }
   };
 
@@ -322,12 +327,28 @@ export default function ProductsPage() {
       </div>
 
       <div className="flex gap-2 mb-6">
-        <button type="button" onClick={() => setTab("products")}
-          className={"px-4 py-2 rounded text-sm " + (tab === "products" ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-600")}>
+        <button
+          type="button"
+          onClick={() => setTab("products")}
+          className={
+            "px-4 py-2 rounded text-sm " +
+            (tab === "products"
+              ? "bg-blue-600 text-white"
+              : "bg-gray-200 text-gray-600")
+          }
+        >
           {t("products.tabProducts")}
         </button>
-        <button type="button" onClick={() => setTab("categories")}
-          className={"px-4 py-2 rounded text-sm " + (tab === "categories" ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-600")}>
+        <button
+          type="button"
+          onClick={() => setTab("categories")}
+          className={
+            "px-4 py-2 rounded text-sm " +
+            (tab === "categories"
+              ? "bg-blue-600 text-white"
+              : "bg-gray-200 text-gray-600")
+          }
+        >
           {t("products.tabCategories")}
         </button>
       </div>
@@ -335,321 +356,406 @@ export default function ProductsPage() {
       {tab === "categories" ? (
         <CategoriesManager />
       ) : (
-      <>
-      <div className="flex w-full items-start md:items-center mb-6 gap-3">
-        <input
-          placeholder={t("products.searchPlaceholder")}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="border p-2 rounded-lg flex-1 text-sm"
-        />
-        {/* Count many items (and variants, across locations) in one sheet. */}
-        {canAdjust && (
-          <Link
-            href="/dashboard/adjust-stock"
-            className="border border-blue-600 text-blue-700 rounded-lg px-3 py-2 text-sm whitespace-nowrap hover:bg-blue-50"
-          >
-            {t("nav.stockCount")}
-          </Link>
-        )}
-        <select
-          value={categoryFilter}
-          onChange={(e) => setCategoryFilter(e.target.value)}
-          className="border p-2 rounded-lg bg-white text-sm"
-        >
-          <option value="">{t("sales.allCategories")}</option>
-          {categories.map((c: any) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-      </div>
+        <>
+          <div className="flex w-full items-start md:items-center mb-6 gap-3">
+            <input
+              placeholder={t("products.searchPlaceholder")}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="border p-2 rounded-lg flex-1 text-sm"
+            />
+            {/* Count many items (and variants, across locations) in one sheet. */}
+            {canAdjust && (
+              <Link
+                href="/dashboard/adjust-stock"
+                className="border border-blue-600 text-blue-700 rounded-lg px-3 py-2 text-sm whitespace-nowrap hover:bg-blue-50"
+              >
+                {t("nav.stockCount")}
+              </Link>
+            )}
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="border p-2 rounded-lg bg-white text-sm"
+            >
+              <option value="">{t("sales.allCategories")}</option>
+              {categories.map((c: any) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
-      <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left min-w-[720px] sm:min-w-[880px] text-xs sm:text-sm whitespace-nowrap">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="p-2 sm:p-3 md:p-4">{t("products.sku")}</th>
-                <th className="p-2 sm:p-3 md:p-4">{t("products.brand")}</th>
-                <th className="p-2 sm:p-3 md:p-4">{t("products.name")}</th>
-                <th className="p-2 sm:p-3 md:p-4">{t("products.category")}</th>
-                <th className="p-2 sm:p-3 md:p-4">{t("products.stock")}</th>
-                <th className="p-2 sm:p-3 md:p-4">{t("products.qr")}</th>
-                {(canEdit || canDelete || canAdjust) && <th className="p-2 sm:p-3 md:p-4">{t("common.actions")}</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {products.map((p: any) => {
-                const stock = getTotalStock(p);
-                return (
-                  <Fragment key={p.id}>
-                  <tr onClick={() => setDetailProduct(p)} className="border-b hover:bg-gray-50 cursor-pointer">
-                    <td className="p-2 sm:p-3 md:p-4">
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); toggleRow(String(p.id)); }}
-                        className="mr-1.5 text-gray-400 cursor-pointer align-middle"
-                        title={expandedIds.has(String(p.id)) ? t("products.collapseVariants") : t("products.expandVariants")}
-                      >
-                        {expandedIds.has(String(p.id)) ? (
-                          <ChevronDown className="w-4 h-4" />
-                        ) : (
-                          <ChevronRight className="w-4 h-4" />
-                        )}
-                      </button>
-                      {/* Internal codes can be long: keep each row on one line
-                          and ellipsise instead of wrapping the table. */}
-                      <span
-                        className="inline-block max-w-[9rem] truncate align-middle font-mono text-xs sm:text-sm"
-                        title={p.sku ?? ""}
-                      >
-                        {p.sku}
-                      </span>
-                    </td>
-                    <td className="p-2 sm:p-3 md:p-4 text-gray-600">
-                      {p.brand || t("common.notAvailable")}
-                    </td>
-                    <td className="p-2 sm:p-3 md:p-4 font-medium">
-                      {p.baseName}
-                      {p.kind && p.kind !== "GOODS" && (
-                        <span className="ml-1 text-[10px] text-blue-600">{statusLabel(p.kind)}</span>
-                      )}
-                    </td>
-                    <td className="p-2 sm:p-3 md:p-4">
-                      <span className="bg-gray-100 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs">
-                        {p.category?.name || t("common.notAvailable")}
-                      </span>
-                    </td>
-                    <td className="p-2 sm:p-3 md:p-4">
-                      <span
-                        className={`font-bold text-xs sm:text-sm ${stock < 10 ? "text-red-500" : "text-gray-800"}`}
-                      >
-                        {stock}
-                      </span>
-                    </td>
-                    <td className="p-2 sm:p-3 md:p-4">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); startQr(p); }}
-                        className="text-gray-600 text-xs sm:text-sm cursor-pointer"
-                      >
-                        {t("products.qr")}
-                      </button>
-                    </td>
+          <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left min-w-[720px] sm:min-w-[880px] text-xs sm:text-sm whitespace-nowrap">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="p-2 sm:p-3 md:p-4">{t("products.sku")}</th>
+                    <th className="p-2 sm:p-3 md:p-4">{t("products.brand")}</th>
+                    <th className="p-2 sm:p-3 md:p-4">{t("products.name")}</th>
+                    <th className="p-2 sm:p-3 md:p-4">
+                      {t("products.category")}
+                    </th>
+                    <th className="p-2 sm:p-3 md:p-4">{t("products.stock")}</th>
+                    <th className="p-2 sm:p-3 md:p-4">{t("products.qr")}</th>
                     {(canEdit || canDelete || canAdjust) && (
-                      <td className="p-2 sm:p-3 md:p-4">
-                        <RowActionsMenu
-                          items={[
-                            {
-                              label: t("products.viewDetails"),
-                              onClick: () => setDetailProduct(p),
-                            },
-                            ...(canEdit
-                              ? [{ label: t("common.edit"), onClick: () => startEdit(p) }]
-                              : []),
-                            ...(canAdjust
-                              ? [
-                                  {
-                                    label: t("products.adjust"),
-                                    color: "text-green-600",
-                                    onClick: () => openCountModal(p),
-                                  },
-                                ]
-                              : []),
-                            ...(canDelete
-                              ? [
-                                  {
-                                    label: t("common.delete"),
-                                    color: "text-red-500",
-                                    onClick: () => handleDelete(p),
-                                  },
-                                ]
-                              : []),
-                          ]}
-                        />
-                      </td>
+                      <th className="p-2 sm:p-3 md:p-4">
+                        {t("common.actions")}
+                      </th>
                     )}
                   </tr>
-                  {expandedIds.has(String(p.id)) && (
-                    <tr key={`${p.id}-variants`} className="bg-slate-50/60">
-                      <td
-                        colSpan={tableColCount}
-                        className="p-2 sm:p-3 md:p-4 pl-8 sm:pl-12"
-                      >
-                        {(p.variants ?? []).length === 0 ? (
-                          /* No variants: the product itself is the single row,
+                </thead>
+                <tbody>
+                  {products.map((p: any) => {
+                    const stock = getTotalStock(p);
+                    return (
+                      <Fragment key={p.id}>
+                        <tr
+                          onClick={() => setDetailProduct(p)}
+                          className="border-b hover:bg-gray-50 cursor-pointer"
+                        >
+                          <td className="p-2 sm:p-3 md:p-4 flex items-left">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleRow(String(p.id));
+                              }}
+                              className="mr-1.5 px-[8px] text-gray-400 cursor-pointer align-middle"
+                              title={
+                                expandedIds.has(String(p.id))
+                                  ? t("products.collapseVariants")
+                                  : t("products.expandVariants")
+                              }
+                            >
+                              {expandedIds.has(String(p.id)) ? (
+                                <ChevronDown className="w-4 h-4" />
+                              ) : (
+                                <ChevronRight className="w-4 h-4" />
+                              )}
+                            </button>
+                            {/* Internal codes can be long: keep each row on one line
+                          and ellipsise instead of wrapping the table. */}
+                            <span
+                              className="inline-block max-w-[9rem] truncate align-middle font-mono text-xs sm:text-sm"
+                              title={p.sku ?? ""}
+                            >
+                              {p.sku}
+                            </span>
+                          </td>
+                          <td className="p-2 sm:p-3 md:p-4 text-gray-600">
+                            {p.brand || t("common.notAvailable")}
+                          </td>
+                          <td className="p-2 sm:p-3 md:p-4 font-medium">
+                            {p.baseName}
+                            {p.kind && p.kind !== "GOODS" && (
+                              <span className="ml-1 text-[10px] text-blue-600">
+                                {statusLabel(p.kind)}
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-2 sm:p-3 md:p-4">
+                            <span className="bg-gray-100 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs">
+                              {p.category?.name || t("common.notAvailable")}
+                            </span>
+                          </td>
+                          <td className="p-2 sm:p-3 md:p-4">
+                            <span
+                              className={`font-bold text-xs sm:text-sm ${stock < 10 ? "text-red-500" : "text-gray-800"}`}
+                            >
+                              {stock}
+                            </span>
+                          </td>
+                          <td className="p-2 sm:p-3 md:p-4">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                startQr(p);
+                              }}
+                              className="text-gray-600 text-xs sm:text-sm cursor-pointer"
+                            >
+                              {t("products.qr")}
+                            </button>
+                          </td>
+                          {(canEdit || canDelete || canAdjust) && (
+                            <td className="p-2 sm:p-3 md:p-4">
+                              <RowActionsMenu
+                                items={[
+                                  {
+                                    label: t("products.viewDetails"),
+                                    onClick: () => setDetailProduct(p),
+                                  },
+                                  ...(canEdit
+                                    ? [
+                                        {
+                                          label: t("common.edit"),
+                                          onClick: () => startEdit(p),
+                                        },
+                                      ]
+                                    : []),
+                                  ...(canAdjust
+                                    ? [
+                                        {
+                                          label: t("products.adjust"),
+                                          color: "text-green-600",
+                                          onClick: () => openCountModal(p),
+                                        },
+                                      ]
+                                    : []),
+                                  ...(canDelete
+                                    ? [
+                                        {
+                                          label: t("common.delete"),
+                                          color: "text-red-500",
+                                          onClick: () => handleDelete(p),
+                                        },
+                                      ]
+                                    : []),
+                                ]}
+                              />
+                            </td>
+                          )}
+                        </tr>
+                        {expandedIds.has(String(p.id)) && (
+                          <tr
+                            key={`${p.id}-variants`}
+                            className="bg-slate-50/60"
+                          >
+                            <td
+                              colSpan={tableColCount}
+                              className="p-2 sm:p-3 md:p-4 pl-8 sm:pl-12"
+                            >
+                              {(p.variants ?? []).length === 0 ? (
+                                /* No variants: the product itself is the single row,
                              laid out in the same table the variant products use
                              below — same columns in the same order, named for a
                              product (its own SKU rather than a variant's).
                              Specifications live in the details modal only. */
-                          <table className="w-full bg-slate-50/60 text-xs whitespace-nowrap">
-                            <thead>
-                              <tr className="text-gray-400">
-                                <th className="text-left p-1 font-medium">{t("products.sku")}</th>
-                                <th className="text-left p-1 font-medium">{t("products.barcode")}</th>
-                                {canViewProfit && (
-                                  <th className="text-right p-1 font-medium">{t("products.buyPrice")}</th>
-                                )}
-                                <th className="text-right p-1 font-medium">{t("products.sellPrice")}</th>
-                                <th className="text-right p-1 font-medium">{t("products.stock")}</th>
-                                <th className="text-right p-1 font-medium">{t("common.actions")}</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              <tr className="border-t border-gray-200">
-                                <td className="p-1 font-mono">{p.sku}</td>
-                                <td className="p-1 font-mono">{p.barcode || "—"}</td>
-                                {canViewProfit && (
-                                  <td className="p-1 text-right">
-                                    {p.currentBuyPrice != null
-                                      ? fmtCurrency(p.currentBuyPrice)
-                                      : "—"}
-                                  </td>
-                                )}
-                                <td className="p-1 text-right">
-                                  {p.currentSellPrice != null
-                                    ? fmtCurrency(p.currentSellPrice)
-                                    : "—"}
-                                </td>
-                                <td className="p-1 text-right font-semibold">{stock}</td>
-                                <td className="p-1 text-right whitespace-nowrap">
-                                  {canAdjust && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openCountModal(p);
-                                      }}
-                                      className="text-emerald-600 hover:underline mr-2"
-                                    >
-                                      {t("products.adjust")}
-                                    </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      startQr(p);
-                                    }}
-                                    className="text-blue-600 hover:underline mr-2"
-                                    title={t("products.printQrTitle")}
-                                  >
-                                    {t("products.printQr")}
-                                  </button>
-                                  {canEdit && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        startEdit(p);
-                                      }}
-                                      className="text-gray-500 hover:underline"
-                                    >
-                                      {t("common.edit")}
-                                    </button>
-                                  )}
-                                </td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        ) : (
-                        <table className="w-full bg-slate-50/60 text-xs whitespace-nowrap">
-                          <thead>
-                            <tr className="text-gray-400">
-                              <th className="text-left p-1 font-medium">{t("products.variationSpec")}</th>
-                              <th className="text-left p-1 font-medium">{t("products.variantSku")}</th>
-                              <th className="text-left p-1 font-medium">{t("products.barcode")}</th>
-                              {canViewProfit && (
-                                <th className="text-right p-1 font-medium">{t("products.buyPrice")}</th>
+                                <table className="w-full bg-slate-50/60 text-xs whitespace-nowrap">
+                                  <thead>
+                                    <tr className="text-gray-400">
+                                      <th className="text-left p-1 font-medium">
+                                        {t("products.sku")}
+                                      </th>
+                                      <th className="text-left p-1 font-medium">
+                                        {t("products.barcode")}
+                                      </th>
+                                      {canViewProfit && (
+                                        <th className="text-right p-1 font-medium">
+                                          {t("products.buyPrice")}
+                                        </th>
+                                      )}
+                                      <th className="text-right p-1 font-medium">
+                                        {t("products.sellPrice")}
+                                      </th>
+                                      <th className="text-right p-1 font-medium">
+                                        {t("products.stock")}
+                                      </th>
+                                      <th className="text-right p-1 font-medium">
+                                        {t("common.actions")}
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    <tr className="border-t border-gray-200">
+                                      <td className="p-1 font-mono">{p.sku}</td>
+                                      <td className="p-1 font-mono">
+                                        {p.barcode || "—"}
+                                      </td>
+                                      {canViewProfit && (
+                                        <td className="p-1 text-right">
+                                          {p.currentBuyPrice != null
+                                            ? fmtCurrency(p.currentBuyPrice)
+                                            : "—"}
+                                        </td>
+                                      )}
+                                      <td className="p-1 text-right">
+                                        {p.currentSellPrice != null
+                                          ? fmtCurrency(p.currentSellPrice)
+                                          : "—"}
+                                      </td>
+                                      <td className="p-1 text-right font-semibold">
+                                        {stock}
+                                      </td>
+                                      <td className="p-1 text-right whitespace-nowrap">
+                                        {canAdjust && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openCountModal(p);
+                                            }}
+                                            className="text-emerald-600 hover:underline mr-2"
+                                          >
+                                            {t("products.adjust")}
+                                          </button>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            startQr(p);
+                                          }}
+                                          className="text-blue-600 hover:underline mr-2"
+                                          title={t("products.printQrTitle")}
+                                        >
+                                          {t("products.printQr")}
+                                        </button>
+                                        {canEdit && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              startEdit(p);
+                                            }}
+                                            className="text-gray-500 hover:underline"
+                                          >
+                                            {t("common.edit")}
+                                          </button>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              ) : (
+                                <table className="w-full bg-slate-50/60 text-xs whitespace-nowrap">
+                                  <thead>
+                                    <tr className="text-gray-400">
+                                      <th className="text-left p-1 font-medium">
+                                        {t("products.variationSpec")}
+                                      </th>
+                                      <th className="text-left p-1 font-medium">
+                                        {t("products.variantSku")}
+                                      </th>
+                                      <th className="text-left p-1 font-medium">
+                                        {t("products.barcode")}
+                                      </th>
+                                      {canViewProfit && (
+                                        <th className="text-right p-1 font-medium">
+                                          {t("products.buyPrice")}
+                                        </th>
+                                      )}
+                                      <th className="text-right p-1 font-medium">
+                                        {t("products.sellPrice")}
+                                      </th>
+                                      <th className="text-right p-1 font-medium">
+                                        {t("products.quantityStock")}
+                                      </th>
+                                      <th className="text-right p-1 font-medium">
+                                        {t("common.actions")}
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {(p.variants ?? []).map((v: any) => {
+                                      const qty =
+                                        (p.inventory ?? []).find(
+                                          (i: any) => i.variantId === v.id,
+                                        )?.quantity ?? 0;
+                                      return (
+                                        <tr
+                                          key={v.id}
+                                          className="border-t border-gray-200"
+                                        >
+                                          <td className="p-1">
+                                            {variantLabel(v) ||
+                                              t("products.standard")}
+                                          </td>
+                                          <td className="p-1 font-mono">
+                                            {v.sku}
+                                          </td>
+                                          <td className="p-1 font-mono">
+                                            {v.barcode || "—"}
+                                          </td>
+                                          {canViewProfit && (
+                                            <td className="p-1 text-right">
+                                              {v.buyPrice != null
+                                                ? fmtCurrency(v.buyPrice)
+                                                : "—"}
+                                            </td>
+                                          )}
+                                          <td className="p-1 text-right">
+                                            {v.sellPrice != null
+                                              ? fmtCurrency(v.sellPrice)
+                                              : "—"}
+                                          </td>
+                                          <td className="p-1 text-right font-semibold">
+                                            {qty}
+                                          </td>
+                                          <td className="p-1 text-right whitespace-nowrap">
+                                            {canAdjust && (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  openCountModal(p, v.id);
+                                                }}
+                                                className="text-emerald-600 hover:underline mr-2"
+                                                title={t(
+                                                  "products.adjustVariantTitle",
+                                                )}
+                                              >
+                                                {t("products.adjust")}
+                                              </button>
+                                            )}
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                startQr(p);
+                                              }}
+                                              className="text-blue-600 hover:underline mr-2"
+                                              title={t("products.printQrTitle")}
+                                            >
+                                              {t("products.printQr")}
+                                            </button>
+                                            {canEdit && (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  startEdit(p);
+                                                }}
+                                                className="text-gray-500 hover:underline"
+                                                title={t(
+                                                  "products.editVariants",
+                                                )}
+                                              >
+                                                {t("products.editVariant")}
+                                              </button>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
                               )}
-                              <th className="text-right p-1 font-medium">{t("products.sellPrice")}</th>
-                              <th className="text-right p-1 font-medium">{t("products.quantityStock")}</th>
-                              <th className="text-right p-1 font-medium">{t("common.actions")}</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(p.variants ?? []).map((v: any) => {
-                              const qty =
-                                (p.inventory ?? []).find(
-                                  (i: any) => i.variantId === v.id,
-                                )?.quantity ?? 0;
-                              return (
-                                <tr key={v.id} className="border-t border-gray-200">
-                                  <td className="p-1">{variantLabel(v) || t("products.standard")}</td>
-                                  <td className="p-1 font-mono">{v.sku}</td>
-                                  <td className="p-1 font-mono">{v.barcode || "—"}</td>
-                                  {canViewProfit && (
-                                    <td className="p-1 text-right">
-                                      {v.buyPrice != null ? fmtCurrency(v.buyPrice) : "—"}
-                                    </td>
-                                  )}
-                                  <td className="p-1 text-right">
-                                    {v.sellPrice != null ? fmtCurrency(v.sellPrice) : "—"}
-                                  </td>
-                                  <td className="p-1 text-right font-semibold">{qty}</td>
-                                  <td className="p-1 text-right whitespace-nowrap">
-                                    {canAdjust && (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          openCountModal(p, v.id);
-                                        }}
-                                        className="text-emerald-600 hover:underline mr-2"
-                                        title={t("products.adjustVariantTitle")}
-                                      >
-                                        {t("products.adjust")}
-                                      </button>
-                                    )}
-                                    <button
-                                      type="button"
-                                      onClick={(e) => { e.stopPropagation(); startQr(p); }}
-                                      className="text-blue-600 hover:underline mr-2"
-                                      title={t("products.printQrTitle")}
-                                    >
-                                      {t("products.printQr")}
-                                    </button>
-                                    {canEdit && (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => { e.stopPropagation(); startEdit(p); }}
-                                        className="text-gray-500 hover:underline"
-                                        title={t("products.editVariants")}
-                                      >
-                                        {t("products.editVariant")}
-                                      </button>
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                            </td>
+                          </tr>
                         )}
-                      </td>
-                    </tr>
-                  )}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <Pagination
-        page={paged.page}
-        totalPages={paged.totalPages}
-        total={paged.total}
-        rangeStart={paged.rangeStart}
-        rangeEnd={paged.rangeEnd}
-        onPrev={paged.prev}
-        onNext={paged.next}
-        onPage={paged.setPage}
-        onPageSizeChange={paged.setPageSize}
-        pageSize={paged.pageSize}
-      />
-      </>
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <Pagination
+            page={paged.page}
+            totalPages={paged.totalPages}
+            total={paged.total}
+            rangeStart={paged.rangeStart}
+            rangeEnd={paged.rangeEnd}
+            onPrev={paged.prev}
+            onNext={paged.next}
+            onPage={paged.setPage}
+            onPageSizeChange={paged.setPageSize}
+            pageSize={paged.pageSize}
+          />
+        </>
       )}
 
       {/* Add Product Modal */}
@@ -687,7 +793,6 @@ export default function ProductsPage() {
         />
       </Modal>
 
-
       {/* Count one item (or several) without leaving the list. */}
       <StockCountModal
         isOpen={!!counting}
@@ -720,7 +825,9 @@ export default function ProductsPage() {
               <QRCodeSVG value={label.sku} size={140} />
               <p className="font-mono text-sm font-semibold">{label.sku}</p>
               {label.name && (
-                <p className="text-gray-500 text-sm text-center">{label.name}</p>
+                <p className="text-gray-500 text-sm text-center">
+                  {label.name}
+                </p>
               )}
               {label.barcode && (
                 <p className="text-xs text-gray-400">
@@ -812,10 +919,7 @@ export default function ProductsPage() {
       {/* Generate a customer-facing price list PDF. Mounted only while open, so
           each open starts with a fresh catalog + empty selection. */}
       {showPriceListModal && (
-        <PriceListModal
-          isOpen
-          onClose={() => setShowPriceListModal(false)}
-        />
+        <PriceListModal isOpen onClose={() => setShowPriceListModal(false)} />
       )}
     </div>
   );
