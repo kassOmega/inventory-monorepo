@@ -2857,6 +2857,45 @@
       "creditFailed": "የማስተካከያ ማስታወሻ አልተሳካም።"
     },
 
+    "vendors": {
+      "title": "አቅራቢዎች",
+      "newVendor": "+ አዲስ አቅራቢ",
+      "newVendorTitle": "አዲስ አቅራቢ",
+      "none": "እስካሁን አቅራቢ የለም።",
+      "colName": "ስም",
+      "colContact": "ተጠሪ",
+      "colEmailPhone": "ኢሜይል / ስልክ",
+      "colTaxId": "የታክስ መለያ",
+      "colTerms": "የክፍያ ጊዜ (ቀናት)",
+      "nameLabel": "ስም *",
+      "nameRequired": "የአቅራቢ ስም ያስፈልጋል",
+      "contactPersonPlaceholder": "ተጠሪ ሰው",
+      "emailPlaceholder": "ኢሜይል",
+      "phonePlaceholder": "ስልክ",
+      "addressPlaceholder": "አድራሻ",
+      "taxIdPlaceholder": "የታክስ መለያ (አማራጭ)",
+      "termsPlaceholder": "የክፍያ ጊዜ (ቀናት)",
+      "saving": "በማስቀመጥ ላይ…",
+      "saveVendor": "አቅራቢውን ያስቀምጡ",
+      "createFailed": "አቅራቢ መፍጠር አልተሳካም።"
+    },
+    "backorders": {
+      "title": "ያልተጠናቀቁ ትዕዛዞች / ክፍት የPO መስመሮች",
+      "refresh": "አድስ",
+      "none": "ክፍት መስመር የለም — ሁሉም የግዢ ትዕዛዞች ሙሉ በሙሉ ተቀብለዋል።",
+      "noVendor": "አቅራቢ የለም",
+      "openLines": "{{count}} ክፍት መስመር(ዎች) · {{total}}",
+      "colMaterial": "ዕቃ",
+      "colOrdered": "የታዘዘ",
+      "colReceived": "የተቀበለ",
+      "colRejected": "ውድቅ የሆነ",
+      "colBackorder": "ያልተጠናቀቀ",
+      "colExpected": "የሚጠበቅ",
+      "stSent": "ተልኳል",
+      "stPartiallyReceived": "በከፊል ተቀብሏል",
+      "loadFailed": "ያልተጠናቀቁ ትዕዛዞችን መጫን አልተሳካም።"
+    },
+
     "jobs": {
       "title": "ስራዎች",
       "newJob": "+ አዲስ ስራ",

@@ -2856,6 +2856,45 @@
       "creditFailed": "Credit note failed."
     },
 
+    "vendors": {
+      "title": "Vendors",
+      "newVendor": "+ New Vendor",
+      "newVendorTitle": "New Vendor",
+      "none": "No vendors yet.",
+      "colName": "Name",
+      "colContact": "Contact",
+      "colEmailPhone": "Email / Phone",
+      "colTaxId": "Tax ID",
+      "colTerms": "Terms (days)",
+      "nameLabel": "Name *",
+      "nameRequired": "Vendor name is required",
+      "contactPersonPlaceholder": "Contact person",
+      "emailPlaceholder": "Email",
+      "phonePlaceholder": "Phone",
+      "addressPlaceholder": "Address",
+      "taxIdPlaceholder": "Tax ID (optional)",
+      "termsPlaceholder": "Payment terms (days)",
+      "saving": "Saving…",
+      "saveVendor": "Save vendor",
+      "createFailed": "Failed to create vendor."
+    },
+    "backorders": {
+      "title": "Backorders / Open PO lines",
+      "refresh": "Refresh",
+      "none": "No open lines — all purchase orders are fully received.",
+      "noVendor": "No vendor",
+      "openLines": "{{count}} open line(s) · {{total}}",
+      "colMaterial": "Material",
+      "colOrdered": "Ordered",
+      "colReceived": "Received",
+      "colRejected": "Rejected",
+      "colBackorder": "Backorder",
+      "colExpected": "Expected",
+      "stSent": "Sent",
+      "stPartiallyReceived": "Partially received",
+      "loadFailed": "Failed to load backorders."
+    },
+
     "jobs": {
       "title": "Jobs",
       "newJob": "+ New Job",
