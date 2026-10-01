@@ -51,6 +51,40 @@ export function isNavItemActive(
   );
 }
 
+/**
+ * The five primary menu groups, in the order the sidebar and the mobile quick nav
+ * show them. A group that is absent for this user (no permission, or a business
+ * type that does not use it) is skipped rather than reordered — see
+ * primaryNavGroups.
+ */
+export const PRIMARY_NAV_GROUP_KEYS = [
+  "overview",
+  "inventory",
+  "salesPayments",
+  "finance",
+  "administration",
+] as const;
+
+/** The primary groups this user actually has, in PRIMARY_NAV_GROUP_KEYS order. */
+export function primaryNavGroups(nav: DashboardNav): DashboardNavGroup[] {
+  return PRIMARY_NAV_GROUP_KEYS.map((key) =>
+    nav.groups.find((g) => g.key === key),
+  ).filter((g): g is DashboardNavGroup => g !== undefined);
+}
+
+/**
+ * Keys of the groups containing the current page, in nav order. The sidebar uses
+ * them to open the section you are in, the mobile quick nav to highlight it.
+ */
+export function activeNavGroupKeys(
+  nav: DashboardNav,
+  pathname: string,
+): string[] {
+  return nav.groups
+    .filter((g) => g.items.some((i) => isNavItemActive(i, pathname)))
+    .map((g) => g.key);
+}
+
 export interface NavService {
   serviceType: string;
   isEnabled: boolean;

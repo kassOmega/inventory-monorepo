@@ -12,6 +12,7 @@ import { ConfirmProvider } from "../components/ConfirmProvider";
 import AiCoachDrawer from "../components/AiCoachDrawer";
 import InstallAppButton from "../components/InstallAppButton";
 import LanguageSwitcher from "../components/LanguageSwitcher";
+import MobileQuickNav from "../components/MobileQuickNav";
 import NotificationBell from "../components/NotificationBell";
 import NotificationToast from "../components/NotificationToast";
 import SidebarMenu from "../components/SidebarMenu";
@@ -498,6 +499,10 @@ export default function DashboardLayout({
                 <NotificationBell />
               </div>
             </div>
+
+            {/* Mobile-only floating quick nav; renders nothing on desktop or on
+                the few pages that pin their own bottom action bar. */}
+            <MobileQuickNav nav={dashboardNav} pathname={pathname} />
 
             <div className="p-4 md:p-8 max-w-7xl mx-auto">{children}</div>
           </main>
