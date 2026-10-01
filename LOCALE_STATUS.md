@@ -11,7 +11,7 @@ section 0.
 | Catalog (frontend) | `cd frontend && node scripts/i18n-check.mjs` | **all gates clean** — parity 3778/3778 ✓, no identical-value misses, 0 glossary violations |
 | Catalog (backend) | `cd inventory-backend && node scripts/i18n-check.mjs` | **all gates clean** — parity 218/218 ✓, no identical-value misses, 0 glossary violations |
 | Frontend UI | `cd frontend && node scripts/i18n-audit.mjs [--list --file X --strict]` | **178 files scanned, 0 dirty, 0 hits** |
-| Backend messages | `cd inventory-backend && node scripts/i18n-audit.mjs [--list --strict]` | 667 `throw` sites, 319 localized, 348 remaining (348 static + **0 interpolated**) |
+| Backend messages | `cd inventory-backend && node scripts/i18n-audit.mjs [--list --strict]` | 667 `throw` sites, 424 localized, 243 remaining (243 static + **0 interpolated**) |
 
 - `docs/i18n-glossary.md` is the single source of truth for terminology; `i18n-check.mjs`
   parses its table and fails on an avoided variant.
@@ -273,8 +273,18 @@ categories automatically (`tenants.service.ts`, `common/verticals.ts`).
   (`csrf`, `tenant`, `vertical`, `verification`, `jwt.strategy`, `tenant.context`) — reusing the
   existing `errors.*` keys wherever the English matched exactly. `assertNotDuplicate()` now takes
   a **catalog key** (default `errors.recordExists`) and translates inside, so its six call sites
-  (purchases/sales ×2/service ×2/restaurant) localize the 409 text too. Backend audit after both
-  batches: **667 throw sites, 319 localized, 348 remaining (0 interpolated)**.
+  (purchases/sales ×2/service ×2/restaurant) localize the 409 text too. A **catalog-first
+  rewrite pass** then converted every static throw whose exact English text is already in the
+  catalog — 105 sites across 23 files (admin, verification, hotel, fiscal, finance, products,
+  sales, restock, manufacturing, memberships, facilities, packages, tenants, credit-sales,
+  restaurant, menu-recipe, inventory, hotel.controller ...) — plus the 21 platform-admin /
+  verification keys that pass needed. The rewrite is mechanical and repeatable: the throw's
+  literal is looked up in the en catalog and replaced with `tr('errors.<key>')`, so the way to
+  finish the backend is *catalog the literals, then re-run the rewrite*. Backend audit after
+  three batches: **667 throw sites, 424 localized, 243 remaining (0 interpolated)**.
+  ⚠️ `npm run lint` runs `eslint --fix` repo-wide and rewrote 139 files (and, via
+  `no-unnecessary-type-assertion`, removed casts the build needs) — use `npx eslint` without
+  `--fix` (or `tsc -p tsconfig.build.json` + `jest`) as the gate instead.
 - Notifications/push/audit: content still created in English at write time. Recommended next
   step: store `templateKey`+`params` and hydrate per viewer language; until then the FE shows
   the stored text.
@@ -295,11 +305,13 @@ Language: use the 🇪🇹/🇬🇧 pill in the top-right of the dashboard (and 
 1. ~~Convert remaining FE pages module-by-module~~ — **done**: `scripts/i18n-audit.mjs` is clean
    across all 178 frontend files. Keep it green (`--strict` in CI) and re-run `i18n-check.mjs`
    after every catalog edit.
-2. Catalog + convert the remaining **398 static** backend throws, module by module (manufacturing
-   46, hotel 36, verification 28, admin 24, ai 24, restock 21, finance 18, products 18, fiscal 17,
-   sales 17, …). Static text is localized at the HTTP edge the moment its exact English value is
-   in `backend.en.ts`/`backend.am.ts` (the `LocalizedExceptionFilter` reverse-maps it), so catalog
-   first and convert the throw to `tr()` in the same pass to keep the audit count moving.
+2. Catalog + convert the remaining **243 static** backend throws, module by module
+   (manufacturing 40, hotel 34, restock 18, finance 17, packages 14, products 13, sales 12,
+   service 11, restaurant 11, facilities 11, ai-product 11, tenants 11, fiscal 8, admin 8,
+   memberships 6, ai/gemini 10, verification 4, …). Static text is localized at the HTTP edge the
+   moment its exact English value is in `backend.en.ts`/`backend.am.ts` (the
+   `LocalizedExceptionFilter` reverse-maps it), so catalog first and re-run the literal → `tr()`
+   rewrite in the same pass to keep the audit count moving.
 3. Add Amharic input fields to product/menu/category/unit/location/payment DTOs + forms.
 4. Notification template-key refactor + push/audit localization.
 5. Receipt/PDF: embed Noto Sans Ethiopic in the pdfkit export, then unpin `fiscal.receipt.*`
