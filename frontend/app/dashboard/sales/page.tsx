@@ -1864,7 +1864,7 @@ export default function SalesPage() {
               value={returnReason}
               onChange={(e) => setReturnReason(e.target.value)}
               className="border p-2 rounded-lg w-full"
-              placeholder="e.g. damaged, wrong item"
+              placeholder={t("sales.returnReasonPh")}
             />
           </div>
           <button
@@ -1925,7 +1925,7 @@ export default function SalesPage() {
             <input
               value={settleNotes}
               onChange={(e) => setSettleNotes(e.target.value)}
-              placeholder="e.g. Paid via CBE"
+              placeholder={t("common.notesPh")}
               className="border p-2 rounded-lg w-full text-sm"
             />
           </div>

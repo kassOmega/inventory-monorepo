@@ -701,7 +701,7 @@ export default function CustomerDetailPage() {
             <input
               value={payNotes}
               onChange={(e) => setPayNotes(e.target.value)}
-              placeholder="e.g. Paid via CBE"
+              placeholder={t("common.notesPh")}
               className="border p-2 rounded-lg w-full text-sm"
             />
           </div>
@@ -811,7 +811,7 @@ export default function CustomerDetailPage() {
             <input
               value={editPayNotes}
               onChange={(e) => setEditPayNotes(e.target.value)}
-              placeholder="e.g. Paid via CBE"
+              placeholder={t("common.notesPh")}
               className="border p-2 rounded-lg w-full text-sm"
             />
           </div>
