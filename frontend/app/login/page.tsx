@@ -12,69 +12,86 @@ interface DemoAccount {
   email: string;
   password: string;
   name: string;
-  role: "Admin" | "Owner" | "Storekeeper" | "Shopkeeper" | "Standalone Shop" | "Manager" | "Waiter" | "Chef";
+  /** i18n key under `roles.*` describing the account's role. */
+  role: string;
 }
 
 interface DemoGroup {
+  /** i18n key under `auth.demo*` naming the demo business. */
   company: string;
   accounts: DemoAccount[];
 }
 
+/** Build a demo-account row (keeps the fixture compact and terse to read). */
+const acct = (email: string, password: string, name: string, role: string): DemoAccount =>
+  ({ email, password, name, role });
+
+// Development-only demo fixture. Emails, passwords and personal names stay
+// Latin on purpose (they are login credentials / people, not UI copy); the
+// group name and role are catalog keys resolved with `t()` at render time.
 const DEMO_GROUPS: DemoGroup[] = [
   {
-    company: "🛡️ Platform Admin",
+    company: "auth.demoPlatformAdmin",
+    accounts: [acct("kass3me@gmail.com", "KASS@3ko", "Kassahun Takele", "roles.admin")],
+  },
+  {
+    company: "auth.demoStandaloneShop",
+    accounts: [acct("standalone@inventory.com", "password123", "Meron Girma", "roles.standalone")],
+  },
+  {
+    company: "auth.demoNejatRetail",
     accounts: [
-      { email: "kass3me@gmail.com", password: "KASS@3ko", name: "Kassahun Takele", role: "Admin" },
+      acct("owner@inventory.com", "password123", "Abebe Bikila", "roles.owner"),
+      acct("storekeeper@inventory.com", "password123", "Chala Gemechu", "roles.storekeeper"),
+      acct("cablestore@inventory.com", "password123", "Taye Desta", "roles.storekeeper"),
+      acct("shopkeeper1@inventory.com", "password123", "Selam Tesfaye", "roles.shopkeeper"),
+      acct("shopkeeper2@inventory.com", "password123", "Kebede Alemu", "roles.shopkeeper"),
+      acct("shopkeeper3@inventory.com", "password123", "Tigist Haile", "roles.shopkeeper"),
     ],
   },
   {
-    company: "🏪 Standalone Shop",
+    company: "auth.demoNejatHospitality",
     accounts: [
-      { email: "standalone@inventory.com", password: "password123", name: "Meron Girma", role: "Standalone Shop" },
+      acct("owner@inventory.com", "password123", "Abebe Bikila", "roles.owner"),
+      acct("manager@inventory.com", "password123", "Sara Mohammed", "roles.manager"),
+      acct("waiter@inventory.com", "password123", "Daniel Girma", "roles.waiter"),
+      acct("chef@inventory.com", "password123", "Fikru Tadesse", "roles.chef"),
     ],
   },
   {
-    company: "⚡ Nejat Electrical — Retail",
+    company: "auth.demoMeronTrading",
     accounts: [
-      { email: "owner@inventory.com", password: "password123", name: "Abebe Bikila", role: "Owner" },
-      { email: "storekeeper@inventory.com", password: "password123", name: "Chala Gemechu", role: "Storekeeper" },
-      { email: "cablestore@inventory.com", password: "password123", name: "Taye Desta", role: "Storekeeper" },
-      { email: "shopkeeper1@inventory.com", password: "password123", name: "Selam Tesfaye", role: "Shopkeeper" },
-      { email: "shopkeeper2@inventory.com", password: "password123", name: "Kebede Alemu", role: "Shopkeeper" },
-      { email: "shopkeeper3@inventory.com", password: "password123", name: "Tigist Haile", role: "Shopkeeper" },
+      acct("meron@inventory.com", "password123", "Meron Alemu", "roles.owner"),
+      acct("meron-store@inventory.com", "password123", "Hanna Bekele", "roles.storekeeper"),
     ],
   },
   {
-    company: "🏨 Nejat Hospitality",
+    company: "auth.demoMeronManufacturing",
     accounts: [
-      { email: "owner@inventory.com", password: "password123", name: "Abebe Bikila", role: "Owner" },
-      { email: "manager@inventory.com", password: "password123", name: "Sara Mohammed", role: "Manager" },
-      { email: "waiter@inventory.com", password: "password123", name: "Daniel Girma", role: "Waiter" },
-      { email: "chef@inventory.com", password: "password123", name: "Fikru Tadesse", role: "Chef" },
+      acct("meron@inventory.com", "password123", "Meron Alemu", "roles.owner"),
+      acct("meron-mfg@inventory.com", "password123", "Yonas Kassa", "roles.manager"),
     ],
   },
   {
-    company: "🏪 Meron Trading — Retail",
+    company: "auth.demoDawitCafe",
     accounts: [
-      { email: "meron@inventory.com", password: "password123", name: "Meron Alemu", role: "Owner" },
-      { email: "meron-store@inventory.com", password: "password123", name: "Hanna Bekele", role: "Storekeeper" },
-    ],
-  },
-  {
-    company: "🏭 Meron Manufacturing",
-    accounts: [
-      { email: "meron@inventory.com", password: "password123", name: "Meron Alemu", role: "Owner" },
-      { email: "meron-mfg@inventory.com", password: "password123", name: "Yonas Kassa", role: "Manager" },
-    ],
-  },
-  {
-    company: "☕ Dawit Café & Restaurant",
-    accounts: [
-      { email: "dawit@inventory.com", password: "password123", name: "Dawit Kebede", role: "Owner" },
-      { email: "dawit-cafe@inventory.com", password: "password123", name: "Bethlehem Assefa", role: "Manager" },
+      acct("dawit@inventory.com", "password123", "Dawit Kebede", "roles.owner"),
+      acct("dawit-cafe@inventory.com", "password123", "Bethlehem Assefa", "roles.manager"),
     ],
   },
 ];
+
+// Role badge colour per `roles.*` key.
+const ROLE_BADGE: Record<string, string> = {
+  "roles.admin": "bg-red-100 text-red-700 border-red-200",
+  "roles.owner": "bg-purple-100 text-purple-700 border-purple-200",
+  "roles.storekeeper": "bg-blue-100 text-blue-700 border-blue-200",
+  "roles.shopkeeper": "bg-green-100 text-green-700 border-green-200",
+  "roles.standalone": "bg-emerald-100 text-emerald-700 border-emerald-200",
+  "roles.manager": "bg-amber-100 text-amber-700 border-amber-200",
+  "roles.waiter": "bg-cyan-100 text-cyan-700 border-cyan-200",
+  "roles.chef": "bg-orange-100 text-orange-700 border-orange-200",
+};
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -117,49 +134,8 @@ export default function LoginPage() {
     setError("");
   };
 
-  const roleBadge = (role: string) => {
-    switch (role) {
-      case "Admin":
-        return "bg-red-100 text-red-700 border-red-200";
-      case "Owner":
-        return "bg-purple-100 text-purple-700 border-purple-200";
-      case "Storekeeper":
-        return "bg-blue-100 text-blue-700 border-blue-200";
-      case "Shopkeeper":
-        return "bg-green-100 text-green-700 border-green-200";
-      case "Standalone Shop":
-        return "bg-emerald-100 text-emerald-700 border-emerald-200";
-      case "Manager":
-        return "bg-amber-100 text-amber-700 border-amber-200";
-      case "Waiter":
-        return "bg-cyan-100 text-cyan-700 border-cyan-200";
-      case "Chef":
-        return "bg-orange-100 text-orange-700 border-orange-200";
-      default:
-        return "bg-gray-100 text-gray-700 border-gray-200";
-    }
-  };
-
-  const ROLE_KEY: Record<string, string> = {
-    Admin: "roles.admin",
-    Owner: "roles.owner",
-    Storekeeper: "roles.storekeeper",
-    Shopkeeper: "roles.shopkeeper",
-    "Standalone Shop": "roles.standalone",
-    Manager: "roles.manager",
-    Waiter: "roles.waiter",
-    Chef: "roles.chef",
-  };
-
-  const GROUP_KEY: Record<string, string> = {
-    "🛡️ Platform Admin": "auth.demoPlatformAdmin",
-    "🏪 Standalone Shop": "auth.demoStandaloneShop",
-    "⚡ Nejat Electrical — Retail": "auth.demoNejatRetail",
-    "🏨 Nejat Hospitality": "auth.demoNejatHospitality",
-    "🏪 Meron Trading — Retail": "auth.demoMeronTrading",
-    "🏭 Meron Manufacturing": "auth.demoMeronManufacturing",
-    "☕ Dawit Café & Restaurant": "auth.demoDawitCafe",
-  };
+  const roleBadge = (role: string) =>
+    ROLE_BADGE[role] ?? "bg-gray-100 text-gray-700 border-gray-200";
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-100">
@@ -251,7 +227,7 @@ export default function LoginPage() {
               {DEMO_GROUPS.map((group) => (
                 <div key={group.company}>
                   <p className="text-[11px] font-semibold text-gray-500 mb-1.5 px-1">
-                    {t(GROUP_KEY[group.company] ?? group.company)}
+                    {t(group.company)}
                   </p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                     {group.accounts.map((account) => (
@@ -271,7 +247,7 @@ export default function LoginPage() {
                           <span
                             className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold border whitespace-nowrap ${roleBadge(account.role)}`}
                           >
-                            {t(ROLE_KEY[account.role] ?? account.role)}
+                            {t(account.role)}
                           </span>
                         </span>
                         <span className="block text-[10px] text-gray-400 truncate mt-0.5">

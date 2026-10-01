@@ -41,14 +41,9 @@ export default function SignupPage() {
   const [wantBusiness, setWantBusiness] = useState(false);
 
   // Allowed document formats (kept in sync with the backend upload filter).
-  const ALLOWED_DOC_TYPES = new Set([
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-    "image/heic",
-    "image/heif",
-    "application/pdf",
-  ]);
+  // Media types are protocol tokens — never translated, never displayed.
+  const ACCEPTED_TYPES = "image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"; // i18n-ignore — MIME tokens
+  const ALLOWED_DOC_TYPES = new Set(ACCEPTED_TYPES.split(","));
   const ALLOWED_DOC_EXTS = new Set([
     ".jpg",
     ".jpeg",
@@ -320,7 +315,7 @@ export default function SignupPage() {
               </span>
               <input
                 type="file"
-                accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
+                accept={ACCEPTED_TYPES}
                 onChange={(e) => setNationalId(e.target.files?.[0] ?? null)}
                 className="mt-1 block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-blue-600 file:text-white file:text-xs file:font-medium"
               />
@@ -375,7 +370,7 @@ export default function SignupPage() {
                   type="text"
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
-                  placeholder="e.g. Meron Trading"
+                  placeholder={t("auth.businessNamePh")}
                   className="w-full p-2.5 sm:p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition text-sm"
                 />
               </div>
@@ -441,8 +436,7 @@ export default function SignupPage() {
                   </div>
                   {hospitalityServices.length === 0 && (
                     <p className="text-[11px] text-amber-600 mt-2">
-                      Pick at least one service — otherwise Food &amp; Beverage and
-                      Accommodation are enabled by default.
+                      {t("hospitalityServices.defaultHint")}
                     </p>
                   )}
                 </div>
@@ -503,7 +497,7 @@ export default function SignupPage() {
                 </span>
                 <input
                   type="file"
-                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
+                  accept={ACCEPTED_TYPES}
                   onChange={(e) => setTradeLicense(e.target.files?.[0] ?? null)}
                   className="mt-1 block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-blue-600 file:text-white file:text-xs file:font-medium"
                 />
@@ -517,7 +511,7 @@ export default function SignupPage() {
                 </span>
                 <input
                   type="file"
-                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
+                  accept={ACCEPTED_TYPES}
                   onChange={(e) => setTinCertificate(e.target.files?.[0] ?? null)}
                   className="mt-1 block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-blue-600 file:text-white file:text-xs file:font-medium"
                 />
