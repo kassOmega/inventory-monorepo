@@ -8,8 +8,8 @@ section 0.
 
 | Gate | Command | Baseline |
 | --- | --- | --- |
-| Catalog | `cd frontend && node scripts/i18n-check.mjs` | **all gates clean** — parity 2721/2721 ✓, no identical-value misses, 0 glossary violations |
-| Frontend UI | `cd frontend && node scripts/i18n-audit.mjs [--list --file X --strict]` | 178 files scanned, 82 dirty, 1160 hardcoded strings |
+| Catalog | `cd frontend && node scripts/i18n-check.mjs` | **all gates clean** — parity 2885/2885 ✓, no identical-value misses, 0 glossary violations |
+| Frontend UI | `cd frontend && node scripts/i18n-audit.mjs [--list --file X --strict]` | 178 files scanned, 76 dirty, 1031 hardcoded strings |
 | Backend messages | `cd inventory-backend && node scripts/i18n-audit.mjs [--list --strict]` | 667 `throw` sites, 239 localized, 428 remaining (398 static + 30 interpolated) |
 
 - `docs/i18n-glossary.md` is the single source of truth for terminology; `i18n-check.mjs`
@@ -28,6 +28,8 @@ section 0.
   arms). Re-measured on unchanged code it lifted the count 1091 → 1459 (368 genuinely
   localizable prose lines the older matcher never saw), so 1459 is the recalibrated
   pre-batch baseline; the sweep below is measured against it, not the old 1091.
+- `i18n-check.mjs` gained two allowlist entries for the catalogue: `mfg.catalog.skuLabel`
+  ("SKU") and `mfg.catalog.mediaPlaceholder` (a placeholder URL) — both stay Latin on purpose.
 - Open: imperative register (77 values) and Delete-vs-Cancel wording — see the glossary.
 
 ## 1. Architecture (working)
@@ -129,15 +131,19 @@ categories automatically (`tenants.service.ts`, `common/verticals.ts`).
   CSV/print exports. `fin.*` gained the dashboard/mapping keys, and the module-level label maps
   (`SOURCE_KEYS`, `MODULE_OPTIONS`, `STATUS_OPTIONS`) now hold catalog keys resolved through
   `t()`/`i18n.t()` instead of literals. `app/dashboard/finance/**` audits **0 hits**.
-- **Manufacturing** (in progress): new `mfg.*` catalog groups — `mfg.common` (shared verbs:
-  save/cancel/edit/delete/updated/updateFailed/activate/deactivate/noneYet/optional) plus per-screen
-  groups `mfg.machines`, `mfg.workers`, `mfg.teams`, `mfg.shifts` (pattern editor, weekday picker,
-  handover badges), alongside the already-wired `mfg.boms`, `mfg.workOrders`, `mfg.settings`,
-  `mfg.jobs`, `mfg.services`. Module label maps (`MSTATUS_KEY`) now hold catalog keys resolved via
-  `t()`, and the shifts weekday/handover columns use the new locale helpers
-  `weekdayShort()`/`formatWeekdayDate()` (Amharic = `am-ET` short names, dates in the Ethiopian
-  calendar) plus `statusLabel()` for shift status. `machines/`, `workers/`, `teams/` and `shifts/`
-  audit **0 hits**; the remaining 13 dirty files in `app/dashboard/manufacturing/**` are next.
+- **Manufacturing** (in progress): the `mfg.*` catalog now carries `mfg.common` (shared verbs:
+  save/cancel/edit/delete/remove/updated/updateFailed/activate/deactivate/noneYet/optional) plus
+  the screens wired so far — `mfg.machines`, `mfg.workers`, `mfg.teams`, `mfg.shifts`,
+  `mfg.production` (work-order completion + COGM estimate), `mfg.materials` (issue/return),
+  `mfg.flows` (process builder), `mfg.catalog` (design catalog + categories), `mfg.receipts`
+  (GRN + receive modal) and `mfg.rejected` (quarantine panel) — alongside the already-wired
+  `mfg.boms`, `mfg.workOrders`, `mfg.settings`, `mfg.jobs`, `mfg.services`. Enum label maps
+  (`MSTATUS_KEY`, `DISPOSITION_KEY`) hold catalog keys resolved via `t()`, statuses render
+  through `statusLabel()`, and weekday/receipt/expiry dates go through
+  `weekdayShort()`/`formatWeekdayDate()`/`formatDateTime()` so they follow the active language
+  (Amharic = `am-ET` short weekday names, Ethiopian calendar). `window.confirm` in the catalog
+  now uses the shared `useConfirm` dialog. **13 screens audit 0 hits**; the 7 remaining dirty
+  files are purchasing (page + 5 panels) and the orders pipeline (50 hits).
 - Fiscal print preview & PDF exports (Ethiopic font work).
 - Forms gaining **optional Amharic name fields** (write `nameI18n.am`, backend DTO `IsObject`
   + `mergeLocalized`) — DTOs not yet extended for every entity.
