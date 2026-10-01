@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@/context/AuthContext";
-import { VERTICAL_LABELS, HOSPITALITY_SERVICES, DEFAULT_HOSPITALITY_SERVICES } from "@/lib/verticals";
+import { VERTICAL_LABELS, verticalLabel, HOSPITALITY_SERVICES, DEFAULT_HOSPITALITY_SERVICES } from "@/lib/verticals";
 import api from "@/lib/api";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useRouter } from "next/navigation";
@@ -198,8 +198,8 @@ export default function BusinessesPage() {
             required
           />
           <select value={businessType} onChange={(e) => setBusinessType(e.target.value)} className="border border-gray-300 rounded p-2 text-sm">
-            {Object.entries(VERTICAL_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
+            {Object.keys(VERTICAL_LABELS).map((value) => (
+              <option key={value} value={value}>{t(`verticals.${value.toLowerCase()}`)}</option>
             ))}
           </select>
           {businessType === "HOSPITALITY" && (
@@ -236,10 +236,10 @@ export default function BusinessesPage() {
                       />
                       <span>
                         <span className="block text-sm font-medium text-gray-800">
-                          {t(`hospitalityServices.${svc.i18nKey}`, { defaultValue: svc.label })}
+                          {t(`hospitalityServices.${svc.i18nKey}`)}
                         </span>
                         <span className="block text-[11px] text-gray-400">
-                          {t(`hospitalityServices.${svc.i18nKey}_DESC`, { defaultValue: svc.description })}
+                          {t(`hospitalityServices.${svc.i18nKey}_DESC`)}
                         </span>
                       </span>
                     </label>
@@ -295,7 +295,7 @@ export default function BusinessesPage() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-800 truncate">{m.organizationName}</p>
                   <p className="text-xs text-gray-400">
-                    {VERTICAL_LABELS[m.businessType] ?? m.businessType} · {m.roleName ?? t("biz.member")}
+                    {verticalLabel(m.businessType) || m.businessType} · {m.roleName ?? t("biz.member")}
                     {m.standalone && (
                       <span className="ml-1.5 bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">
                         {t("biz.standalone")}
@@ -357,8 +357,8 @@ export default function BusinessesPage() {
             <form onSubmit={saveEdit} className="space-y-3">
               <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} placeholder={t("biz.businessName")} className="border border-gray-300 rounded p-2 text-sm w-full" required />
               <select value={editForm.businessType} onChange={(e) => setEditForm({ ...editForm, businessType: e.target.value })} className="border border-gray-300 rounded p-2 text-sm w-full">
-                {Object.entries(VERTICAL_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
+                {Object.keys(VERTICAL_LABELS).map((value) => (
+                  <option key={value} value={value}>{t(`verticals.${value.toLowerCase()}`)}</option>
                 ))}
               </select>
               <div className="flex justify-end gap-2">

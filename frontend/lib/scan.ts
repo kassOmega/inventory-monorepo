@@ -20,8 +20,8 @@ export function normalizeScannedCode(raw: string): string {
 export function formatSymbologyLabel(formatName: string): string {
   if (!formatName) return "";
   if (formatName === "QR_CODE") return "QR";
-  if (formatName === "UPC_EAN_EXTENSION") return "UPC/EAN add-on";
-  if (formatName === "DATA_MATRIX") return "DataMatrix";
+  if (formatName === "UPC_EAN_EXTENSION") return "UPC/EAN add-on"; // i18n-ignore — scanner symbology token
+  if (formatName === "DATA_MATRIX") return "DataMatrix"; // i18n-ignore — scanner symbology name
   if (formatName === "PDF_417") return "PDF417";
   return formatName.replace(/_/g, "-");
 }

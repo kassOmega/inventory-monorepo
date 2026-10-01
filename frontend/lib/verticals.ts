@@ -66,83 +66,82 @@ export const VERTICAL_FEATURES: Record<string, VerticalFeatures> = {
   },
 };
 
+// Business type → i18n key under `verticals.*`. Resolve through
+// `verticalLabel()` so every screen reads the same wording.
 export const VERTICAL_LABELS: Record<string, string> = {
-  RETAIL: "Retail & Distribution",
-  HOSPITALITY: "Hospitality",
-  MANUFACTURING: "Manufacturing & Production",
-  SERVICE: "Services & Consulting",
+  RETAIL: "verticals.retail",
+  HOSPITALITY: "verticals.hospitality",
+  MANUFACTURING: "verticals.manufacturing",
+  SERVICE: "verticals.service",
 };
+
+/** Localized business-type name (falls back to the raw type value). */
+export function verticalLabel(type?: string | null): string {
+  if (!type) return "";
+  const key = VERTICAL_LABELS[type];
+  return key ? i18n.t(key) : type;
+}
 
 // ---------------------------------------------------------------------------
 // Hospitality service lines. The single source of truth for every multi-select
 // (signup / create business), the sidebar gating and the Hospitality Services
-// settings page. Values must match the backend HospitalityServiceType enum.
+// settings page. Values must match the backend HospitalityServiceType enum, and
+// the label/description text lives in the catalog under `hospitalityServices.*`
+// (`<KEY>` for the name, `<KEY>_DESC` for the one-line description).
 // ---------------------------------------------------------------------------
 export interface HospitalityServiceOption {
   value: string;
-  label: string;
-  description: string;
   /** i18n key suffix under `hospitalityServices.*`. */
   i18nKey: string;
 }
 
 export const HOSPITALITY_SERVICES: HospitalityServiceOption[] = [
-  {
-    value: "ACCOMMODATION",
-    label: "Accommodation",
-    description: "Rooms, pensions, lodging",
-    i18nKey: "ACCOMMODATION",
-  },
-  {
-    value: "FOOD_AND_BEVERAGE",
-    label: "Food & Beverage",
-    description: "Restaurant, bar, kitchen, barista",
-    i18nKey: "FOOD_AND_BEVERAGE",
-  },
-  {
-    value: "SPA_AND_WELLNESS",
-    label: "Spa & Wellness",
-    description: "Sauna, steam, massages, salon",
-    i18nKey: "SPA_AND_WELLNESS",
-  },
-  {
-    value: "GYM_AND_FITNESS",
-    label: "Gym & Fitness",
-    description: "Fitness center, memberships",
-    i18nKey: "GYM_AND_FITNESS",
-  },
-  {
-    value: "SWIMMING_POOL",
-    label: "Swimming Pool",
-    description: "Pool access, day passes",
-    i18nKey: "SWIMMING_POOL",
-  },
-  {
-    value: "EVENT_AND_HALL_RENTAL",
-    label: "Event & Hall Rental",
-    description: "Halls, conference spaces",
-    i18nKey: "EVENT_AND_HALL_RENTAL",
-  },
+  { value: "ACCOMMODATION", i18nKey: "ACCOMMODATION" },
+  { value: "FOOD_AND_BEVERAGE", i18nKey: "FOOD_AND_BEVERAGE" },
+  { value: "SPA_AND_WELLNESS", i18nKey: "SPA_AND_WELLNESS" },
+  { value: "GYM_AND_FITNESS", i18nKey: "GYM_AND_FITNESS" },
+  { value: "SWIMMING_POOL", i18nKey: "SWIMMING_POOL" },
+  { value: "EVENT_AND_HALL_RENTAL", i18nKey: "EVENT_AND_HALL_RENTAL" },
 ];
 
 /** The default selection used when a hospitality owner skips the step. */
 export const DEFAULT_HOSPITALITY_SERVICES = ["FOOD_AND_BEVERAGE", "ACCOMMODATION"];
 
-export const HOSPITALITY_SERVICE_LABELS: Record<string, string> =
-  Object.fromEntries(HOSPITALITY_SERVICES.map((s) => [s.value, s.label]));
+/** i18n key for a service line's display name. */
+export function hospitalityServiceLabelKey(serviceType: string): string {
+  return `hospitalityServices.${serviceType.toUpperCase()}`;
+}
 
-export const HOSPITALITY_SERVICE_DESCRIPTIONS: Record<string, string> =
-  Object.fromEntries(HOSPITALITY_SERVICES.map((s) => [s.value, s.description]));
+/** i18n key for a service line's one-line description. */
+export function hospitalityServiceDescKey(serviceType: string): string {
+  return `${hospitalityServiceLabelKey(serviceType)}_DESC`;
+}
+
+/** Localized name of a standard service line (falls back to the raw value). */
+export function hospitalityServiceLabel(serviceType?: string | null): string {
+  if (!serviceType) return "";
+  const out = i18n.t(hospitalityServiceLabelKey(serviceType), { defaultValue: "" });
+  return out || serviceType;
+}
+
+/** Localized description of a standard service line ("" when there is none). */
+export function hospitalityServiceDescription(serviceType?: string | null): string {
+  if (!serviceType) return "";
+  const out = i18n.t(hospitalityServiceDescKey(serviceType), { defaultValue: "" });
+  return out || "";
+}
 
 /** Friendly display name for a HospitalityService row (incl. custom ones). */
 export function hospitalityServiceName(s: {
   serviceType?: string | null;
   customName?: string | null;
 } | null | undefined): string {
-  if (!s) return "Facility";
+  if (!s) return i18n.t("hospitalityServices.facility");
   return (
     s.customName ??
-    (s.serviceType ? HOSPITALITY_SERVICE_LABELS[s.serviceType] ?? s.serviceType : "Facility")
+    (s.serviceType
+      ? hospitalityServiceLabel(s.serviceType)
+      : i18n.t("hospitalityServices.facility"))
   );
 }
 

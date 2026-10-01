@@ -5,7 +5,7 @@ import { useConfirm } from "@/app/components/ConfirmProvider";
 import api from "@/lib/api";
 import {
   hospitalityServiceName as serviceName,
-  HOSPITALITY_SERVICE_DESCRIPTIONS,
+  hospitalityServiceDescription,
 } from "@/lib/verticals";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -208,9 +208,8 @@ export default function BusinessSettingsPage() {
                     )}
                   </p>
                   <p className="text-xs text-gray-400">
-                    {s.customName
-                      ? HOSPITALITY_SERVICE_DESCRIPTIONS[s.serviceType] ?? t("biz.set.customServiceDesc")
-                      : (HOSPITALITY_SERVICE_DESCRIPTIONS[s.serviceType] ?? "")}
+                    {hospitalityServiceDescription(s.serviceType) ||
+                      (s.customName ? t("biz.set.customServiceDesc") : "")}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">

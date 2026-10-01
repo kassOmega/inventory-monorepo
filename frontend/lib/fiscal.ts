@@ -52,7 +52,7 @@ export async function dispatchFiscalPrint(
   if (!res.ok) throw new Error(`Fiscal agent error (HTTP ${res.status})`);
   const data = await res.json();
   if (!data?.fsNumber || !data?.ejNumber) {
-    throw new Error("Fiscal agent returned no fs/ej numbers");
+    throw new Error("Fiscal agent returned no fs/ej numbers"); // i18n-ignore — internal error, surfaced via errors.*
   }
   return {
     fsNumber: data.fsNumber,

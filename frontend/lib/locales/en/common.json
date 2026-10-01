@@ -35,6 +35,10 @@
     "cashier": "Cashier",
     "roomService": "Room Service",
     "hospitalityServices": "Hospitality Services",
+    "memberships": "Memberships",
+    "membershipTypes": "Membership Types",
+    "packages": "Packages",
+    "folios": "Guest Folios",
     "serviceOverview": "Service Overview",
     "serviceCatalog": "Catalog",
     "serviceBookings": "Bookings",
@@ -651,7 +655,16 @@
     "saveCustomer": "Save Customer",
     "updateCustomer": "Update Customer",
     "failedCreateCustomer": "Failed to create customer",
-    "failedUpdateCustomer": "Failed to update customer"
+    "failedUpdateCustomer": "Failed to update customer",
+    "batchLabel": "Batch",
+    "expLabel": "Exp",
+    "timeNow": "now",
+    "timeMinOne": "1 min ago",
+    "timeMinMany": "{{count}} min ago",
+    "timeHourOne": "1 hour ago",
+    "timeHourMany": "{{count}} hours ago",
+    "timeYesterday": "yesterday",
+    "timeDaysMany": "{{count}} days ago"
   },
   "notifications": {
     "lowStockAlert": "Low Stock Alert",
@@ -1040,6 +1053,7 @@
     "hint": "Choose every service line this business offers. You can add more later from Hospitality Services settings.",
     "guestIdTypesNote": "The front desk picks from these at check-in. Deactivating a type hides it from check-in without touching past stays.",
     "defaultHint": "Pick at least one service — otherwise Food & Beverage and Accommodation are enabled by default.",
+    "facility": "Facility",
     "ACCOMMODATION": "Accommodation",
     "ACCOMMODATION_DESC": "Rooms, pensions, lodging",
     "FOOD_AND_BEVERAGE": "Food & Beverage",
@@ -3848,7 +3862,13 @@
     "byReference": "Postings by reference",
     "coverageNote": "Retail/POS coverage: sales post Income + COGS (plus VAT when an Output VAT Payable account exists) and returns post automatic reversals on return/delete. A missing or partial status exposes chart-of-account gaps instead of a silent ledger skip.",
     "searchPh": "Search reference or description…",
-    "resetFilters": "Reset filters"
+    "resetFilters": "Reset filters",
+    "exportRow": "Row",
+    "exportDebit": "Debit",
+    "exportCredit": "Credit",
+    "rowEntry": "Entry",
+    "rowLine": "Line",
+    "rowTotals": "Totals"
   },
   "hub": {
     "title": "Stock Tasks",

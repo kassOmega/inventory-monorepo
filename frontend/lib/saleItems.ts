@@ -78,10 +78,10 @@ export function groupSaleItemsByProduct<T extends SaleItemLike>(
  * with the sale's lines. Only the variant is taken from the sale line; the
  * quantity and price shown stay the credit line's own.
  */
-export function attachSaleVariants<
-  T extends SaleItemLike,
-  S extends SaleItemLike,
->(lines: readonly T[], saleItems: readonly S[]): T[] {
+export function attachSaleVariants<T extends SaleItemLike, S extends SaleItemLike>(
+  lines: readonly T[],
+  saleItems: readonly S[],
+): T[] {
   if (!saleItems.length) return [...lines];
 
   // The sale's lines per product, in their original order.

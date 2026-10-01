@@ -424,10 +424,10 @@ export default function SignupPage() {
                           />
                           <span>
                             <span className="block text-sm font-medium text-gray-800">
-                              {t(`hospitalityServices.${svc.i18nKey}`, { defaultValue: svc.label })}
+                              {t(`hospitalityServices.${svc.i18nKey}`)}
                             </span>
                             <span className="block text-[11px] text-gray-400">
-                              {t(`hospitalityServices.${svc.i18nKey}_DESC`, { defaultValue: svc.description })}
+                              {t(`hospitalityServices.${svc.i18nKey}_DESC`)}
                             </span>
                           </span>
                         </label>

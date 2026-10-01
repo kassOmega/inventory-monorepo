@@ -440,7 +440,7 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
     for (const s of customServices) {
       loose.push({
         href: `/dashboard/hospitality/service/${s.customKey}`,
-        label: s.customName ?? s.customKey ?? "Service",
+        label: s.customName ?? s.customKey ?? t("terms.svc.service"),
         permission: "facility.view",
       });
     }
@@ -452,8 +452,8 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
       customServices.length > 0
     ) {
       loose.push(
-        { href: "/dashboard/hospitality/memberships", label: "Memberships", permission: "memberships.view" },
-        { href: "/dashboard/hospitality/memberships/types", label: "Membership Types", permission: "memberships.view" },
+        { href: "/dashboard/hospitality/memberships", label: t("nav.memberships"), permission: "memberships.view" },
+        { href: "/dashboard/hospitality/memberships/types", label: t("nav.membershipTypes"), permission: "memberships.view" },
       );
     }
     // Packages & guest folios (package / entitlement routing).
@@ -463,8 +463,8 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
       customServices.length > 0
     ) {
       loose.push(
-        { href: "/dashboard/hospitality/packages", label: "Packages", permission: "packages.view" },
-        { href: "/dashboard/hospitality/folios", label: "Guest Folios", permission: "folios.view" },
+        { href: "/dashboard/hospitality/packages", label: t("nav.packages"), permission: "packages.view" },
+        { href: "/dashboard/hospitality/folios", label: t("nav.folios"), permission: "folios.view" },
       );
     }
     // Owner-only: upgrade/toggle the service lines as the business expands.

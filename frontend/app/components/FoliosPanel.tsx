@@ -15,7 +15,7 @@ import { useAuth } from "@/context/AuthContext";
 import { formatDateTime } from "@/lib/datetime";
 import {
   hospitalityServiceName as serviceName,
-  HOSPITALITY_SERVICE_LABELS,
+  hospitalityServiceLabel,
 } from "@/lib/verticals";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -33,7 +33,7 @@ const fmtDate = (d: string) => formatDateTime(d);
 
 // `sourceService` is a HospitalityServiceType value (or a custom service key).
 const sourceLabel = (s?: string | null) =>
-  s ? (HOSPITALITY_SERVICE_LABELS[s] ?? s) : "—";
+  s ? (hospitalityServiceLabel(s) || s) : "—";
 
 /** Net balance due on a stay: its folio balance + every linked guest's add-ons. */
 const stayBalance = (r: any) => {

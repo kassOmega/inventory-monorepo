@@ -44,25 +44,32 @@ export interface JournalExportDeps {
   locationLabel: (entry: JournalEntryLike) => string;
   accountLabel: (line: JournalLineLike) => string;
   accountType: (line: JournalLineLike) => string;
+  /** Translator used for the row-kind labels (Entry / Line / Totals). */
+  t: (key: string) => string;
 }
 
-/** Column order shared by the CSV and the printed report. */
-export const JOURNAL_EXPORT_COLUMNS = [
-  "Row",
-  "Date",
-  "Reference",
-  "Description",
-  "Account",
-  "Type",
-  "Source",
-  "Status",
-  "Location",
-  "Debit",
-  "Credit",
-];
+/** Column order shared by the CSV and the printed report (localized). */
+export function journalExportColumns(t: (key: string) => string): string[] {
+  return [
+    t("ledger.exportRow"),
+    t("common.date"),
+    t("ledger.colReference"),
+    t("common.description"),
+    t("ledger.colAccount"),
+    t("common.type"),
+    t("ledger.colSource"),
+    t("common.status"),
+    t("common.location"),
+    t("ledger.exportDebit"),
+    t("ledger.exportCredit"),
+  ];
+}
+
+/** Column count of the export (the amount columns are the last two). */
+export const JOURNAL_EXPORT_COLUMN_COUNT = 11;
 
 /** First right-aligned (amount) column index. */
-export const JOURNAL_AMOUNT_FROM = JOURNAL_EXPORT_COLUMNS.length - 2;
+export const JOURNAL_AMOUNT_FROM = JOURNAL_EXPORT_COLUMN_COUNT - 2;
 
 /**
  * Build the export rows: an "Entry" row per journal entry, its "Line" rows
@@ -84,7 +91,7 @@ export function buildJournalExport(
     const reference = entry.reference ?? "";
     rows.push({
       cells: [
-        "Entry",
+        deps.t("ledger.rowEntry"),
         date,
         reference,
         entry.description ?? "",
@@ -102,7 +109,7 @@ export function buildJournalExport(
       rows.push({
         detail: true,
         cells: [
-          "Line",
+          deps.t("ledger.rowLine"),
           date,
           reference,
           "",
@@ -122,7 +129,7 @@ export function buildJournalExport(
     rows.push({
       bold: true,
       cells: [
-        "Totals",
+        deps.t("ledger.rowTotals"),
         "",
         "",
         "",

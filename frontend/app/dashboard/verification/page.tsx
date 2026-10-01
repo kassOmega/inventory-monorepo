@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@/context/AuthContext";
-import { VERTICAL_LABELS } from "@/lib/verticals";
+import { VERTICAL_LABELS, verticalLabel } from "@/lib/verticals";
 import api from "@/lib/api";
 import { useCallback, useEffect, useRef, useState } from "react";
 

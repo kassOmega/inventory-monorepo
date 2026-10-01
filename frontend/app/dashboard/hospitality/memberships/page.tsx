@@ -6,7 +6,7 @@ import api from "@/lib/api";
 import {
   hospitalityServiceName as serviceDisplayName,
   isMembershipCapableService as isMembershipCapable,
-  HOSPITALITY_SERVICE_LABELS,
+  hospitalityServiceLabel,
 } from "@/lib/verticals";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -167,7 +167,7 @@ export default function CustomerMembershipsPage() {
 
   const facilityName = (s: any) =>
     s?.customName ??
-    (HOSPITALITY_SERVICE_LABELS[s.serviceType] ?? s.serviceType ?? t("hospitality.mem.facility"));
+    (hospitalityServiceLabel(s?.serviceType) || s?.serviceType || t("hospitality.mem.facility"));
 
   const statusLabel = (s: string) => (STATUS_LABELS[s] ? t(STATUS_LABELS[s]) : s);
 

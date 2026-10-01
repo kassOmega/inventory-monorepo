@@ -35,6 +35,10 @@
     "cashier": "ካሽየር",
     "roomService": "የክፍል አገልግሎት",
     "hospitalityServices": "የእንግዳ ተቀባይነት አገልግሎቶች",
+    "memberships": "አባልነቶች",
+    "membershipTypes": "የአባልነት ዓይነቶች",
+    "packages": "ፓኬጆች",
+    "folios": "የእንግዳ መዝገቦች",
     "serviceOverview": "የአገልግሎት አጠቃላይ እይታ",
     "serviceCatalog": "ካታሎግ",
     "serviceBookings": "ቦታ ማስያዝ",
@@ -651,7 +655,16 @@
     "saveCustomer": "ደንበኛ ያስቀምጡ",
     "updateCustomer": "ደንበኛ ያዘምኑ",
     "failedCreateCustomer": "ደንበኛ መፍጠር አልተሳካም",
-    "failedUpdateCustomer": "ደንበኛ ማዘመን አልተሳካም"
+    "failedUpdateCustomer": "ደንበኛ ማዘመን አልተሳካም",
+    "batchLabel": "ባች",
+    "expLabel": "ያበቃል",
+    "timeNow": "አሁን",
+    "timeMinOne": "1 ደቂቃ በፊት",
+    "timeMinMany": "{{count}} ደቂቃ በፊት",
+    "timeHourOne": "1 ሰዓት በፊት",
+    "timeHourMany": "{{count}} ሰዓታት በፊት",
+    "timeYesterday": "ትናንት",
+    "timeDaysMany": "{{count}} ቀናት በፊት"
   },
   "notifications": {
     "lowStockAlert": "ዝቅተኛ ክምችት ማስጠንቀቂያ",
@@ -1040,6 +1053,7 @@
     "hint": "ይህ ንግድ የሚሰጣቸውን አገልግሎቶች ሁሉ ይምረጡ። በኋላ ከአገልግሎቶች ቅንብር ላይ መጨመር ይችላሉ።",
     "guestIdTypesNote": "የፊት ዴስክ በመግቢያ ጊዜ ከእነዚህ ይመርጣል። አንድን ዓይነት ማቆም ከመግቢያ ዝርዝር ላይ ብቻ ያስወግደዋል፤ ያለፉትን ቆይታዎች አይነካም።",
     "defaultHint": "ቢያንስ አንድ አገልግሎት ይምረጡ — አለበለዚያ የምግብ እና መጠጥ እና መጠለያ በነባሪ ይነቃሉ።",
+    "facility": "መገልገያ",
     "ACCOMMODATION": "ማረፊያ",
     "ACCOMMODATION_DESC": "ክፍሎች፣ ፔንሽኖች፣ ማረፊያ",
     "FOOD_AND_BEVERAGE": "ምግብ እና መጠጥ",
@@ -3849,7 +3863,13 @@
     "byReference": "በማጣቀሻ የተመዘገቡ",
     "coverageNote": "የችርቻሮ/POS ሽፋን፦ ሽያጮች ገቢንና የሸቀጦች ወጪን ይመዘግባሉ (የውጭ ቫት ተከፋይ ሒሳብ ሲኖር ቫትን ጭምር)፤ ተመላሾች በመመለሻ/በመጥፋት ጊዜ ራስ-ሰር ተቃልቦ ይመዘግባሉ። የጎደለ ወይም ከፊል ሁኔታ በጆርናል ዝምታ ከመዝለል ይልቅ የሂሳብ አቀማመጥ ክፍተቶችን ይገልጣል።",
     "searchPh": "ማጣቀሻ ወይም መግለጫ ይፈልጉ…",
-    "resetFilters": "ማጣሪያዎችን ዳግም ያስጀምሩ"
+    "resetFilters": "ማጣሪያዎችን ዳግም ያስጀምሩ",
+    "exportRow": "ረድፍ",
+    "exportDebit": "ዴቢት",
+    "exportCredit": "ክሬዲት",
+    "rowEntry": "ግቤት",
+    "rowLine": "መስመር",
+    "rowTotals": "ጠቅላላ"
   },
   "hub": {
     "title": "የእቃ ስራዎች",

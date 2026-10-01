@@ -1,4 +1,7 @@
-/** Format a variant's dynamic attributes into a compact label, e.g.
+import i18n from "./i18n";
+
+/**
+ * Format a variant's dynamic attributes into a compact label, e.g.
  * "3.5 HP · 220V · 500 L/min · Cast Iron". Empty values are filtered out and
  * the label falls back to the variant SKU when nothing is filled in. */
 export function variantLabel(v: any): string {
@@ -20,6 +23,7 @@ export function productWithVariant(p: any, v: any): string {
 export function batchLabel(b: any): string {
   if (!b) return "";
   const num = b.batchNumber ?? "";
+  const batchWord = i18n.t("common.batchLabel");
   let exp = "";
   if (b.expiryDate) {
     try {
@@ -31,5 +35,5 @@ export function batchLabel(b: any): string {
       exp = "";
     }
   }
-  return `${num ? `Batch: ${num}` : "Batch"}` + (exp ? ` | Exp: ${exp}` : "");
+  return `${num ? `${batchWord}: ${num}` : batchWord}` + (exp ? ` | ${i18n.t("common.expLabel")}: ${exp}` : "");
 }

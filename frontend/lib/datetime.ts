@@ -6,6 +6,7 @@
 //     Underlying data & date filters always stay Gregorian (ISO timestamps);
 //     only the on-screen rendering is converted.
 import { Locale, getActiveLocale } from "./locale";
+import i18n from "./i18n";
 
 function amFormatter(style: "date" | "datetime") {
   const options: Intl.DateTimeFormatOptions =
@@ -100,6 +101,10 @@ export function formatWeekdayDate(value: Date | string, locale?: Locale): string
 /** Relative "time ago" label, localized (en + am). */
 export function timeAgo(iso?: string | null, now = Date.now(), locale?: Locale): string {
   const l = locale ?? getActiveLocale();
+  // `lng` forces the requested locale even when the UI is currently the other
+  // one (callers such as the PDF export pass an explicit locale).
+  const tr = (key: string, opts?: Record<string, unknown>) =>
+    i18n.t(key, { ...opts, lng: l });
   if (!iso) return "";
   const d = new Date(iso).getTime();
   if (Number.isNaN(d)) return "";
@@ -108,23 +113,13 @@ export function timeAgo(iso?: string | null, now = Date.now(), locale?: Locale):
   const m = Math.floor(s / 60);
   const h = Math.floor(m / 60);
   const days = Math.floor(h / 24);
-  if (l === "am") {
-    if (s < 45) return "አሁን";
-    if (m < 2) return "1 ደቂቃ በፊት";
-    if (m < 60) return `${m} ደቂቃ በፊት`;
-    if (h < 2) return "1 ሰዓት በፊት";
-    if (h < 24) return `${h} ሰዓታት በፊት`;
-    if (days < 2) return "ትናንት";
-    if (days < 7) return `${days} ቀናት በፊት`;
-    return formatDate(iso, "am");
-  }
-  if (s < 45) return "now";
-  if (m < 2) return "1 min ago";
-  if (m < 60) return `${m} min ago`;
-  if (h < 2) return "1 hour ago";
-  if (h < 24) return `${h} hours ago`;
-  if (days < 2) return "yesterday";
-  if (days < 7) return `${days} days ago`;
-  return formatDate(iso, "en");
+  if (s < 45) return tr("common.timeNow");
+  if (m < 2) return tr("common.timeMinOne");
+  if (m < 60) return tr("common.timeMinMany", { count: m });
+  if (h < 2) return tr("common.timeHourOne");
+  if (h < 24) return tr("common.timeHourMany", { count: h });
+  if (days < 2) return tr("common.timeYesterday");
+  if (days < 7) return tr("common.timeDaysMany", { count: days });
+  return formatDate(iso, l);
 }
 

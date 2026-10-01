@@ -5,7 +5,7 @@ import Modal from "@/app/components/Modal";
 import { useAuth } from "@/context/AuthContext";
 import { statusLabel } from "@/lib/statusLabel";
 import {
-  JOURNAL_EXPORT_COLUMNS,
+  journalExportColumns,
   buildJournalExport,
   toCsvRows,
   type JournalEntryLike,
@@ -300,6 +300,7 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
       `${l.account?.code ? `${l.account.code} · ` : ""}${l.account?.name ?? `#${l.accountId}`}`,
     accountType: (l: JournalLineLike) =>
       l.account?.type ? statusLabel(l.account.type) : "",
+    t,
   };
   const fetchAllForExport = async () => {
     const all: JournalEntryLike[] = [];
@@ -381,7 +382,7 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
                 const { rows } = await buildExportRows();
                 downloadCsv(
                   "general-ledger-journal.csv",
-                  JOURNAL_EXPORT_COLUMNS,
+                  journalExportColumns(t),
                   toCsvRows(rows),
                 );
               })
