@@ -9,6 +9,7 @@ import {
   HOSPITALITY_SERVICE_LABELS,
 } from "@/lib/verticals";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 const STATUS_STYLES: Record<string, string> = {
   ACTIVE: "bg-green-100 text-green-700",
@@ -17,7 +18,17 @@ const STATUS_STYLES: Record<string, string> = {
   CANCELLED: "bg-red-100 text-red-700",
 };
 
+const MEMBERSHIP_STATUSES = ["ACTIVE", "EXPIRED", "SUSPENDED", "CANCELLED"] as const;
+
+const STATUS_LABELS: Record<string, string> = {
+  ACTIVE: "status.active",
+  EXPIRED: "status.expired",
+  SUSPENDED: "status.suspended",
+  CANCELLED: "status.cancelled",
+};
+
 export default function CustomerMembershipsPage() {
+  const { t } = useTranslation();
   const { activeOrganizationId, hasPermission } = useAuth();
   const confirm = useConfirm();
   const canManage = hasPermission("memberships.manage");
@@ -74,11 +85,11 @@ export default function CustomerMembershipsPage() {
       setFacilities(svcList.filter((s: any) => s.isEnabled && isMembershipCapable(s)));
       setPaymentMethods(Array.isArray(pmRes.data) ? pmRes.data : []);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load memberships");
+      setError(e?.response?.data?.message ?? t("hospitality.mem.failedLoad"));
     } finally {
       setLoading(false);
     }
-  }, [serviceFilter, statusFilter, activeOrganizationId]);
+  }, [serviceFilter, statusFilter, activeOrganizationId, t]);
 
   useEffect(() => {
     load();
@@ -114,7 +125,7 @@ export default function CustomerMembershipsPage() {
       setAssignOpen(false);
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to assign membership");
+      setError(err?.response?.data?.message ?? t("hospitality.mem.failedAssign"));
     }
   };
 
@@ -135,24 +146,30 @@ export default function CustomerMembershipsPage() {
       setExtendFor(null);
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to update membership");
+      setError(err?.response?.data?.message ?? t("hospitality.mem.failedUpdate"));
     }
   };
 
   const changeStatus = async (m: any, status: string) => {
-    if (status === "CANCELLED" && !(await confirm(`Cancel membership for "${m.customer?.name}"?`))) return;
+    if (
+      status === "CANCELLED" &&
+      !(await confirm(t("hospitality.mem.cancelConfirm", { name: m.customer?.name })))
+    )
+      return;
     setError("");
     try {
       await api.patch(`/hospitality/memberships/${m.id}`, { status });
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to update membership");
+      setError(err?.response?.data?.message ?? t("hospitality.mem.failedUpdate"));
     }
   };
 
   const facilityName = (s: any) =>
     s?.customName ??
-    (HOSPITALITY_SERVICE_LABELS[s.serviceType] ?? s.serviceType ?? "Facility");
+    (HOSPITALITY_SERVICE_LABELS[s.serviceType] ?? s.serviceType ?? t("hospitality.mem.facility"));
+
+  const statusLabel = (s: string) => (STATUS_LABELS[s] ? t(STATUS_LABELS[s]) : s);
 
   const openDayPass = () => {
     const first = facilities[0];
@@ -192,7 +209,7 @@ export default function CustomerMembershipsPage() {
       });
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to sell day pass");
+      setError(err?.response?.data?.message ?? t("facility.failedSellDayPass"));
     }
   };
 
@@ -208,7 +225,7 @@ export default function CustomerMembershipsPage() {
       );
       setCheckInResults(Array.isArray(r.data) ? r.data : []);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to search members");
+      setError(e?.response?.data?.message ?? t("facility.failedSearchMembers"));
     } finally {
       setCheckInSearching(false);
     }
@@ -227,7 +244,7 @@ export default function CustomerMembershipsPage() {
       setCheckInSearch("");
       await load();
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Check-in failed");
+      setError(e?.response?.data?.message ?? t("facility.failedCheckIn"));
     }
   };
 
@@ -239,19 +256,19 @@ export default function CustomerMembershipsPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-gray-800">Customer Memberships</h1>
+        <h1 className="text-2xl font-bold text-gray-800">{t("hospitality.mem.title")}</h1>
         <div className="flex items-center gap-2">
           {canManage && (
             <button
               onClick={openDayPass}
               className="bg-emerald-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-emerald-700"
             >
-              Sell Day Pass / Walk-in
+              {t("facility.sellDayPassTitle")}
             </button>
           )}
           {canManage && (
             <button onClick={openAssign} className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-blue-700">
-              + Assign Membership
+              + {t("hospitality.mem.newBtn")}
             </button>
           )}
         </div>
@@ -261,7 +278,7 @@ export default function CustomerMembershipsPage() {
       {/* Check-in member search */}
       {facilities.length > 0 && (
         <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <h2 className="font-semibold text-gray-800 mb-2">Check-in Member</h2>
+          <h2 className="font-semibold text-gray-800 mb-2">{t("facility.checkInMember")}</h2>
           <div className="flex flex-col sm:flex-row gap-2">
             <select
               value={dayPassForm.serviceId}
@@ -287,7 +304,7 @@ export default function CustomerMembershipsPage() {
               value={checkInSearch}
               onChange={(e) => setCheckInSearch(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && searchCheckIn()}
-              placeholder="Search member by name or phone…"
+              placeholder={t("facility.searchMembersPh")}
               className="border border-gray-300 rounded p-2 text-sm flex-1"
             />
             <button
@@ -295,7 +312,7 @@ export default function CustomerMembershipsPage() {
               disabled={checkInSearching}
               className="bg-gray-800 text-white rounded px-4 py-2 text-sm font-medium disabled:opacity-60"
             >
-              {checkInSearching ? "Searching…" : "Search"}
+              {checkInSearching ? t("facility.searching") : t("filters.search")}
             </button>
           </div>
           {checkInResults.length > 0 && (
@@ -305,7 +322,8 @@ export default function CustomerMembershipsPage() {
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-gray-800 truncate">{m.customer?.name}</p>
                     <p className="text-xs text-gray-400">
-                      {m.customer?.phone || ""} · {m.membershipType?.name} · ends {fmt(m.endDate)}
+                      {m.customer?.phone || ""} · {m.membershipType?.name}
+                      {t("facility.endsOn", { date: fmt(m.endDate) })}
                     </p>
                   </div>
                   {canManage && (
@@ -313,7 +331,7 @@ export default function CustomerMembershipsPage() {
                       onClick={() => checkInMember(m)}
                       className="bg-green-600 text-white rounded px-3 py-1.5 text-xs font-medium hover:bg-green-700 shrink-0"
                     >
-                      Check in
+                      {t("facility.checkIn")}
                     </button>
                   )}
                 </li>
@@ -321,40 +339,40 @@ export default function CustomerMembershipsPage() {
             </ul>
           )}
           {checkInResults.length === 0 && checkInSearch.trim() && !checkInSearching && (
-            <p className="text-sm text-gray-400 mt-2">No active members found.</p>
+            <p className="text-sm text-gray-400 mt-2">{t("facility.noActiveMembers")}</p>
           )}
         </div>
       )}
 
       <div className="flex flex-wrap items-center gap-2">
         <select value={serviceFilter} onChange={(e) => setServiceFilter(e.target.value)} className="border border-gray-300 rounded p-2 text-sm bg-white">
-          <option value="">All services</option>
+          <option value="">{t("hospitality.allServices")}</option>
           {facilities.map((s) => (
             <option key={s.id} value={s.id}>{serviceDisplayName(s)}</option>
           ))}
         </select>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border border-gray-300 rounded p-2 text-sm bg-white">
-          <option value="">All statuses</option>
-          {["ACTIVE", "EXPIRED", "SUSPENDED", "CANCELLED"].map((s) => (
-            <option key={s} value={s}>{s}</option>
+          <option value="">{t("orders.allStatuses")}</option>
+          {MEMBERSHIP_STATUSES.map((s) => (
+            <option key={s} value={s}>{statusLabel(s)}</option>
           ))}
         </select>
       </div>
 
       {loading ? (
-        <p className="text-gray-500 text-sm py-6 text-center">Loading…</p>
+        <p className="text-gray-500 text-sm py-6 text-center">{t("common.loading")}</p>
       ) : (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-left text-xs text-gray-500">
               <tr>
-                <th className="px-4 py-2">Customer</th>
-                <th className="px-4 py-2">Pass</th>
-                <th className="px-4 py-2">Service</th>
-                <th className="px-4 py-2">Start</th>
-                <th className="px-4 py-2">End</th>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2 text-right">Actions</th>
+                <th className="px-4 py-2">{t("common.customer")}</th>
+                <th className="px-4 py-2">{t("hospitality.pass")}</th>
+                <th className="px-4 py-2">{t("hospitality.service")}</th>
+                <th className="px-4 py-2">{t("hospitality.start")}</th>
+                <th className="px-4 py-2">{t("hospitality.end")}</th>
+                <th className="px-4 py-2">{t("common.status")}</th>
+                <th className="px-4 py-2 text-right">{t("common.actions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -372,20 +390,20 @@ export default function CustomerMembershipsPage() {
                   <td className="px-4 py-2 text-gray-600">{fmt(m.endDate)}</td>
                   <td className="px-4 py-2">
                     <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${STATUS_STYLES[m.status] ?? "bg-gray-100 text-gray-700"}`}>
-                      {m.status}
+                      {statusLabel(m.status)}
                     </span>
                   </td>
                   <td className="px-4 py-2 text-right whitespace-nowrap">
                     {canManage && (
                       <>
-                        <button onClick={() => openExtend(m)} className="text-xs text-blue-600 hover:underline mr-2">Extend</button>
+                        <button onClick={() => openExtend(m)} className="text-xs text-blue-600 hover:underline mr-2">{t("hospitality.mem.extend")}</button>
                         {m.status !== "SUSPENDED" && (
-                          <button onClick={() => changeStatus(m, "SUSPENDED")} className="text-xs text-amber-600 hover:underline mr-2">Suspend</button>
+                          <button onClick={() => changeStatus(m, "SUSPENDED")} className="text-xs text-amber-600 hover:underline mr-2">{t("hospitality.mem.suspend")}</button>
                         )}
                         {m.status === "SUSPENDED" && (
-                          <button onClick={() => changeStatus(m, "ACTIVE")} className="text-xs text-green-600 hover:underline mr-2">Reactivate</button>
+                          <button onClick={() => changeStatus(m, "ACTIVE")} className="text-xs text-green-600 hover:underline mr-2">{t("hospitality.mem.reactivate")}</button>
                         )}
-                        <button onClick={() => changeStatus(m, "CANCELLED")} className="text-xs text-red-600 hover:underline">Cancel</button>
+                        <button onClick={() => changeStatus(m, "CANCELLED")} className="text-xs text-red-600 hover:underline">{t("common.cancel")}</button>
                       </>
                     )}
                   </td>
@@ -394,7 +412,7 @@ export default function CustomerMembershipsPage() {
               {memberships.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-6 text-center text-gray-400">
-                    No memberships yet — assign your first one.
+                    {t("hospitality.mem.empty")}
                   </td>
                 </tr>
               )}
@@ -407,7 +425,7 @@ export default function CustomerMembershipsPage() {
       {assignOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-5 w-full max-w-sm shadow-xl">
-            <h2 className="font-semibold text-gray-800 mb-3">Assign Membership</h2>
+            <h2 className="font-semibold text-gray-800 mb-3">{t("hospitality.mem.assignTitle")}</h2>
             <form onSubmit={assign} className="space-y-3">
               <select
                 value={assignForm.membershipTypeId}
@@ -415,17 +433,17 @@ export default function CustomerMembershipsPage() {
                 className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
                 required
               >
-                <option value="">Select pass plan…</option>
-                {availableTypes.filter((t: any) => t.isActive).map((t: any) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} ({serviceDisplayName(t.hospitalityService)})
+                <option value="">{t("hospitality.mem.selectPassPlan")}</option>
+                {availableTypes.filter((tp: any) => tp.isActive).map((tp: any) => (
+                  <option key={tp.id} value={tp.id}>
+                    {tp.name} ({serviceDisplayName(tp.hospitalityService)})
                   </option>
                 ))}
               </select>
               <input
                 value={assignForm.customerName}
                 onChange={(e) => setAssignForm({ ...assignForm, customerName: e.target.value })}
-                placeholder="Customer full name"
+                placeholder={t("hospitality.mem.customerNamePh")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
                 required
               />
@@ -433,13 +451,13 @@ export default function CustomerMembershipsPage() {
                 <input
                   value={assignForm.phone}
                   onChange={(e) => setAssignForm({ ...assignForm, phone: e.target.value })}
-                  placeholder="Phone"
+                  placeholder={t("common.phone")}
                   className="border border-gray-300 rounded p-2 text-sm w-full"
                 />
                 <input
                   value={assignForm.email}
                   onChange={(e) => setAssignForm({ ...assignForm, email: e.target.value })}
-                  placeholder="Email"
+                  placeholder={t("common.email")}
                   className="border border-gray-300 rounded p-2 text-sm w-full"
                 />
               </div>
@@ -451,10 +469,10 @@ export default function CustomerMembershipsPage() {
               />
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setAssignOpen(false)} className="px-3 py-2 text-sm text-gray-600">
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button type="submit" className="bg-blue-600 text-white rounded px-3 py-2 text-sm font-medium">
-                  Assign
+                  {t("menu.assign")}
                 </button>
               </div>
             </form>
@@ -465,7 +483,7 @@ export default function CustomerMembershipsPage() {
       {extendFor && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-5 w-full max-w-sm shadow-xl">
-            <h2 className="font-semibold text-gray-800 mb-1">Extend Membership</h2>
+            <h2 className="font-semibold text-gray-800 mb-1">{t("hospitality.mem.extendTitle")}</h2>
             <p className="text-xs text-gray-400 mb-3">
               {extendFor.customer?.name} · {extendFor.membershipType?.name}
             </p>
@@ -479,10 +497,10 @@ export default function CustomerMembershipsPage() {
               />
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setExtendFor(null)} className="px-3 py-2 text-sm text-gray-600">
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">
-                  Save
+                  {t("common.save")}
                 </button>
               </div>
             </form>
@@ -493,9 +511,9 @@ export default function CustomerMembershipsPage() {
       {dayPassOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-5 w-full max-w-sm shadow-xl">
-            <h2 className="font-semibold text-gray-800 mb-1">Sell Day Pass / Register Walk-In</h2>
+            <h2 className="font-semibold text-gray-800 mb-1">{t("hospitality.mem.dayPassTitle")}</h2>
             <p className="text-xs text-gray-400 mb-3">
-              Captures the guest and queues the payment for the cashier to confirm.
+              {t("hospitality.mem.dayPassHint")}
             </p>
             <form onSubmit={sellDayPass} className="space-y-3">
               <select
@@ -503,14 +521,14 @@ export default function CustomerMembershipsPage() {
                 onChange={(e) => {
                   const sid = e.target.value;
                   const firstType = types.find(
-                    (t) => t.hospitalityServiceId === sid && t.isActive && t.durationDays <= 1,
+                    (tp) => tp.hospitalityServiceId === sid && tp.isActive && tp.durationDays <= 1,
                   );
                   setDayPassForm((prev) => ({ ...prev, serviceId: sid, typeId: firstType?.id ?? "" }));
                 }}
                 className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
                 required
               >
-                <option value="">Select facility…</option>
+                <option value="">{t("hospitality.selectFacility")}</option>
                 {facilities.map((f) => (
                   <option key={f.id} value={f.id}>{facilityName(f)}</option>
                 ))}
@@ -518,14 +536,14 @@ export default function CustomerMembershipsPage() {
               <input
                 value={dayPassForm.guestName}
                 onChange={(e) => setDayPassForm({ ...dayPassForm, guestName: e.target.value })}
-                placeholder="Guest name"
+                placeholder={t("hotel.guestName")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
                 required
               />
               <input
                 value={dayPassForm.guestPhone}
                 onChange={(e) => setDayPassForm({ ...dayPassForm, guestPhone: e.target.value })}
-                placeholder="Phone (optional)"
+                placeholder={t("hotel.phoneOptional")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
               />
               <select
@@ -534,16 +552,16 @@ export default function CustomerMembershipsPage() {
                 className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
                 required
               >
-                <option value="">Select day pass…</option>
+                <option value="">{t("facility.selectDayPass")}</option>
                 {types
                   .filter(
-                    (t: any) =>
-                      t.hospitalityServiceId === dayPassForm.serviceId &&
-                      t.isActive &&
-                      t.durationDays <= 1,
+                    (tp: any) =>
+                      tp.hospitalityServiceId === dayPassForm.serviceId &&
+                      tp.isActive &&
+                      tp.durationDays <= 1,
                   )
-                  .map((t: any) => (
-                    <option key={t.id} value={t.id}>{t.name} — {t.price}</option>
+                  .map((tp: any) => (
+                    <option key={tp.id} value={tp.id}>{tp.name} — {tp.price}</option>
                   ))}
               </select>
               <select
@@ -551,17 +569,17 @@ export default function CustomerMembershipsPage() {
                 onChange={(e) => setDayPassForm({ ...dayPassForm, paymentMethodId: e.target.value })}
                 className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
               >
-                <option value="">Payment method…</option>
+                <option value="">{t("facility.paymentMethodPh")}</option>
                 {paymentMethods.map((pm) => (
                   <option key={pm.id} value={pm.id}>{pm.name}</option>
                 ))}
               </select>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setDayPassOpen(false)} className="px-3 py-2 text-sm text-gray-600">
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button type="submit" className="bg-emerald-600 text-white rounded px-3 py-2 text-sm font-medium">
-                  Sell &amp; Check in
+                  {t("facility.sellAndCheckIn")}
                 </button>
               </div>
             </form>

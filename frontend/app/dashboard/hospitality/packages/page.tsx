@@ -5,6 +5,13 @@ import { useConfirm } from "@/app/components/ConfirmProvider";
 import api from "@/lib/api";
 import { hospitalityServiceName as serviceName } from "@/lib/verticals";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+
+// Reservation statuses shown in the check-in picker (enum → catalog key).
+const RES_STATUS_LABELS: Record<string, string> = {
+  CONFIRMED: "status.confirmed",
+  CHECKED_IN: "status.checkedIn",
+};
 
 interface EntRow {
   // ITEM = station/menu coverage; CREDIT = service ETB allowance;
@@ -31,6 +38,7 @@ const emptyEntRow = (): EntRow => ({
 });
 
 export default function PackagesPage() {
+  const { t } = useTranslation();
   const { activeOrganizationId, hasPermission } = useAuth();
   const confirm = useConfirm();
   const canManage = hasPermission("packages.manage");
@@ -100,11 +108,11 @@ export default function PackagesPage() {
       setGuests(Array.isArray(g.data) ? g.data : []);
       setMembershipTypes(Array.isArray(mt.data) ? mt.data : []);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load packages");
+      setError(e?.response?.data?.message ?? t("hospitality.pkg.failedLoad"));
     } finally {
       setLoading(false);
     }
-  }, [activeOrganizationId]);
+  }, [activeOrganizationId, t]);
 
   useEffect(() => {
     load();
@@ -201,17 +209,17 @@ export default function PackagesPage() {
       setModal(null);
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to save package");
+      setError(err?.response?.data?.message ?? t("hospitality.pkg.failedSave"));
     }
   };
 
   const remove = async (pkg: any) => {
-    if (!(await confirm(`Delete package "${pkg.name}"?`))) return;
+    if (!(await confirm(t("hospitality.pkg.deleteConfirm", { name: pkg.name })))) return;
     try {
       await api.delete(`/hospitality/packages/${pkg.id}`);
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to delete package");
+      setError(err?.response?.data?.message ?? t("hospitality.pkg.failedDelete"));
     }
   };
 
@@ -220,7 +228,7 @@ export default function PackagesPage() {
       await api.patch(`/hospitality/packages/${pkg.id}`, { isActive: !pkg.isActive });
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to update package");
+      setError(err?.response?.data?.message ?? t("hospitality.pkg.failedUpdate"));
     }
   };
 
@@ -276,20 +284,20 @@ export default function PackagesPage() {
       setCheckInOpen(false);
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to check in guest");
+      setError(err?.response?.data?.message ?? t("hospitality.pkg.failedCheckIn"));
     } finally {
       setCheckInBusy(false);
     }
   };
 
   const checkOutGuest = async (guestId: string) => {
-    if (!(await confirm("Settle this guest folio and check the guest out?"))) return;
+    if (!(await confirm(t("hospitality.pkg.settleConfirm")))) return;
     setError("");
     try {
       await api.post(`/hospitality/guests/${guestId}/check-out`);
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to settle guest folio");
+      setError(err?.response?.data?.message ?? t("hospitality.pkg.failedSettle"));
     }
   };
 
@@ -298,16 +306,23 @@ export default function PackagesPage() {
     const allow = Number(row.allowanceValue);
     const item = allItems.find((i: any) => i.id === Number(row.menuItemId));
     if (!row.allowanceValue || !item) return null;
-    return `Item ${item.name} (${item.price} ETB) → covered ${Math.min(allow, item.price)}, excess ${Math.max(0, item.price - allow)} ETB`;
+    return t("hospitality.pkg.previewItem", {
+      name: item.name,
+      price: item.price,
+      covered: Math.min(allow, item.price),
+      excess: Math.max(0, item.price - allow),
+    });
   };
+
+  const resStatus = (s: string) => (RES_STATUS_LABELS[s] ? t(RES_STATUS_LABELS[s]) : s);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Packages &amp; Entitlements</h1>
+          <h1 className="text-2xl font-bold text-gray-800">{t("hospitality.pkg.title")}</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            Bundle daily entitlement allowances per station (Kitchen, Barista…) for package guests.
+            {t("hospitality.pkg.subtitle")}
           </p>
         </div>
         {(canRedeem || canManage) && (
@@ -316,12 +331,12 @@ export default function PackagesPage() {
                 `packages.manage`. A package desk may hold only the former. */}
             {canRedeem && (
               <button onClick={openCheckIn} className="bg-emerald-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-emerald-700">
-                🛎️ Check In Guest
+                🛎️ {t("hospitality.pkg.checkInBtn")}
               </button>
             )}
             {canManage && (
               <button onClick={openNew} className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-blue-700">
-                + New Package
+                + {t("hospitality.pkg.newBtn")}
               </button>
             )}
           </div>
@@ -330,19 +345,19 @@ export default function PackagesPage() {
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
 
       {loading ? (
-        <p className="text-gray-500 text-sm py-6 text-center">Loading packages…</p>
+        <p className="text-gray-500 text-sm py-6 text-center">{t("facility.loadingName", { name: t("hospitality.pkg.title") })}</p>
       ) : (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-left text-xs text-gray-500">
               <tr>
-                <th className="px-4 py-2">Package</th>
-                <th className="px-4 py-2">Service</th>
-                <th className="px-4 py-2">Price</th>
-                <th className="px-4 py-2">Entitlements</th>
-                <th className="px-4 py-2">Active Guests</th>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2 text-right">Actions</th>
+                <th className="px-4 py-2">{t("hospitality.pkg.colPackage")}</th>
+                <th className="px-4 py-2">{t("hospitality.service")}</th>
+                <th className="px-4 py-2">{t("common.price")}</th>
+                <th className="px-4 py-2">{t("hospitality.pkg.colEntitlements")}</th>
+                <th className="px-4 py-2">{t("hospitality.pkg.colActiveGuests")}</th>
+                <th className="px-4 py-2">{t("common.status")}</th>
+                <th className="px-4 py-2 text-right">{t("common.actions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -352,7 +367,7 @@ export default function PackagesPage() {
                   <td className="px-4 py-2 text-gray-600">
                     {pkg.hospitalityServiceId
                       ? serviceName(pkg.hospitalityService)
-                      : "Cross-service"}
+                      : t("hospitality.pkg.crossService")}
                   </td>
                   <td className="px-4 py-2 text-gray-600">{pkg.price}</td>
                   <td className="px-4 py-2 text-gray-600">
@@ -360,7 +375,7 @@ export default function PackagesPage() {
                       <div key={en.id} className="text-xs py-0.5">
                         <span className="font-medium">
                           {en.entitlementKind === "ITEM"
-                            ? en.station?.name ?? "Station"
+                            ? en.station?.name ?? t("hospitality.pkg.station")
                             : serviceName(en.hospitalityService)}
                         </span>
                         {en.entitlementKind === "ITEM" &&
@@ -371,14 +386,20 @@ export default function PackagesPage() {
                               : "")}
                         {en.entitlementKind === "PASS" && (
                           <span className="ml-1 text-violet-600">
-                            PASS{en.membershipType ? ` · ${en.membershipType.name}` : ""}
+                            {t("hospitality.pass")}{en.membershipType ? ` · ${en.membershipType.name}` : ""}
                           </span>
                         )}
                         {en.entitlementKind === "CREDIT" && (
-                          <span className="ml-1 text-violet-600">CREDIT</span>
+                          <span className="ml-1 text-violet-600">{t("fin.colCredit")}</span>
                         )}
-                        {` · ${en.allowanceValue > 0 ? `${en.allowanceValue} ETB/unit` : "full coverage"}`}
-                        {en.dailyLimit != null ? ` · ${en.dailyLimit}/day` : ""}
+                        {` · ${
+                          en.allowanceValue > 0
+                            ? t("hospitality.pkg.perUnit", { value: en.allowanceValue })
+                            : t("hospitality.pkg.fullCoverage")
+                        }`}
+                        {en.dailyLimit != null
+                          ? ` · ${t("hospitality.pkg.perDay", { limit: en.dailyLimit })}`
+                          : ""}
                       </div>
                     ))}
                     {(pkg.entitlements ?? []).length === 0 && <span className="text-gray-400">—</span>}
@@ -392,7 +413,7 @@ export default function PackagesPage() {
                           pkg.isActive ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-500"
                         }`}
                       >
-                        {pkg.isActive ? "Active" : "Inactive"}
+                        {pkg.isActive ? t("hospitality.active") : t("hospitality.inactive")}
                       </button>
                     ) : (
                       <span
@@ -400,15 +421,15 @@ export default function PackagesPage() {
                           pkg.isActive ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-500"
                         }`}
                       >
-                        {pkg.isActive ? "Active" : "Inactive"}
+                        {pkg.isActive ? t("hospitality.active") : t("hospitality.inactive")}
                       </span>
                     )}
                   </td>
                   <td className="px-4 py-2 text-right whitespace-nowrap">
                     {canManage && (
                       <>
-                        <button onClick={() => openEdit(pkg)} className="text-xs text-blue-600 hover:underline mr-2">Edit</button>
-                        <button onClick={() => remove(pkg)} className="text-xs text-red-600 hover:underline">Del</button>
+                        <button onClick={() => openEdit(pkg)} className="text-xs text-blue-600 hover:underline mr-2">{t("common.edit")}</button>
+                        <button onClick={() => remove(pkg)} className="text-xs text-red-600 hover:underline">{t("common.del")}</button>
                       </>
                     )}
                   </td>
@@ -417,7 +438,7 @@ export default function PackagesPage() {
               {packages.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-6 text-center text-gray-400">
-                    No packages yet — add your first one.
+                    {t("hospitality.pkg.empty")}
                   </td>
                 </tr>
               )}
@@ -429,9 +450,9 @@ export default function PackagesPage() {
       {guests.length > 0 && (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-800">Active Package Guests</h2>
+            <h2 className="font-semibold text-gray-800">{t("hospitality.pkg.activeGuestsTitle")}</h2>
             <p className="text-xs text-gray-400 mt-0.5">
-              Guests checked in against a package; settle each folio at checkout.
+              {t("hospitality.pkg.activeGuestsHint")}
             </p>
           </div>
           <ul className="divide-y divide-gray-100">
@@ -441,12 +462,12 @@ export default function PackagesPage() {
                   <p className="text-sm font-medium text-gray-800">
                     {g.guestName}
                     {g.roomNumber && (
-                      <span className="ml-2 text-xs text-gray-500">Room {g.roomNumber}</span>
+                      <span className="ml-2 text-xs text-gray-500">{t("hotel.checkinStepRoom")} {g.roomNumber}</span>
                     )}
                   </p>
                   <p className="text-xs text-gray-400">
                     {serviceName(g.package?.hospitalityService)} · {g.package?.name}
-                    {g.hotelReservation ? ` · Stay #${g.hotelReservation.id}` : ""}
+                    {g.hotelReservation ? t("hospitality.pkg.stayRef", { id: g.hotelReservation.id }) : ""}
                   </p>
                 </div>
                 <div className="text-right shrink-0 flex items-center gap-3">
@@ -457,14 +478,14 @@ export default function PackagesPage() {
                         : "bg-green-100 text-green-700"
                     }`}
                   >
-                    {money(balanceOf(g))} ETB
+                    {money(balanceOf(g))} {t("orders.birr")}
                   </span>
                   {canSettle && (
                     <button
                       onClick={() => checkOutGuest(g.id)}
                       className="text-xs text-blue-600 hover:underline"
                     >
-                      Settle &amp; check out
+                      {t("hospitality.pkg.settleCheckOut")}
                     </button>
                   )}
                 </div>
@@ -477,7 +498,7 @@ export default function PackagesPage() {
       {checkInOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-5 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
-            <h2 className="font-semibold text-gray-800 mb-3">Check In Guest</h2>
+            <h2 className="font-semibold text-gray-800 mb-3">{t("hospitality.pkg.checkInTitle")}</h2>
             <form onSubmit={submitCheckIn} className="space-y-3">
               <select
                 value={checkInForm.packageId}
@@ -485,7 +506,7 @@ export default function PackagesPage() {
                 className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
                 required
               >
-                <option value="">Select package…</option>
+                <option value="">{t("hospitality.pkg.selectPackage")}</option>
                 {packages
                   .filter((p) => p.isActive)
                   .map((p) => (
@@ -499,32 +520,32 @@ export default function PackagesPage() {
                 onChange={(e) => selectReservation(e.target.value)}
                 className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
               >
-                <option value="">No room (standalone guest)</option>
+                <option value="">{t("hospitality.pkg.noRoom")}</option>
                 {activeReservations.map((r) => (
                   <option key={r.id} value={r.id}>
-                    Room {r.room?.number ?? "—"} · {r.guestName} · {r.status}
+                    {t("hotel.checkinStepRoom")} {r.room?.number ?? "—"} · {r.guestName} · {resStatus(r.status)}
                   </option>
                 ))}
               </select>
               <input
                 value={checkInForm.guestName}
                 onChange={(e) => setCheckInForm({ ...checkInForm, guestName: e.target.value })}
-                placeholder="Guest name"
+                placeholder={t("hotel.guestName")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
                 required
               />
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Room number</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t("hospitality.pkg.roomNumber")}</label>
                 <input
                   value={checkInForm.roomNumber}
                   onChange={(e) => setCheckInForm({ ...checkInForm, roomNumber: e.target.value })}
-                  placeholder="Auto-filled from the reservation"
+                  placeholder={t("hospitality.pkg.roomAutoPh")}
                   className="border border-gray-300 rounded p-2 text-sm w-full bg-gray-50"
                 />
                 <p className="text-[11px] text-gray-400 mt-1">
                   {checkInForm.hotelReservationId
-                    ? "Auto-filled from the selected reservation."
-                    : "Pick a reservation to auto-fill, or type a room for a standalone charge."}
+                    ? t("hospitality.pkg.roomAutoHint")
+                    : t("hospitality.pkg.roomPickHint")}
                 </p>
               </div>
               <div className="flex justify-end gap-2">
@@ -533,14 +554,14 @@ export default function PackagesPage() {
                   onClick={() => setCheckInOpen(false)}
                   className="px-3 py-2 text-sm text-gray-600"
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="submit"
                   disabled={checkInBusy}
                   className="bg-emerald-600 text-white rounded px-3 py-2 text-sm font-medium hover:bg-emerald-700 disabled:opacity-60"
                 >
-                  {checkInBusy ? "Checking in…" : "Check In"}
+                  {checkInBusy ? t("facility.checkingIn") : t("facility.checkIn")}
                 </button>
               </div>
             </form>
@@ -551,12 +572,12 @@ export default function PackagesPage() {
       {modal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-5 w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
-            <h2 className="font-semibold text-gray-800 mb-3">{modal.id ? "Edit Package" : "New Package"}</h2>
+            <h2 className="font-semibold text-gray-800 mb-3">{modal.id ? t("hospitality.pkg.editTitle") : t("hospitality.pkg.newBtn")}</h2>
             <form onSubmit={save} className="space-y-3">
               {!modal.id && (
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">
-                    Primary service (optional)
+                    {t("hospitality.pkg.primaryService")}
                   </label>
                   <select
                     value={form.hospitalityServiceId}
@@ -564,7 +585,7 @@ export default function PackagesPage() {
                     className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
                   >
                     <option value="">
-                      Cross-service package (bundle several services)
+                      {t("hospitality.pkg.crossServiceOption")}
                     </option>
                     {services
                       .filter((s) => s.serviceType !== "FOOD_AND_BEVERAGE")
@@ -578,14 +599,14 @@ export default function PackagesPage() {
                 <input
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="Package name (e.g. All-Inclusive Dine Package)"
+                  placeholder={t("hospitality.pkg.namePh")}
                   className="border border-gray-300 rounded p-2 text-sm flex-1"
                   required
                 />
                 <input
                   value={form.price}
                   onChange={(e) => setForm({ ...form, price: e.target.value })}
-                  placeholder="Price (ETB)"
+                  placeholder={t("hospitality.pkg.priceEtbPh")}
                   type="number"
                   className="border border-gray-300 rounded p-2 text-sm w-32"
                 />
@@ -593,9 +614,9 @@ export default function PackagesPage() {
 
               <div className="border border-gray-200 rounded-lg p-3">
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-medium text-gray-700">Bundled Entitlements</p>
+                  <p className="text-sm font-medium text-gray-700">{t("hospitality.pkg.bundled")}</p>
                   <button type="button" onClick={addEnt} className="text-xs text-blue-600 hover:underline">
-                    + Add entitlement
+                    + {t("hospitality.pkg.addEnt")}
                   </button>
                 </div>
                 <div className="space-y-3">
@@ -617,9 +638,9 @@ export default function PackagesPage() {
                           }
                           className="border border-gray-300 rounded p-2 text-xs w-28 bg-white"
                         >
-                          <option value="ITEM">Item (F&B)</option>
-                          <option value="CREDIT">Credit</option>
-                          <option value="PASS">Pass</option>
+                          <option value="ITEM">{t("hospitality.pkg.entItem")}</option>
+                          <option value="CREDIT">{t("fin.colCredit")}</option>
+                          <option value="PASS">{t("hospitality.pass")}</option>
                         </select>
 
                         {row.entitlementKind === "ITEM" ? (
@@ -630,7 +651,7 @@ export default function PackagesPage() {
                               className="border border-gray-300 rounded p-2 text-xs flex-1 bg-white"
                               required
                             >
-                              <option value="">Station…</option>
+                              <option value="">{t("hospitality.pkg.stationPh")}</option>
                               {stations.map((st) => (
                                 <option key={st.id} value={st.id}>{st.name}</option>
                               ))}
@@ -640,7 +661,7 @@ export default function PackagesPage() {
                               onChange={(e) => updEnt(i, { menuCategoryId: e.target.value, menuItemId: "" })}
                               className="border border-gray-300 rounded p-2 text-xs flex-1 bg-white"
                             >
-                              <option value="">Any category</option>
+                              <option value="">{t("hospitality.pkg.anyCategory")}</option>
                               {menu.map((c) => (
                                 <option key={c.id} value={c.id}>{c.name}</option>
                               ))}
@@ -650,7 +671,7 @@ export default function PackagesPage() {
                               onChange={(e) => updEnt(i, { menuItemId: e.target.value })}
                               className="border border-gray-300 rounded p-2 text-xs flex-1 bg-white"
                             >
-                              <option value="">Any item</option>
+                              <option value="">{t("hospitality.pkg.anyItem")}</option>
                               {(row.menuCategoryId
                                 ? allItems.filter((it: any) => String(it.categoryId) === row.menuCategoryId)
                                 : allItems
@@ -667,7 +688,7 @@ export default function PackagesPage() {
                               className="border border-gray-300 rounded p-2 text-xs flex-1 bg-white"
                               required
                             >
-                              <option value="">Service…</option>
+                              <option value="">{t("hospitality.pkg.servicePh")}</option>
                               {services.map((s) => (
                                 <option key={s.id} value={s.id}>{serviceName(s)}</option>
                               ))}
@@ -678,16 +699,16 @@ export default function PackagesPage() {
                                 onChange={(e) => updEnt(i, { membershipTypeId: e.target.value })}
                                 className="border border-gray-300 rounded p-2 text-xs flex-1 bg-white"
                               >
-                                <option value="">Any pass plan</option>
+                                <option value="">{t("hospitality.pkg.anyPassPlan")}</option>
                                 {membershipTypes
                                   .filter(
-                                    (t) =>
+                                    (tp) =>
                                       !row.hospitalityServiceId ||
-                                      t.hospitalityServiceId === row.hospitalityServiceId,
+                                      tp.hospitalityServiceId === row.hospitalityServiceId,
                                   )
-                                  .map((t) => (
-                                    <option key={t.id} value={t.id}>
-                                      {t.name} ({t.durationDays}d)
+                                  .map((tp) => (
+                                    <option key={tp.id} value={tp.id}>
+                                      {tp.name} ({tp.durationDays}d)
                                     </option>
                                   ))}
                               </select>
@@ -702,14 +723,14 @@ export default function PackagesPage() {
                         <input
                           value={row.allowanceValue}
                           onChange={(e) => updEnt(i, { allowanceValue: e.target.value })}
-                          placeholder="Covered ETB/unit (0 = full)"
+                          placeholder={t("hospitality.pkg.allowancePh")}
                           type="number"
                           className="border border-gray-300 rounded p-2 text-xs w-40"
                         />
                         <input
                           value={row.dailyLimit}
                           onChange={(e) => updEnt(i, { dailyLimit: e.target.value })}
-                          placeholder="Daily limit (units)"
+                          placeholder={t("hospitality.pkg.dailyLimitPh")}
                           type="number"
                           className="border border-gray-300 rounded p-2 text-xs w-32"
                         />
@@ -717,16 +738,16 @@ export default function PackagesPage() {
                       </div>
                     </div>
                   ))}
-                  {entRows.length === 0 && <p className="text-xs text-gray-400">No entitlements — add an item, credit or pass line.</p>}
+                  {entRows.length === 0 && <p className="text-xs text-gray-400">{t("hospitality.pkg.noEntitlements")}</p>}
                 </div>
               </div>
 
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setModal(null)} className="px-3 py-2 text-sm text-gray-600">
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button type="submit" className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-blue-700">
-                  Save Package
+                  {t("hospitality.pkg.save")}
                 </button>
               </div>
             </form>

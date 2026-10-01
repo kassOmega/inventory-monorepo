@@ -8,8 +8,10 @@ import {
   isMembershipCapableService as isMembershipCapable,
 } from "@/lib/verticals";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 export default function MembershipTypesPage() {
+  const { t } = useTranslation();
   const { activeOrganizationId, hasPermission } = useAuth();
   const confirm = useConfirm();
   const canManage = hasPermission("memberships.manage");
@@ -37,11 +39,11 @@ export default function MembershipTypesPage() {
         (Array.isArray(sRes.data) ? sRes.data : []).filter((s: any) => s.isEnabled),
       );
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load membership types");
+      setError(e?.response?.data?.message ?? t("hospitality.types.failedLoad"));
     } finally {
       setLoading(false);
     }
-  }, [filter, activeOrganizationId]);
+  }, [filter, activeOrganizationId, t]);
 
   useEffect(() => {
     load();
@@ -86,26 +88,26 @@ export default function MembershipTypesPage() {
       setModal(null);
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to save membership type");
+      setError(err?.response?.data?.message ?? t("hospitality.types.failedSave"));
     }
   };
 
-  const remove = async (t: any) => {
-    if (!(await confirm(`Delete pass "${t.name}"?`))) return;
+  const remove = async (type: any) => {
+    if (!(await confirm(t("hospitality.types.deleteConfirm", { name: type.name })))) return;
     try {
-      await api.delete(`/hospitality/memberships/types/${t.id}`);
+      await api.delete(`/hospitality/memberships/types/${type.id}`);
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to delete membership type");
+      setError(err?.response?.data?.message ?? t("hospitality.types.failedDelete"));
     }
   };
 
-  const toggleActive = async (t: any) => {
+  const toggleActive = async (type: any) => {
     try {
-      await api.patch(`/hospitality/memberships/types/${t.id}`, { isActive: !t.isActive });
+      await api.patch(`/hospitality/memberships/types/${type.id}`, { isActive: !type.isActive });
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to update pass");
+      setError(err?.response?.data?.message ?? t("hospitality.types.failedUpdate"));
     }
   };
 
@@ -114,10 +116,10 @@ export default function MembershipTypesPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-gray-800">Membership Types</h1>
+        <h1 className="text-2xl font-bold text-gray-800">{t("hospitality.types.title")}</h1>
         {canManage && (
           <button onClick={openNew} className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-blue-700">
-            + New Pass Plan
+            + {t("hospitality.types.newPassPlan")}
           </button>
         )}
       </div>
@@ -125,7 +127,7 @@ export default function MembershipTypesPage() {
 
       <div className="flex flex-wrap items-center gap-2">
         <select value={filter} onChange={(e) => setFilter(e.target.value)} className="border border-gray-300 rounded p-2 text-sm bg-white">
-          <option value="">All services</option>
+          <option value="">{t("hospitality.allServices")}</option>
           {membershipServices.map((s) => (
             <option key={s.id} value={s.id}>{serviceDisplayName(s)}</option>
           ))}
@@ -133,54 +135,54 @@ export default function MembershipTypesPage() {
       </div>
 
       {loading ? (
-        <p className="text-gray-500 text-sm py-6 text-center">Loading…</p>
+        <p className="text-gray-500 text-sm py-6 text-center">{t("common.loading")}</p>
       ) : (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-left text-xs text-gray-500">
               <tr>
-                <th className="px-4 py-2">Name</th>
-                <th className="px-4 py-2">Service</th>
-                <th className="px-4 py-2">Duration</th>
-                <th className="px-4 py-2">Price</th>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2 text-right">Actions</th>
+                <th className="px-4 py-2">{t("common.name")}</th>
+                <th className="px-4 py-2">{t("hospitality.service")}</th>
+                <th className="px-4 py-2">{t("hospitality.duration")}</th>
+                <th className="px-4 py-2">{t("common.price")}</th>
+                <th className="px-4 py-2">{t("common.status")}</th>
+                <th className="px-4 py-2 text-right">{t("common.actions")}</th>
               </tr>
             </thead>
             <tbody>
-              {types.map((t) => (
-                <tr key={t.id} className="border-t">
-                  <td className="px-4 py-2 font-medium text-gray-800">{t.name}</td>
+              {types.map((pt) => (
+                <tr key={pt.id} className="border-t">
+                  <td className="px-4 py-2 font-medium text-gray-800">{pt.name}</td>
                   <td className="px-4 py-2 text-gray-600">
-                    {serviceDisplayName(t.hospitalityService)}
+                    {serviceDisplayName(pt.hospitalityService)}
                   </td>
-                  <td className="px-4 py-2 text-gray-600">{t.durationDays} days</td>
-                  <td className="px-4 py-2 text-gray-600">{t.price}</td>
+                  <td className="px-4 py-2 text-gray-600">{t("hospitality.days", { days: pt.durationDays })}</td>
+                  <td className="px-4 py-2 text-gray-600">{pt.price}</td>
                   <td className="px-4 py-2">
                     {canManage ? (
                       <button
-                        onClick={() => toggleActive(t)}
+                        onClick={() => toggleActive(pt)}
                         className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                          t.isActive ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-500"
+                          pt.isActive ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-500"
                         }`}
                       >
-                        {t.isActive ? "Active" : "Inactive"}
+                        {pt.isActive ? t("hospitality.active") : t("hospitality.inactive")}
                       </button>
                     ) : (
                       <span
                         className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                          t.isActive ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-500"
+                          pt.isActive ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-500"
                         }`}
                       >
-                        {t.isActive ? "Active" : "Inactive"}
+                        {pt.isActive ? t("hospitality.active") : t("hospitality.inactive")}
                       </span>
                     )}
                   </td>
                   <td className="px-4 py-2 text-right whitespace-nowrap">
                     {canManage && (
                       <>
-                        <button onClick={() => openEdit(t)} className="text-xs text-blue-600 hover:underline mr-2">Edit</button>
-                        <button onClick={() => remove(t)} className="text-xs text-red-600 hover:underline">Del</button>
+                        <button onClick={() => openEdit(pt)} className="text-xs text-blue-600 hover:underline mr-2">{t("common.edit")}</button>
+                        <button onClick={() => remove(pt)} className="text-xs text-red-600 hover:underline">{t("common.del")}</button>
                       </>
                     )}
                   </td>
@@ -189,7 +191,7 @@ export default function MembershipTypesPage() {
               {types.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-4 py-6 text-center text-gray-400">
-                    No pass plans yet — add your first one.
+                    {t("hospitality.types.empty")}
                   </td>
                 </tr>
               )}
@@ -201,7 +203,7 @@ export default function MembershipTypesPage() {
       {modal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-5 w-full max-w-sm shadow-xl">
-            <h2 className="font-semibold text-gray-800 mb-3">{modal.id ? "Edit Pass Plan" : "New Pass Plan"}</h2>
+            <h2 className="font-semibold text-gray-800 mb-3">{modal.id ? t("hospitality.types.editPassPlan") : t("hospitality.types.newPassPlan")}</h2>
             <form onSubmit={save} className="space-y-3">
               {!modal.id && (
                 <select
@@ -210,7 +212,7 @@ export default function MembershipTypesPage() {
                   className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
                   required
                 >
-                  <option value="">Select facility…</option>
+                  <option value="">{t("hospitality.selectFacility")}</option>
                   {membershipServices.map((s) => (
                     <option key={s.id} value={s.id}>{serviceDisplayName(s)}</option>
                   ))}
@@ -219,7 +221,7 @@ export default function MembershipTypesPage() {
               <input
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="Pass name (e.g. Monthly Gym Pass)"
+                placeholder={t("hospitality.types.passNamePh")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
                 required
               />
@@ -229,7 +231,7 @@ export default function MembershipTypesPage() {
                   min={1}
                   value={form.durationDays}
                   onChange={(e) => setForm({ ...form, durationDays: e.target.value })}
-                  placeholder="Duration (days)"
+                  placeholder={t("hospitality.types.durationPh")}
                   className="border border-gray-300 rounded p-2 text-sm w-full"
                   required
                 />
@@ -239,17 +241,17 @@ export default function MembershipTypesPage() {
                   min={0}
                   value={form.price}
                   onChange={(e) => setForm({ ...form, price: e.target.value })}
-                  placeholder="Price"
+                  placeholder={t("common.price")}
                   className="border border-gray-300 rounded p-2 text-sm w-full"
                   required
                 />
               </div>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setModal(null)} className="px-3 py-2 text-sm text-gray-600">
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">
-                  Save
+                  {t("common.save")}
                 </button>
               </div>
             </form>

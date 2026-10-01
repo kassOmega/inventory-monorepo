@@ -116,6 +116,7 @@ categories automatically (`tenants.service.ts`, `common/verticals.ts`).
   guest folio charges/payments, all CRUD modals),
   **Taxes** (company tax settings + VAT/TIN, MoR E-Invoicing + fiscal printer/agent registration incl.
   certificate upload, tax-rate CRUD w/ direction/default/enabled badges and modal),
+  **Hospitality** (all 9 files under `app/dashboard/hospitality/**` — see the batch note below),
   **Accounts** (chart-of-accounts list, type filter, CRUD modal; previously missing
   `common.all`/`common.delete` + two placeholder keys added),
   **Reports page** (retail + hospitality tab sets, date/location filters, inventory-breakdown table w/
@@ -127,7 +128,8 @@ categories automatically (`tenants.service.ts`, `common/verticals.ts`).
 **Foundation only (helper exists, sweep still required):**
 - Remaining module pages (see audit output): platform **Admin** (shell + overview done — `adm.*`
   group; `businesses` 51, `verification` 45, `owners` 29 hits remain), Businesses/Verification
-  (owner side), AI Agent drawers. Roles and Users pages converted (`roles.*`/`users.*` groups).
+  (owner side), AI Agent drawers, **Service** vertical (`app/dashboard/service` 70 hits / 6 files)
+  and the platform **Settings** pages. Roles and Users pages converted (`roles.*`/`users.*` groups).
 - Shared component sweep: **complete** — **`app/components/**` audits 0 hits across all 60 files.**
   This batch wired the primitives (`FilterRow`, `SearchableSelect` incl. a localized default
   placeholder/clear tooltip, `LanguageSwitcher` via `language.switchTo*`, `ActivityAuditReport`,
@@ -178,6 +180,30 @@ categories automatically (`tenants.service.ts`, `common/verticals.ts`).
   in the catalog now uses the shared `useConfirm` dialog. `app/dashboard/manufacturing/**` audits
   **0 hits across all 21 files**, and `status.purchasingMaterials` was corrected
   (አጭር ቁሳቁሶችን መግዛት → ቁሳቁሶችን መግዛት).
+- **Hospitality** (done): `app/dashboard/hospitality/**` audits **0 hits across all 9 files**
+  (129 hits at the start of the batch). New `hospitality.*` catalog group with three subtrees —
+  `hospitality.types.*` (pass plans), `hospitality.mem.*` (customer memberships) and
+  `hospitality.pkg.*` (packages & entitlements) — deliberately kept apart from the pre-existing
+  `terms.hosp.*` terminology group. Reused shared keys wherever the English matched exactly
+  (`facility.checkInMember|searchMembersPh|searching|checkIn|checkingIn|noActiveMembers|
+  sellDayPassTitle|selectDayPass|paymentMethodPh|sellAndCheckIn|endsOn`,
+  `hotel.guestName|phoneOptional|checkinStepRoom`, `orders.birr|allStatuses`, `menu.assign`,
+  `hotel.guestName`, `fin.colCredit` for the CREDIT entitlement, `common.*` verbs, `filters.search`).
+  Membership statuses render through a `STATUS_LABELS` enum→key map resolved via `t()`
+  (`status.active|cancelled` reused, generic `status.expired|suspended` added to the shared
+  `status` group); the reservation picker maps `CONFIRMED|CHECKED_IN` to
+  `status.confirmed|checkedIn` via `RES_STATUS_LABELS`. Amounts now go through `orders.birr`
+  (ETB → ብር) including the entitlement suffixes (`hospitality.pkg.perUnit|perDay`) and the
+  compensation-preview sentence (`hospitality.pkg.previewItem`), the un-audited template-literal
+  `confirm(\`Delete pass "${name}"?\`)` / `confirm(\`Cancel membership for "${name}"?\`)` strings
+  were localized (the former on the memberships/types page), `t` shadowing in
+  `.map((t) =>`/`types.find((t) =>` locals was renamed to `tp`, and `t` was added to the
+  `load` `useCallback` dependency arrays. Known gap (tracked for the `lib` batch): the static
+  facility names returned by `hospitalityServiceName()`/`HOSPITALITY_SERVICE_LABELS`
+  (`lib/verticals.ts`) are still English — they are catalogued under `hospitalityServices.*`
+  with `i18nKey === serviceType`, so making that helper `t`-aware localizes every call site at once.
+  Repo totals after this batch: **476 hits / 37 dirty files** (from 614 / 42 at the Phase-0
+  measurement), catalog **3434 en / 3434 am keys, all gates clean**.
 - Fiscal print preview & PDF exports (Ethiopic font work): the preview/button chrome is localized
   and the receipt body is pinned Latin in `i18n-check.mjs` (`fiscal.receipt.*`) until the Ethiopic
   font work lands.
