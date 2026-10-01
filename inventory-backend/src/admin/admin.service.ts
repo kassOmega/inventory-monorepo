@@ -9,6 +9,7 @@ import { getVerticalLabel } from '../common/verticals';
 import { UploadedFileShape } from '../verification/verification-upload.config';
 import { VerificationService } from '../verification/verification.service';
 import { CreateOrgForOwnerDto, CreateOwnerDto, UpdateOrganizationDto, UpdateUserDto } from './dto/admin.dto';
+import { tr } from '../i18n/i18n.service';
 
 @Injectable()
 export class AdminService {
@@ -47,7 +48,7 @@ export class AdminService {
 
   async createOwner(dto: CreateOwnerDto) {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (existing) throw new ConflictException('Email already exists');
+    if (existing) throw new ConflictException(tr('errors.emailAlreadyExists'));
 
     const password = await bcrypt.hash(dto.password, 10);
     // Default the AI free trial to 15 days from creation; the admin can also
@@ -88,22 +89,22 @@ export class AdminService {
 
   async updateUserStatus(id: number, status: UserStatus) {
     const user = await this.prisma.user.findUnique({ where: { id } });
-    if (!user) throw new BadRequestException('User not found');
-    if (!user.isOwnerAccount) throw new BadRequestException('Only owner accounts are managed here');
+    if (!user) throw new BadRequestException(tr('errors.userNotFound'));
+    if (!user.isOwnerAccount) throw new BadRequestException(tr('errors.onlyOwnerAccountsManaged'));
     if (user.isPlatformAdmin && status === UserStatus.INACTIVE) {
-      throw new BadRequestException('Cannot deactivate a platform admin');
+      throw new BadRequestException(tr('errors.cannotDeactivatePlatformAdmin'));
     }
     return this.prisma.user.update({ where: { id }, data: { status }, select: { id: true, status: true } });
   }
 
   async updateUser(id: number, dto: UpdateUserDto) {
     const user = await this.prisma.user.findUnique({ where: { id } });
-    if (!user) throw new BadRequestException('User not found');
-    if (!user.isOwnerAccount) throw new BadRequestException('Only owner accounts are managed here');
+    if (!user) throw new BadRequestException(tr('errors.userNotFound'));
+    if (!user.isOwnerAccount) throw new BadRequestException(tr('errors.onlyOwnerAccountsManaged'));
 
     if (dto.email && dto.email !== user.email) {
       const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
-      if (existing) throw new ConflictException('Email already exists');
+      if (existing) throw new ConflictException(tr('errors.emailAlreadyExists'));
     }
 
     const data: {
@@ -142,13 +143,13 @@ export class AdminService {
       where: { id },
       include: { memberships: { select: { role: { select: { isSystem: true } } } } },
     });
-    if (!user) throw new BadRequestException('User not found');
-    if (!user.isOwnerAccount) throw new BadRequestException('Only owner accounts are managed here');
-    if (user.isPlatformAdmin) throw new BadRequestException('Cannot delete a platform admin');
+    if (!user) throw new BadRequestException(tr('errors.userNotFound'));
+    if (!user.isOwnerAccount) throw new BadRequestException(tr('errors.onlyOwnerAccountsManaged'));
+    if (user.isPlatformAdmin) throw new BadRequestException(tr('errors.cannotDeletePlatformAdmin'));
 
     const ownsBusiness = user.memberships.some((m) => m.role?.isSystem);
     if (ownsBusiness) {
-      throw new BadRequestException('This owner owns businesses; delete those businesses first');
+      throw new BadRequestException(tr('errors.ownerOwnsBusinesses'));
     }
 
     await this.prisma.$transaction([
@@ -174,7 +175,7 @@ export class AdminService {
 
   async createOrganizationForOwner(dto: CreateOrgForOwnerDto) {
     const owner = await this.prisma.user.findUnique({ where: { id: dto.ownerUserId } });
-    if (!owner) throw new BadRequestException('Owner account not found');
+    if (!owner) throw new BadRequestException(tr('errors.ownerAccountNotFound'));
 
     return this.tenants.createOrganization(
       dto.ownerUserId,
@@ -198,7 +199,7 @@ export class AdminService {
 
   async updateOrganizationStatus(id: number, status: OrgStatus) {
     const org = await this.prisma.organization.findUnique({ where: { id } });
-    if (!org) throw new BadRequestException('Organization not found');
+    if (!org) throw new BadRequestException(tr('errors.orgNotFound'));
 
     return this.prisma.organization.update({
       where: { id },
@@ -209,7 +210,7 @@ export class AdminService {
 
   async updateOrganization(id: number, dto: UpdateOrganizationDto) {
     const org = await this.prisma.organization.findUnique({ where: { id } });
-    if (!org) throw new BadRequestException('Organization not found');
+    if (!org) throw new BadRequestException(tr('errors.orgNotFound'));
 
     const data: { name?: string; businessType?: BusinessType; aiEnabled?: boolean; aiTrialEndsAt?: Date | null } = {};
     if (dto.name) data.name = dto.name;
@@ -228,10 +229,10 @@ export class AdminService {
 
   async assignOwner(organizationId: number, ownerUserId: number) {
     const org = await this.prisma.organization.findUnique({ where: { id: organizationId } });
-    if (!org) throw new BadRequestException('Organization not found');
+    if (!org) throw new BadRequestException(tr('errors.orgNotFound'));
 
     const owner = await this.prisma.user.findUnique({ where: { id: ownerUserId } });
-    if (!owner) throw new BadRequestException('Owner account not found');
+    if (!owner) throw new BadRequestException(tr('errors.ownerAccountNotFound'));
 
     // Find (or create) the Owner role scoped to this organization.
     let ownerRole = await this.prisma.role.findFirst({
@@ -265,7 +266,7 @@ export class AdminService {
 
   async deleteOrganization(id: number) {
     const org = await this.prisma.organization.findUnique({ where: { id } });
-    if (!org) throw new BadRequestException('Organization not found');
+    if (!org) throw new BadRequestException(tr('errors.orgNotFound'));
 
     await this.prisma.$transaction(async (tx) => {
       const tenantId = id;

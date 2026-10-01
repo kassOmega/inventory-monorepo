@@ -16,6 +16,7 @@ import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiReviewResult, VerificationAiService } from './verification-ai.service';
+import { tr } from '../i18n/i18n.service';
 
 const MAX_SCAM_ATTEMPTS = Math.max(
   1,
@@ -53,7 +54,7 @@ export class VerificationService {
         verificationAttempts: true,
       },
     });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException(tr('errors.userNotFound'));
 
     const memberships = await this.prisma.membership.findMany({
       where: { userId, role: { isSystem: true } },
@@ -121,7 +122,7 @@ export class VerificationService {
     const doc = await this.prisma.verificationDocument.findUnique({
       where: { id: docId },
     });
-    if (!doc) throw new NotFoundException('Document not found');
+    if (!doc) throw new NotFoundException(tr('errors.documentNotFound'));
 
     const isAdmin = user.isPlatformAdmin || user.isSuperuser;
     const isUploader = doc.userId === user.sub;
@@ -131,7 +132,7 @@ export class VerificationService {
         false);
 
     if (!isAdmin && !isUploader && !isOrgMember) {
-      throw new ForbiddenException('You cannot view this document');
+      throw new ForbiddenException(tr('errors.cannotViewDocument'));
     }
     return doc;
   }
@@ -154,10 +155,10 @@ export class VerificationService {
         verificationStatus: true,
       },
     });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException(tr('errors.userNotFound'));
     if (!user.isOwnerAccount) {
       throw new ForbiddenException(
-        'Only owner accounts require user-level verification.',
+        tr('errors.onlyOwnerAccountsNeedUserVerification'),
       );
     }
     this.assertNotBlocked(user.verificationStatus);
@@ -215,7 +216,7 @@ export class VerificationService {
       where: { id: organizationId },
       select: { name: true, verificationStatus: true },
     });
-    if (!org) throw new NotFoundException('Business not found');
+    if (!org) throw new NotFoundException(tr('errors.businessNotFound'));
     this.assertNotBlocked(org.verificationStatus);
     this.assertCanSubmit(org.verificationStatus);
 
@@ -256,7 +257,7 @@ export class VerificationService {
     const doc = await this.prisma.verificationDocument.findUnique({
       where: { id: opts.docId },
     });
-    if (!doc) throw new NotFoundException('Document not found');
+    if (!doc) throw new NotFoundException(tr('errors.documentNotFound'));
 
     const review = await this.ai.review({
       documentType: doc.documentType,
@@ -529,9 +530,9 @@ export class VerificationService {
 
   async adminApproveUser(userId: number) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException(tr('errors.userNotFound'));
     if (!user.isOwnerAccount) {
-      throw new BadRequestException('Only owner accounts are verified here');
+      throw new BadRequestException(tr('errors.onlyOwnerAccountsVerified'));
     }
 
     await this.prisma.$transaction([
@@ -564,9 +565,9 @@ export class VerificationService {
 
   async adminRejectUser(userId: number, reason: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException(tr('errors.userNotFound'));
     if (!user.isOwnerAccount) {
-      throw new BadRequestException('Only owner accounts are verified here');
+      throw new BadRequestException(tr('errors.onlyOwnerAccountsVerified'));
     }
 
     const nextAttempts = user.verificationAttempts + 1;
@@ -621,7 +622,7 @@ export class VerificationService {
     const org = await this.prisma.organization.findUnique({
       where: { id: organizationId },
     });
-    if (!org) throw new NotFoundException('Business not found');
+    if (!org) throw new NotFoundException(tr('errors.businessNotFound'));
 
     await this.prisma.$transaction([
       this.prisma.verificationDocument.updateMany({
@@ -661,7 +662,7 @@ export class VerificationService {
     const org = await this.prisma.organization.findUnique({
       where: { id: organizationId },
     });
-    if (!org) throw new NotFoundException('Business not found');
+    if (!org) throw new NotFoundException(tr('errors.businessNotFound'));
 
     const nextAttempts = org.verificationAttempts + 1;
     const blocked = nextAttempts > MAX_SCAM_ATTEMPTS;
@@ -744,9 +745,9 @@ export class VerificationService {
       const user = await this.prisma.user.findUnique({
         where: { id: accountId },
       });
-      if (!user) throw new NotFoundException('User not found');
+      if (!user) throw new NotFoundException(tr('errors.userNotFound'));
       if (!user.isOwnerAccount) {
-        throw new BadRequestException('Only owner accounts are verified here');
+        throw new BadRequestException(tr('errors.onlyOwnerAccountsVerified'));
       }
 
       const updates: Prisma.UserUpdateInput = {
@@ -793,7 +794,7 @@ export class VerificationService {
     const org = await this.prisma.organization.findUnique({
       where: { id: accountId },
     });
-    if (!org) throw new NotFoundException('Business not found');
+    if (!org) throw new NotFoundException(tr('errors.businessNotFound'));
 
     const updates: Prisma.OrganizationUpdateInput = {
       verificationStatus: status,
@@ -854,7 +855,7 @@ export class VerificationService {
   ): Promise<{ message: string }> {
     const requested = (documents ?? []).map((d) => d.trim()).filter(Boolean);
     if (requested.length === 0) {
-      throw new BadRequestException('List at least one document to request.');
+      throw new BadRequestException(tr('errors.listOneDocument'));
     }
 
     const DOC_LABELS: Record<string, string> = {
@@ -873,7 +874,7 @@ export class VerificationService {
         where: { id: accountId },
         select: { id: true, name: true },
       });
-      if (!user) throw new NotFoundException('User not found');
+      if (!user) throw new NotFoundException(tr('errors.userNotFound'));
       userId = user.id;
       accountName = user.name;
       // Link the notification to the user's primary (owned) business so it
@@ -889,7 +890,7 @@ export class VerificationService {
         where: { id: accountId },
         select: { id: true, name: true },
       });
-      if (!org) throw new NotFoundException('Business not found');
+      if (!org) throw new NotFoundException(tr('errors.businessNotFound'));
       const owner = await this.prisma.membership.findFirst({
         where: { organizationId: accountId, role: { isSystem: true } },
         select: { userId: true },
@@ -901,7 +902,7 @@ export class VerificationService {
 
     if (userId == null) {
       throw new BadRequestException(
-        'No owner user is linked to this account — cannot send a notification.',
+        tr('errors.noOwnerLinked'),
       );
     }
 
@@ -924,7 +925,7 @@ export class VerificationService {
     });
     if (!membership || !membership.role?.isSystem) {
       throw new ForbiddenException(
-        'Only the business owner can upload verification documents for this business.',
+        tr('errors.ownerOnlyUploadForBusiness'),
       );
     }
   }
@@ -932,7 +933,7 @@ export class VerificationService {
   private assertNotBlocked(status: string) {
     if (status === VerificationStatus.BLOCKED) {
       throw new ForbiddenException(
-        'This account has been permanently blocked for repeated fraudulent verification attempts.',
+        tr('errors.accountBlockedFraudVerify'),
       );
     }
   }
@@ -946,7 +947,7 @@ export class VerificationService {
   private assertCanSubmit(status: string) {
     if (status === VerificationStatus.APPROVED) {
       throw new BadRequestException(
-        'This account is already verified. No further documents are needed.',
+        tr('errors.accountAlreadyVerified'),
       );
     }
     if (
@@ -954,7 +955,7 @@ export class VerificationService {
       status === VerificationStatus.FLAGGED
     ) {
       throw new BadRequestException(
-        'Your document is under review. You can upload a new document once the review is completed.',
+        tr('errors.documentUnderReview'),
       );
     }
   }

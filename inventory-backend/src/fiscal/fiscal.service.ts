@@ -34,7 +34,7 @@ export class FiscalService {
 
   private tenant(): number {
     const id = getCurrentTenantId();
-    if (id == null) throw new BadRequestException('No active organization');
+    if (id == null) throw new BadRequestException(tr('errors.noActiveOrganization'));
     return id;
   }
 
@@ -57,7 +57,7 @@ export class FiscalService {
         where: { id: target.orderId, tenantId },
         select: { status: true },
       });
-      if (!order) throw new NotFoundException('Order not found');
+      if (!order) throw new NotFoundException(tr('errors.orderNotFound'));
       if (order.status !== OrderStatus.PAID) {
         throw new ConflictException('Only paid orders can be fiscally printed');
       }
@@ -72,7 +72,7 @@ export class FiscalService {
         where: { id: target.saleId, tenantId },
         select: { id: true },
       });
-      if (!sale) throw new NotFoundException('Sale not found');
+      if (!sale) throw new NotFoundException(tr('errors.saleNotFound'));
       await this.prisma.sale.update({
         where: { id: target.saleId },
         data: { fiscalStatus: FiscalStatus.PRINT_PENDING, fiscalError: null },
@@ -89,7 +89,7 @@ export class FiscalService {
         where: { id: target.orderId, tenantId },
         include: { items: true },
       });
-      if (!order) throw new NotFoundException('Order not found');
+      if (!order) throw new NotFoundException(tr('errors.orderNotFound'));
       const fin = this.orderFinancials(order);
       const receipt = await this.prisma.fiscalReceipt.upsert({
         where: { orderId: target.orderId },
@@ -125,7 +125,7 @@ export class FiscalService {
         where: { id: target.saleId, tenantId },
         include: { items: true },
       });
-      if (!sale) throw new NotFoundException('Sale not found');
+      if (!sale) throw new NotFoundException(tr('errors.saleNotFound'));
       const fin = this.saleFinancials(sale);
       const receipt = await this.prisma.fiscalReceipt.upsert({
         where: { saleId: target.saleId },
@@ -167,7 +167,7 @@ export class FiscalService {
         where: { id: target.orderId, tenantId },
         select: { id: true },
       });
-      if (!order) throw new NotFoundException('Order not found');
+      if (!order) throw new NotFoundException(tr('errors.orderNotFound'));
       await this.prisma.order.update({
         where: { id: target.orderId },
         data: { fiscalStatus: FiscalStatus.PRINT_FAILED, fiscalError: error },
@@ -179,7 +179,7 @@ export class FiscalService {
         where: { id: target.saleId, tenantId },
         select: { id: true },
       });
-      if (!sale) throw new NotFoundException('Sale not found');
+      if (!sale) throw new NotFoundException(tr('errors.saleNotFound'));
       await this.prisma.sale.update({
         where: { id: target.saleId },
         data: { fiscalStatus: FiscalStatus.PRINT_FAILED, fiscalError: error },
@@ -201,7 +201,7 @@ export class FiscalService {
         history: { select: { status: true, actorName: true } },
       },
     });
-    if (!order) throw new NotFoundException('Order not found');
+    if (!order) throw new NotFoundException(tr('errors.orderNotFound'));
     // Order stores createdById as a bare scalar (no relation) — resolve the
     // waiter's name explicitly for the receipt metadata.
     const waiterName =
@@ -270,7 +270,7 @@ export class FiscalService {
         soldBy: { select: { name: true } },
       },
     });
-    if (!sale) throw new NotFoundException('Sale not found');
+    if (!sale) throw new NotFoundException(tr('errors.saleNotFound'));
     const org = await this.prisma.organization.findUnique({
       where: { id: tenantId },
       select: { name: true, taxId: true },

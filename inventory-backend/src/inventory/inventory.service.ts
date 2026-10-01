@@ -15,7 +15,7 @@ export class InventoryService {
 
   private tenant(): number {
     const id = getCurrentTenantId();
-    if (id == null) throw new BadRequestException('No active organization');
+    if (id == null) throw new BadRequestException(tr('errors.noActiveOrganization'));
     return id;
   }
 
@@ -43,7 +43,7 @@ export class InventoryService {
         unit: { select: { name: true } },
       },
     });
-    if (!product) throw new NotFoundException('Product not found');
+    if (!product) throw new NotFoundException(tr('errors.productNotFound'));
 
     // Resolve the target inventory row: explicit location, otherwise the
     // location holding the most stock of this product.

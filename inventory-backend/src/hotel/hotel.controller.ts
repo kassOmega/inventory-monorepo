@@ -39,6 +39,7 @@ import {
   UpdateRoomTypeDto,
 } from './dto/hotel.dto';
 import { HotelService } from './hotel.service';
+import { tr } from '../i18n/i18n.service';
 
 @Controller('hotel')
 @Permissions('hotel.view')
@@ -209,7 +210,7 @@ export class HotelController {
     @Param('id', ParseIntPipe) id: number,
     @UploadedFile() file?: UploadedFileShape,
   ) {
-    if (!file) throw new BadRequestException('No file uploaded');
+    if (!file) throw new BadRequestException(tr('errors.noFileUploaded'));
     return this.hotel.setIdDocument(id, file);
   }
 

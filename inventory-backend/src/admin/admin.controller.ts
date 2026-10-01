@@ -8,6 +8,7 @@ import type { UploadedFileShape } from '../verification/verification-upload.conf
 import { AdminService } from './admin.service';
 import { VerificationService } from '../verification/verification.service';
 import { AssignOwnerDto, CreateOrgForOwnerDto, CreateOwnerDto, UpdateOrganizationDto, UpdateOrgStatusDto, UpdateUserDto, UpdateUserStatusDto } from './dto/admin.dto';
+import { tr } from '../i18n/i18n.service';
 
 @Controller('admin')
 export class AdminController {
@@ -18,7 +19,7 @@ export class AdminController {
 
   private assertAdmin(req: RequestWithUser) {
     if (!req.user?.isPlatformAdmin) {
-      throw new ForbiddenException('Only platform admins can perform this action');
+      throw new ForbiddenException(tr('errors.onlyPlatformAdmins'));
     }
   }
 
@@ -135,7 +136,7 @@ export class AdminController {
     this.assertAdmin(req);
     const type = accountType.toUpperCase() as 'USER' | 'BUSINESS';
     if (type !== 'USER' && type !== 'BUSINESS') {
-      throw new ForbiddenException('Invalid account type.');
+      throw new ForbiddenException(tr('errors.invalidAccountType'));
     }
     return this.admin.setVerificationStatus(type, accountId, dto.status as any, dto.note);
   }
@@ -155,7 +156,7 @@ export class AdminController {
     this.assertAdmin(req);
     const type = accountType.toUpperCase() as 'USER' | 'BUSINESS';
     if (type !== 'USER' && type !== 'BUSINESS') {
-      throw new ForbiddenException('Invalid account type.');
+      throw new ForbiddenException(tr('errors.invalidAccountType'));
     }
     return this.verification.requestDocuments(
       type,
@@ -176,9 +177,9 @@ export class AdminController {
   ) {
     this.assertAdmin(req);
     if (dto.documentType !== 'NATIONAL_ID') {
-      throw new ForbiddenException('User accounts only require a national ID document.');
+      throw new ForbiddenException(tr('errors.nationalIdOnlyForUsers'));
     }
-    if (!file) throw new ForbiddenException('No file uploaded');
+    if (!file) throw new ForbiddenException(tr('errors.noFileUploaded'));
     return this.admin.uploadUserVerificationDocument(id, file);
   }
   @Post('verification/business/:id/documents')
@@ -191,9 +192,9 @@ export class AdminController {
   ) {
     this.assertAdmin(req);
     if (!['TRADE_LICENSE', 'TIN_CERTIFICATE'].includes(dto.documentType)) {
-      throw new ForbiddenException('Invalid business document type.');
+      throw new ForbiddenException(tr('errors.invalidBusinessDocType'));
     }
-    if (!file) throw new ForbiddenException('No file uploaded');
+    if (!file) throw new ForbiddenException(tr('errors.noFileUploaded'));
     return this.admin.uploadBusinessVerificationDocument(
       req.user.sub,
       id,

@@ -312,6 +312,36 @@ export const enMessages: Record<string, any> = {
       'This payment was already submitted. Please refresh and try again.',
     duplicateService: 'A service with this name already exists.',
 
+    // Platform-admin + verification modules (Phase 7).
+    onlyPlatformAdmins: 'Only platform admins can perform this action',
+    invalidAccountType: 'Invalid account type.',
+    nationalIdOnlyForUsers: 'User accounts only require a national ID document.',
+    noFileUploaded: 'No file uploaded',
+    invalidBusinessDocType: 'Invalid business document type.',
+    onlyOwnerAccountsManaged: 'Only owner accounts are managed here',
+    cannotDeletePlatformAdmin: 'Cannot delete a platform admin',
+    cannotDeactivatePlatformAdmin: 'Cannot deactivate a platform admin',
+    ownerOwnsBusinesses:
+      'This owner owns businesses; delete those businesses first',
+    ownerAccountNotFound: 'Owner account not found',
+    documentNotFound: 'Document not found',
+    cannotViewDocument: 'You cannot view this document',
+    onlyOwnerAccountsNeedUserVerification:
+      'Only owner accounts require user-level verification.',
+    businessNotFound: 'Business not found',
+    onlyOwnerAccountsVerified: 'Only owner accounts are verified here',
+    listOneDocument: 'List at least one document to request.',
+    noOwnerLinked:
+      'No owner user is linked to this account — cannot send a notification.',
+    ownerOnlyUploadForBusiness:
+      'Only the business owner can upload verification documents for this business.',
+    accountBlockedFraudVerify:
+      'This account has been permanently blocked for repeated fraudulent verification attempts.',
+    accountAlreadyVerified:
+      'This account is already verified. No further documents are needed.',
+    documentUnderReview:
+      'Your document is under review. You can upload a new document once the review is completed.',
+
 
   },
 };

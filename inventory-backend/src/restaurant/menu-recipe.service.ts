@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { MenuItemTrackingMode, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -91,7 +92,7 @@ export class MenuRecipeService {
       where: { id: menuItemId, tenantId },
       select: { id: true, name: true, cost: true },
     });
-    if (!mi) throw new NotFoundException('Menu item not found');
+    if (!mi) throw new NotFoundException(tr('errors.menuItemNotFound'));
 
     const rows = await this.prisma.menuItemIngredient.findMany({
       where: { tenantId, menuItemId },
@@ -139,7 +140,7 @@ export class MenuRecipeService {
       where: { id: menuItemId, tenantId },
       select: { id: true, trackingMode: true },
     });
-    if (!mi) throw new NotFoundException('Menu item not found');
+    if (!mi) throw new NotFoundException(tr('errors.menuItemNotFound'));
     if (mi.trackingMode !== MenuItemTrackingMode.PERPETUAL) {
       throw new BadRequestException(
         'Recipes are only used for Perpetual tracking mode. Switch this item to Perpetual tracking to define a recipe.',

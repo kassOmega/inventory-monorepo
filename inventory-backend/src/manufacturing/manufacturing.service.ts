@@ -2093,7 +2093,7 @@ export class ManufacturingService {
         where: { id: categoryId, organizationId: tenantId },
         select: { id: true },
       });
-      if (!category) throw new NotFoundException('Category not found');
+      if (!category) throw new NotFoundException(tr('errors.categoryNotFound'));
     }
     if (defaultBomId != null) {
       const bom = await this.prisma.billOfMaterials.findFirst({
@@ -2110,7 +2110,7 @@ export class ManufacturingService {
         where: { id: productId, tenantId },
         select: { id: true },
       });
-      if (!product) throw new NotFoundException('Product not found');
+      if (!product) throw new NotFoundException(tr('errors.productNotFound'));
     }
   }
 
@@ -2798,7 +2798,7 @@ export class ManufacturingService {
         },
       },
     });
-    if (!order) throw new NotFoundException("Order not found");
+    if (!order) throw new NotFoundException(tr('errors.orderNotFound'));
     if (!order.flow || order.currentStepIndex < 0) throw new BadRequestException("Order is not on a flow yet");
     const steps = order.flow.steps;
     if (order.currentStepIndex < steps.length - 1) throw new BadRequestException("Only the final team can complete this order.");
@@ -4641,7 +4641,7 @@ export class ManufacturingService {
       where: { id: dto.grnId, organizationId: tenantId },
       include: { items: true, po: { include: { vendor: true } } },
     });
-    if (!grn) throw new NotFoundException('Goods receipt not found');
+    if (!grn) throw new NotFoundException(tr('errors.manufacturing.grnNotFound'));
     const dup = await this.prisma.mfgVendorBill.findFirst({
       where: { organizationId: tenantId, grnId: grn.id },
     });
@@ -4979,14 +4979,14 @@ export class ManufacturingService {
         where: { id: line.productId, tenantId },
         select: { id: true },
       });
-      if (!p) throw new NotFoundException('Product not found');
+      if (!p) throw new NotFoundException(tr('errors.productNotFound'));
     }
     if (dto.vendorId != null) await this.vendorNameById(dto.vendorId, tenantId);
     const location = await this.prisma.location.findFirst({
       where: { id: dto.locationId, tenantId },
       select: { id: true, name: true },
     });
-    if (!location) throw new NotFoundException('Location not found');
+    if (!location) throw new NotFoundException(tr('errors.locationNotFound'));
     const totalAmount = round2(dto.items.reduce((s, l) => s + l.quantity * l.unitCost, 0));
     const grnNumber = this.nextDocNumber('GRN');
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {

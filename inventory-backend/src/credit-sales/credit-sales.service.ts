@@ -4,6 +4,7 @@ import {
   asNumericId,
   formatBusinessNumber,
 } from '../common/business-number.util';
+import { tr } from '../i18n/i18n.service';
 
 @Injectable()
 export class CreditSalesService {
@@ -17,7 +18,7 @@ export class CreditSalesService {
       where: { publicId: ref },
       select: { id: true },
     });
-    if (!row) throw new NotFoundException('Credit sale not found');
+    if (!row) throw new NotFoundException(tr('errors.creditSaleNotFound'));
     return row.id;
   }
 

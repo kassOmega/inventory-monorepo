@@ -55,7 +55,7 @@ export class RestockService {
       where: { id: dto.productId },
       include: { category: { select: { name: true } } },
     });
-    if (!product) throw new BadRequestException('Product not found');
+    if (!product) throw new BadRequestException(tr('errors.productNotFound'));
 
     // Resolve the variant when restocking a variant product.
     let variantId: number | null = dto.variantId ?? null;
@@ -124,7 +124,7 @@ export class RestockService {
       !target ||
       (target.type !== LocationType.STORE && target.type !== LocationType.SHOP)
     ) {
-      throw new BadRequestException('Location not found');
+      throw new BadRequestException(tr('errors.locationNotFound'));
     }
     const isOwner = user.isSuperuser === true;
     // StockRequest.storeId is the receiving location. When that location is a
@@ -1239,7 +1239,7 @@ export class RestockService {
           where: { id: dto.productId },
           include: { category: { select: { name: true } } },
         });
-        if (!found) throw new BadRequestException('Product not found');
+        if (!found) throw new BadRequestException(tr('errors.productNotFound'));
         productId = found.id;
         product = found;
         productName = `${found.brand ?? ''} ${found.baseName ?? ''}`.trim();

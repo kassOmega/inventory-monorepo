@@ -560,7 +560,7 @@ export class ProductsService {
       where: { id: opts.categoryId, tenantId },
       select: { id: true, name: true },
     });
-    if (!root) throw new NotFoundException('Category not found');
+    if (!root) throw new NotFoundException(tr('errors.categoryNotFound'));
 
     // Sub-categories count too — catalogs are usually filed one level down
     // ("Electrical Wire" → "Wire 2.5mm"). Depth-capped so a cycle can't loop.
@@ -876,7 +876,7 @@ export class ProductsService {
       include,
     });
 
-    if (!product) throw new NotFoundException('Product not found');
+    if (!product) throw new NotFoundException(tr('errors.productNotFound'));
 
     return product;
   }
@@ -888,7 +888,7 @@ export class ProductsService {
     const priceBatchRef = newPriceBatchRef();
     const priceChanges: PriceChange[] = [];
     const existingBefore = await this.prisma.product.findUnique({ where: { id } });
-    if (!existingBefore) throw new NotFoundException('Product not found');
+    if (!existingBefore) throw new NotFoundException(tr('errors.productNotFound'));
     if (
       (dto.currentBuyPrice !== undefined &&
         dto.currentBuyPrice !== existingBefore.currentBuyPrice) ||
@@ -1146,7 +1146,7 @@ export class ProductsService {
 
   async remove(id: number) {
     const product = await this.prisma.product.findUnique({ where: { id } });
-    if (!product) throw new NotFoundException('Product not found');
+    if (!product) throw new NotFoundException(tr('errors.productNotFound'));
 
     // Prevent deletion of products that are referenced by transactional history
     const [sales, creditItems, requestItems, returnItems] = await Promise.all([
@@ -1809,7 +1809,7 @@ export class ProductsService {
       where: { id: productId },
       select: { id: true, sku: true, brand: true, baseName: true, currentBuyPrice: true },
     });
-    if (!product) throw new NotFoundException('Product not found');
+    if (!product) throw new NotFoundException(tr('errors.productNotFound'));
 
     const tenantId = getCurrentTenantId();
 

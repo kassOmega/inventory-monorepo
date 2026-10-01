@@ -22,6 +22,7 @@ import { UploadDocumentDto } from './dto/verification.dto';
 import { verificationMulterOptions } from './verification-upload.config';
 import type { UploadedFileShape } from './verification-upload.config';
 import { VerificationService } from './verification.service';
+import { tr } from '../i18n/i18n.service';
 
 @Controller('verification')
 @AllowUnverified()
@@ -44,10 +45,10 @@ export class VerificationController {
   ) {
     if (dto.documentType !== 'NATIONAL_ID') {
       throw new BadRequestException(
-        'User accounts only require a national ID document.',
+        tr('errors.nationalIdOnlyForUsers'),
       );
     }
-    if (!file) throw new BadRequestException('No file uploaded');
+    if (!file) throw new BadRequestException(tr('errors.noFileUploaded'));
     return this.verification.uploadUserDocument(req.user.sub, file);
   }
 
@@ -61,9 +62,9 @@ export class VerificationController {
     @UploadedFile() file?: UploadedFileShape,
   ) {
     if (!['TRADE_LICENSE', 'TIN_CERTIFICATE'].includes(dto.documentType)) {
-      throw new BadRequestException('Invalid business document type.');
+      throw new BadRequestException(tr('errors.invalidBusinessDocType'));
     }
-    if (!file) throw new BadRequestException('No file uploaded');
+    if (!file) throw new BadRequestException(tr('errors.noFileUploaded'));
     return this.verification.uploadBusinessDocument(
       req.user.sub,
       orgId,

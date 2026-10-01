@@ -424,7 +424,7 @@ export class TenantsService {
         aiTrialEndsAt: true,
       },
     });
-    if (!org) throw new BadRequestException('Organization not found');
+    if (!org) throw new BadRequestException(tr('errors.orgNotFound'));
     let profile: Record<string, unknown> | null = null;
     try {
       profile = await this.profiles.getProfile(organizationId);
@@ -443,7 +443,7 @@ export class TenantsService {
     const org = await this.prisma.organization.findUnique({
       where: { id: organizationId },
     });
-    if (!org) throw new BadRequestException('Organization not found');
+    if (!org) throw new BadRequestException(tr('errors.orgNotFound'));
 
     // Upgrading a standalone shop to a multi-location business: the owner names
     // the current (hidden) location and all existing inventory stays with it.
@@ -791,7 +791,7 @@ export class TenantsService {
     const existing = await this.prisma.hospitalityService.findFirst({
       where: { id: serviceId, organizationId },
     });
-    if (!existing) throw new NotFoundException('Service not found');
+    if (!existing) throw new NotFoundException(tr('errors.manufacturing.serviceNotFound'));
     await this.prisma.hospitalityService.update({
       where: { id: serviceId },
       data: { isEnabled },
@@ -813,7 +813,7 @@ export class TenantsService {
     const existing = await this.prisma.hospitalityService.findFirst({
       where: { id: serviceId, organizationId },
     });
-    if (!existing) throw new NotFoundException('Service not found');
+    if (!existing) throw new NotFoundException(tr('errors.manufacturing.serviceNotFound'));
     if (existing.serviceType !== HospitalityServiceType.CUSTOM) {
       throw new BadRequestException(
         'Default services can only be enabled/disabled.',

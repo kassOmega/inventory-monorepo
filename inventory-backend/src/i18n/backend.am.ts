@@ -301,6 +301,33 @@ export const amMessages: Record<string, any> = {
     paymentAlreadySubmitted: 'ይህ ክፍያ ቀድሞ ገብቷል። እባክዎ ገጹን አድስተው እንደገና ይሞክሩ።',
     duplicateService: 'በዚህ ስም ያለ አገልግሎት ቀድሞ አለ።',
 
+    // የመድረክ አስተዳዳሪ እና የማረጋገጫ ሞጁሎች (ደረጃ 7)።
+    onlyPlatformAdmins: 'ይህን ተግባር ማከናወን የሚችሉት የመድረክ አስተዳዳሪዎች ብቻ ናቸው',
+    invalidAccountType: 'የመለያ ዓይነት ትክክል አይደለም።',
+    nationalIdOnlyForUsers: 'የተጠቃሚ መለያዎች የብሔራዊ መታወቂያ ሰነድ ብቻ ይፈልጋሉ።',
+    noFileUploaded: 'ምንም ፋይል አልተጫነም',
+    invalidBusinessDocType: 'የንግድ ሰነድ ዓይነት ትክክል አይደለም።',
+    onlyOwnerAccountsManaged: 'እዚህ የሚያዙት የባለቤት መለያዎች ብቻ ናቸው',
+    cannotDeletePlatformAdmin: 'የመድረክ አስተዳዳሪን ማጥፋት አይቻልም',
+    cannotDeactivatePlatformAdmin: 'የመድረክ አስተዳዳሪን ማቦዘን አይቻልም',
+    ownerOwnsBusinesses: 'ይህ ባለቤት ንግዶች አሉት፤ መጀመሪያ እነዚያን ንግዶች ያጥፉ',
+    ownerAccountNotFound: 'የባለቤት መለያ አልተገኘም',
+    documentNotFound: 'ሰነድ አልተገኘም',
+    cannotViewDocument: 'ይህን ሰነድ ማየት አይችሉም',
+    onlyOwnerAccountsNeedUserVerification:
+      'የተጠቃሚ ደረጃ ማረጋገጫ የሚያስፈልጋቸው የባለቤት መለያዎች ብቻ ናቸው።',
+    businessNotFound: 'ንግድ አልተገኘም',
+    onlyOwnerAccountsVerified: 'እዚህ የሚረጋገጡት የባለቤት መለያዎች ብቻ ናቸው',
+    listOneDocument: 'ለመጠየቅ ቢያንስ አንድ ሰነድ ይዘርዝሩ።',
+    noOwnerLinked: 'ከዚህ መለያ ጋር የተያዘ ባለቤት ተጠቃሚ የለም — ማሳወቂያ መላክ አይቻልም።',
+    ownerOnlyUploadForBusiness:
+      'ለዚህ ንግድ የማረጋገጫ ሰነዶችን መጫን የሚችለው የንግዱ ባለቤት ብቻ ነው።',
+    accountBlockedFraudVerify:
+      'ይህ መለያ በተደጋጋሚ የማጭበርበር የማረጋገጫ ሙከራዎች እስከመጨረሻው ታግዷል።',
+    accountAlreadyVerified: 'ይህ መለያ ቀድሞ ተረጋግጧል። ተጨማሪ ሰነዶች አያስፈልጉም።',
+    documentUnderReview:
+      'ሰነድዎ በግምገማ ላይ ነው። ግምገማው ሲጠናቀቅ አዲስ ሰነድ መጫን ይችላሉ።',
+
 
   },
 };

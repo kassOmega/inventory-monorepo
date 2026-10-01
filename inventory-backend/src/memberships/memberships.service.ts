@@ -9,6 +9,7 @@ import {
   UpdateCustomerMembershipDto,
   UpdateMembershipTypeDto,
 } from './dto/membership.dto';
+import { tr } from '../i18n/i18n.service';
 
 @Injectable()
 export class MembershipsService {
@@ -16,7 +17,7 @@ export class MembershipsService {
 
   private tenant(): number {
     const id = getCurrentTenantId();
-    if (id == null) throw new BadRequestException('No active organization');
+    if (id == null) throw new BadRequestException(tr('errors.noActiveOrganization'));
     return id;
   }
 

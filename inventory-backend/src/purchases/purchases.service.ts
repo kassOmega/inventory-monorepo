@@ -7,6 +7,7 @@ import { getCurrentTenantId, requireTenantId } from '../common/tenant/tenant.con
 import { FinanceService } from '../finance/finance.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 
 @Injectable()
 export class PurchasesService {
@@ -28,7 +29,7 @@ export class PurchasesService {
     },
     user: JwtPayload,
   ) {
-    if (!user.locationId) throw new BadRequestException('You must be assigned to a shop');
+    if (!user.locationId) throw new BadRequestException(tr('errors.mustBeAssignedToShop'));
     const shop = await this.prisma.location.findUnique({ where: { id: user.locationId } });
     if (!shop || shop.type !== 'SHOP') throw new ForbiddenException('Only shopkeepers can create purchases');
 
@@ -43,7 +44,7 @@ export class PurchasesService {
       const cash = await this.prisma.paymentMethod.findFirst({
         where: { name: { equals: 'Cash', mode: 'insensitive' } },
       });
-      if (!cash) throw new BadRequestException('No "Cash" payment method found. Please add one first.');
+      if (!cash) throw new BadRequestException(tr('errors.cashMethodRequired'));
       paymentMethodId = cash.id;
     }
 
@@ -103,9 +104,9 @@ export class PurchasesService {
 
   async approve(id: number, user: JwtPayload) {
     const purchase = await this.prisma.purchase.findUnique({ where: { id }, include: { sale: true } });
-    if (!purchase) throw new BadRequestException('Purchase not found');
+    if (!purchase) throw new BadRequestException(tr('errors.purchaseNotFound'));
     if (purchase.status !== 'PENDING') throw new BadRequestException('Purchase is not pending');
-    if (purchase.sale) throw new BadRequestException('Purchase already has a linked sale');
+    if (purchase.sale) throw new BadRequestException(tr('errors.purchaseHasLinkedSale'));
 
     const shopId = purchase.shopId;
 
@@ -216,7 +217,7 @@ export class PurchasesService {
 
   async reject(id: number, user: JwtPayload) {
     const purchase = await this.prisma.purchase.findUnique({ where: { id } });
-    if (!purchase) throw new BadRequestException('Purchase not found');
+    if (!purchase) throw new BadRequestException(tr('errors.purchaseNotFound'));
     if (purchase.status !== 'PENDING') throw new BadRequestException('Purchase is not pending');
 
     return this.prisma.purchase.update({

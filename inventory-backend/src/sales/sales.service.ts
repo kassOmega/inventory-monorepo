@@ -594,7 +594,7 @@ export class SalesService {
       },
     });
 
-    if (!sale) throw new NotFoundException('Sale not found');
+    if (!sale) throw new NotFoundException(tr('errors.saleNotFound'));
     return sale;
   }
 
@@ -642,7 +642,7 @@ export class SalesService {
         where: { id },
         include: { items: true, creditSale: true },
       });
-      if (!oldSale) throw new NotFoundException('Sale not found');
+      if (!oldSale) throw new NotFoundException(tr('errors.saleNotFound'));
 
       // Determine shopId: owner uses dto.shopId or old sale's shopId, shopkeeper uses their location
       const shopId = user.locationId ?? dto.shopId ?? oldSale.shopId;
@@ -809,7 +809,7 @@ export class SalesService {
         creditSale: true,
       },
     });
-    if (!sale) throw new NotFoundException('Sale not found');
+    if (!sale) throw new NotFoundException(tr('errors.saleNotFound'));
 
     if (user.locationId !== null && user.locationId !== sale.shopId) {
       throw new ForbiddenException('You can only delete sales from your own shop');
@@ -893,7 +893,7 @@ export class SalesService {
         sale: { include: { creditSale: true, items: true } },
       },
     });
-    if (!ret) throw new NotFoundException('Return not found');
+    if (!ret) throw new NotFoundException(tr('errors.returnNotFound'));
 
     if (user.locationId !== null && user.locationId !== ret.shopId) {
       throw new ForbiddenException('You can only delete returns from your own shop');
@@ -1014,7 +1014,7 @@ export class SalesService {
         creditSale: true,
       },
     });
-    if (!sale) throw new NotFoundException('Sale not found');
+    if (!sale) throw new NotFoundException(tr('errors.saleNotFound'));
 
     if (user.locationId !== null && user.locationId !== sale.shopId) {
       throw new ForbiddenException('You can only return sales from your own shop');

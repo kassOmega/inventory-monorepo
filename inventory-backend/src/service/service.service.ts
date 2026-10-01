@@ -331,7 +331,7 @@ export class ServiceService {
 
   private async assertCategory(id: number) {
     const found = await this.prisma.serviceCategory.findUnique({ where: { id } });
-    if (!found) throw new NotFoundException('Category not found');
+    if (!found) throw new NotFoundException(tr('errors.categoryNotFound'));
   }
 
   private async assertItem(id: number) {

@@ -14,6 +14,7 @@ import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { PackagesService } from '../packages/packages.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CheckInDto } from './dto/facility.dto';
+import { tr } from '../i18n/i18n.service';
 
 @Injectable()
 export class FacilitiesService {
@@ -24,7 +25,7 @@ export class FacilitiesService {
 
   private tenant(): number {
     const id = getCurrentTenantId();
-    if (id == null) throw new BadRequestException('No active organization');
+    if (id == null) throw new BadRequestException(tr('errors.noActiveOrganization'));
     return id;
   }
 

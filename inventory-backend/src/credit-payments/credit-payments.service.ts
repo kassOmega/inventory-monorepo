@@ -22,7 +22,7 @@ export class CreditPaymentsService {
       where: { publicId: ref },
       select: { id: true },
     });
-    if (!row) throw new NotFoundException('Payment not found');
+    if (!row) throw new NotFoundException(tr('errors.paymentNotFound'));
     return row.id;
   }
 
@@ -58,7 +58,7 @@ export class CreditPaymentsService {
     const existing = await this.prisma.creditPayment.findUnique({
       where: { id },
     });
-    if (!existing) throw new NotFoundException('Payment not found');
+    if (!existing) throw new NotFoundException(tr('errors.paymentNotFound'));
 
     return this.prisma.$transaction(async (tx) => {
       const newSaleId =
@@ -99,7 +99,7 @@ export class CreditPaymentsService {
     const existing = await this.prisma.creditPayment.findUnique({
       where: { id },
     });
-    if (!existing) throw new NotFoundException('Payment not found');
+    if (!existing) throw new NotFoundException(tr('errors.paymentNotFound'));
 
     return this.prisma.$transaction(async (tx) => {
       if (existing.saleId) {
