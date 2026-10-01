@@ -2,9 +2,11 @@
 
 import SearchableSelect from "@/app/components/SearchableSelect";
 import { VERTICAL_LABELS } from "@/lib/verticals";
+import { statusLabel } from "@/lib/statusLabel";
 import api from "@/lib/api";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 const addDays = (days: number) => {
   const d = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
@@ -26,9 +28,9 @@ const addMonths = (months: number) => {
 // AI access-window duration options. Selecting one computes the end date; the
 // admin can still adjust the date manually afterwards.
 const AI_TRIAL_OPTIONS = [
-  { label: "15 days", value: () => addDays(15) },
-  { label: "1 month", value: () => addMonths(1) },
-  { label: "3 months", value: () => addMonths(3) },
+  { labelKey: "adm.biz.day15", value: () => addDays(15) },
+  { labelKey: "adm.biz.month1", value: () => addMonths(1) },
+  { labelKey: "adm.biz.month3", value: () => addMonths(3) },
 ];
 
 const VERIFICATION_STATUSES = [
@@ -56,6 +58,7 @@ function AiTrialRadios({
   value: string;
   onChange: (date: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap gap-2">
@@ -64,7 +67,7 @@ function AiTrialRadios({
           const checked = value === computed;
           return (
             <label
-              key={opt.label}
+              key={opt.labelKey}
               className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border cursor-pointer transition ${
                 checked
                   ? "bg-blue-50 border-blue-400 text-blue-700"
@@ -78,13 +81,13 @@ function AiTrialRadios({
                 onChange={() => onChange(computed)}
                 className="accent-blue-600"
               />
-              {opt.label}
+              {t(opt.labelKey)}
             </label>
           );
         })}
       </div>
       <label className="flex items-center gap-2 text-xs text-gray-600">
-        <span className="whitespace-nowrap">Access ends:</span>
+        <span className="whitespace-nowrap">{t("adm.biz.accessEnds")}</span>
         <input
           type="date"
           value={value}
@@ -98,6 +101,15 @@ function AiTrialRadios({
 
 export default function AdminBusinessesPage() {
   const confirm = useConfirm();
+  const { t } = useTranslation();
+  // Business-type display name from the shared `verticals.*` catalog, with the
+  // static English label as the fallback for an unknown type.
+  const verticalName = (type?: string | null) =>
+    type
+      ? t(`verticals.${type.toLowerCase()}`, {
+          defaultValue: VERTICAL_LABELS[type] ?? type,
+        })
+      : "";
   const [orgs, setOrgs] = useState<any[]>([]);
   const [owners, setOwners] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -133,11 +145,11 @@ export default function AdminBusinessesPage() {
       setOrgs(o.data);
       setOwners(u.data);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load businesses");
+      setError(e?.response?.data?.message ?? t("adm.biz.loadFail"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -175,7 +187,7 @@ export default function AdminBusinessesPage() {
       setTinCertificate(null);
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to create business");
+      setError(err?.response?.data?.message ?? t("biz.createFail"));
     }
   };
 
@@ -200,7 +212,7 @@ export default function AdminBusinessesPage() {
         return next;
       });
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to update verification status");
+      setError(e?.response?.data?.message ?? t("adm.biz.verifStatusFail"));
     }
   };
 
@@ -243,30 +255,30 @@ export default function AdminBusinessesPage() {
       setEditing(null);
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to update business");
+      setError(err?.response?.data?.message ?? t("biz.updateFail"));
     }
   };
 
   const deleteOrg = async (id: number, name: string) => {
-    if (!(await confirm(`Delete "${name}" and all of its data? This cannot be undone.`))) return;
+    if (!(await confirm(t("biz.confirmDelete", { name })))) return;
     setError("");
     try {
       await api.delete(`/admin/organizations/${id}`);
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to delete business");
+      setError(err?.response?.data?.message ?? t("biz.deleteFail"));
     }
   };
 
-  if (loading) return <p className="text-gray-500">Loading…</p>;
+  if (loading) return <p className="text-gray-500">{t("common.loading")}</p>;
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800">Businesses</h1>
+      <h1 className="text-2xl font-bold text-gray-800">{t("nav.adminBusinesses")}</h1>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
 
       <div className="bg-white p-4 rounded-lg border border-gray-200">
-        <h2 className="font-semibold text-gray-800 mb-3">Create Business for an Owner</h2>
+        <h2 className="font-semibold text-gray-800 mb-3">{t("adm.biz.createTitle")}</h2>
         <form onSubmit={createOrg} className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <SearchableSelect
             options={owners.map((u) => ({
@@ -276,11 +288,11 @@ export default function AdminBusinessesPage() {
             }))}
             value={form.ownerUserId}
             onChange={(v) => setForm({ ...form, ownerUserId: v })}
-            placeholder="Search owner…"
+            placeholder={t("adm.biz.searchOwnerPh")}
             required
           />
           <input
-            placeholder="Business name"
+            placeholder={t("biz.businessName")}
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             className="border border-gray-300 rounded p-2 text-sm"
@@ -291,15 +303,15 @@ export default function AdminBusinessesPage() {
             onChange={(e) => setForm({ ...form, businessType: e.target.value })}
             className="border border-gray-300 rounded p-2 text-sm"
           >
-            {Object.entries(VERTICAL_LABELS).map(([value, label]) => (
+            {Object.keys(VERTICAL_LABELS).map((value) => (
               <option key={value} value={value}>
-                {label}
+                {t(`verticals.${value.toLowerCase()}`)}
               </option>
             ))}
           </select>
           <div className="md:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Is this a standalone shop?
+              {t("biz.standaloneQuestion")}
             </label>
             <div className="flex flex-wrap gap-4">
               <label className="flex items-center gap-1.5 text-sm text-gray-700">
@@ -309,7 +321,7 @@ export default function AdminBusinessesPage() {
                   onChange={() => setForm({ ...form, standalone: true })}
                   className="accent-emerald-600"
                 />
-                Yes
+                {t("common.yes")}
               </label>
               <label className="flex items-center gap-1.5 text-sm text-gray-700">
                 <input
@@ -318,13 +330,11 @@ export default function AdminBusinessesPage() {
                   onChange={() => setForm({ ...form, standalone: false })}
                   className="accent-emerald-600"
                 />
-                No
+                {t("common.no")}
               </label>
             </div>
             <p className="text-[11px] text-gray-400 mt-1">
-              A standalone shop manages its own inventory and has no separate store.
-              Staff (e.g. a shopkeeper) can still be added later — approvals apply once
-              they exist.
+              {t("adm.biz.standaloneHint")}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -335,10 +345,10 @@ export default function AdminBusinessesPage() {
                 onChange={(e) => setForm({ ...form, aiEnabled: e.target.checked })}
                 className="rounded"
               />
-              AI enabled
+              {t("biz.aiEnabled")}
             </label>
             <div className="text-xs text-gray-600">
-              <span className="block mb-1">AI access window:</span>
+              <span className="block mb-1">{t("adm.biz.aiWindow")}</span>
               <AiTrialRadios
                 value={form.aiTrialEndsAt}
                 onChange={(date) => setForm({ ...form, aiTrialEndsAt: date })}
@@ -346,7 +356,7 @@ export default function AdminBusinessesPage() {
             </div>
           </div>
           <label className="border border-dashed border-gray-300 rounded p-2 bg-gray-50 cursor-pointer">
-            <span className="text-xs font-medium text-gray-600">Trade License (optional)</span>
+            <span className="text-xs font-medium text-gray-600">{t("adm.biz.tradeLicense")}</span>
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
@@ -356,7 +366,7 @@ export default function AdminBusinessesPage() {
             {tradeLicense && <span className="text-[11px] text-green-600 mt-1 block">✓ {tradeLicense.name}</span>}
           </label>
           <label className="border border-dashed border-gray-300 rounded p-2 bg-gray-50 cursor-pointer">
-            <span className="text-xs font-medium text-gray-600">TIN Certificate (optional)</span>
+            <span className="text-xs font-medium text-gray-600">{t("biz.tinCert")}</span>
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
@@ -366,7 +376,7 @@ export default function AdminBusinessesPage() {
             {tinCertificate && <span className="text-[11px] text-green-600 mt-1 block">✓ {tinCertificate.name}</span>}
           </label>
           <button type="submit" className="bg-gray-800 text-white rounded p-2 text-sm font-medium md:col-span-2">
-            Create Business
+            {t("biz.createBusiness")}
           </button>
         </form>
       </div>
@@ -380,34 +390,37 @@ export default function AdminBusinessesPage() {
                 <div>
                   <p className="text-sm font-medium text-gray-800">{o.name}</p>
                   <p className="text-xs text-gray-400">
-                    {VERTICAL_LABELS[o.businessType] ?? o.businessType} · Owner: {owner?.name ?? "—"}
+                    {verticalName(o.businessType) || o.businessType}
+                    {owner?.name ? t("adm.ownerPrefix", { name: owner.name }) : ""}
                   </p>
                   <p className="text-[11px] mt-0.5">
                     {o.aiEnabled === false ? (
-                      <span className="text-red-600">AI disabled</span>
+                      <span className="text-red-600">{t("biz.aiDisabled")}</span>
                     ) : o.aiTrialEndsAt ? (
-                      <span className="text-blue-600">AI access ends {String(o.aiTrialEndsAt).slice(0, 10)}</span>
+                      <span className="text-blue-600">
+                        {t("adm.biz.aiEnds", { date: String(o.aiTrialEndsAt).slice(0, 10) })}
+                      </span>
                     ) : (
-                      <span className="text-amber-600">AI on — set an access date</span>
+                      <span className="text-amber-600">{t("adm.biz.aiNoDate")}</span>
                     )}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span
                     className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${VSTATUS_STYLES[o.verificationStatus ?? "PENDING"] ?? VSTATUS_STYLES.PENDING}`}
-                    title="Current verification status"
+                    title={t("adm.biz.vstatusTitle")}
                   >
-                    {o.verificationStatus ?? "PENDING"}
+                    {statusLabel(o.verificationStatus ?? "PENDING")}
                   </span>
                   <select
                     value={vDraft[o.id] ?? o.verificationStatus ?? "PENDING"}
                     onChange={(e) => setVDraft((prev) => ({ ...prev, [o.id]: e.target.value }))}
                     className="text-xs border border-gray-300 rounded px-1 py-1 bg-white"
-                    title="Change verification status"
+                    title={t("adm.biz.vstatusChange")}
                   >
                     {VERIFICATION_STATUSES.map((s) => (
                       <option key={s} value={s}>
-                        {s}
+                        {statusLabel(s)}
                       </option>
                     ))}
                   </select>
@@ -415,15 +428,15 @@ export default function AdminBusinessesPage() {
                     onClick={() => setVerificationStatus(o.id, vDraft[o.id] ?? o.verificationStatus ?? "PENDING")}
                     disabled={!vDraft[o.id] || vDraft[o.id] === o.verificationStatus}
                     className="text-xs px-2 py-1 rounded bg-gray-800 text-white disabled:opacity-40"
-                    title="Apply the selected verification status (the owner is notified)"
+                    title={t("adm.biz.applyTitle")}
                   >
-                    Apply
+                    {t("common.apply")}
                   </button>
                   <button onClick={() => startEdit(o)} className="text-xs text-blue-600 hover:underline">
-                    Edit
+                    {t("common.edit")}
                   </button>
                   <button onClick={() => deleteOrg(o.id, o.name)} className="text-xs text-red-600 hover:underline">
-                    Delete
+                    {t("common.delete")}
                   </button>
                   <button
                     onClick={() => toggleOrgStatus(o.id, o.status)}
@@ -431,25 +444,25 @@ export default function AdminBusinessesPage() {
                       o.status === "ACTIVE" ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-500"
                     }`}
                   >
-                    {o.status === "ACTIVE" ? "Active" : "Inactive"}
+                    {o.status === "ACTIVE" ? t("status.active") : t("status.inactive")}
                   </button>
                 </div>
               </li>
             );
           })}
-          {orgs.length === 0 && <li className="px-4 py-3 text-gray-400 text-sm">No businesses yet.</li>}
+          {orgs.length === 0 && <li className="px-4 py-3 text-gray-400 text-sm">{t("adm.noBusinesses")}</li>}
         </ul>
       </div>
 
       {editing && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl">
-            <h2 className="font-semibold text-gray-800 mb-4">Edit Business</h2>
+            <h2 className="font-semibold text-gray-800 mb-4">{t("biz.editBusiness")}</h2>
             <form onSubmit={saveEdit} className="space-y-3">
               <input
                 value={editForm.name}
                 onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                placeholder="Business name"
+                placeholder={t("biz.businessName")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
                 required
               />
@@ -458,14 +471,14 @@ export default function AdminBusinessesPage() {
                 onChange={(e) => setEditForm({ ...editForm, businessType: e.target.value })}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
               >
-                {Object.entries(VERTICAL_LABELS).map(([value, label]) => (
+                {Object.keys(VERTICAL_LABELS).map((value) => (
                   <option key={value} value={value}>
-                    {label}
+                    {t(`verticals.${value.toLowerCase()}`)}
                   </option>
                 ))}
               </select>
               <div className="pt-2 border-t border-gray-100">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">AI Feature</p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{t("adm.biz.aiFeature")}</p>
                 <label className="flex items-center gap-2 text-sm text-gray-700 mb-2">
                   <input
                     type="checkbox"
@@ -473,23 +486,21 @@ export default function AdminBusinessesPage() {
                     onChange={(e) => setEditForm({ ...editForm, aiEnabled: e.target.checked })}
                     className="rounded"
                   />
-                  AI enabled (on-demand)
+                  {t("adm.biz.aiEnabledOnDemand")}
                 </label>
                 <label className="block text-xs text-gray-500 mb-1">
-                  AI access window (set a date to enable AI)
+                  {t("adm.biz.aiWindowLabel")}
                 </label>
                 <AiTrialRadios
                   value={editForm.aiTrialEndsAt}
                   onChange={(date) => setEditForm({ ...editForm, aiTrialEndsAt: date })}
                 />
                 <p className="text-[11px] text-gray-400 mt-1">
-                  AI is usable only while an access end date is set. Pick 15
-                  days / 1 month / 3 months or set a custom date. Leave empty
-                  to disable AI for this business.
+                  {t("adm.biz.aiHint")}
                 </p>
               </div>
               <div className="pt-2 border-t border-gray-100">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Owner</p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{t("common.owner")}</p>
                 <SearchableSelect
                   options={owners.map((u) => ({
                     value: String(u.id),
@@ -498,18 +509,17 @@ export default function AdminBusinessesPage() {
                   }))}
                   value={editForm.newOwnerUserId}
                   onChange={(v) => setEditForm({ ...editForm, newOwnerUserId: v })}
-                  placeholder="Search owner to assign / reassign…"
+                  placeholder={t("adm.biz.searchOwnerAssignPh")}
                 />
                 {editForm.ownerId && (
                   <div className="space-y-3 mt-3">
                     <p className="text-[11px] text-gray-400">
-                      Editing details for the currently assigned owner (or pick a
-                      different owner above to reassign).
+                      {t("adm.biz.editOwnerHint")}
                     </p>
                     <input
                       value={editForm.ownerName}
                       onChange={(e) => setEditForm({ ...editForm, ownerName: e.target.value })}
-                      placeholder="Owner name"
+                      placeholder={t("adm.biz.ownerNamePh")}
                       className="border border-gray-300 rounded p-2 text-sm w-full"
                       required
                     />
@@ -517,7 +527,7 @@ export default function AdminBusinessesPage() {
                       type="email"
                       value={editForm.ownerEmail}
                       onChange={(e) => setEditForm({ ...editForm, ownerEmail: e.target.value })}
-                      placeholder="Owner email"
+                      placeholder={t("adm.biz.ownerEmailPh")}
                       className="border border-gray-300 rounded p-2 text-sm w-full"
                       required
                     />
@@ -525,7 +535,7 @@ export default function AdminBusinessesPage() {
                       type="password"
                       value={editForm.ownerPassword}
                       onChange={(e) => setEditForm({ ...editForm, ownerPassword: e.target.value })}
-                      placeholder="New password (leave blank to keep)"
+                      placeholder={t("adm.biz.ownerPasswordPh")}
                       className="border border-gray-300 rounded p-2 text-sm w-full"
                     />
                   </div>
@@ -533,10 +543,10 @@ export default function AdminBusinessesPage() {
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setEditing(null)} className="px-3 py-2 text-sm text-gray-600">
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">
-                  Save
+                  {t("common.save")}
                 </button>
               </div>
             </form>

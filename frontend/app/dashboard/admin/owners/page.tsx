@@ -3,6 +3,7 @@
 import api from "@/lib/api";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 const addDays = (days: number) => {
   const d = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
@@ -14,6 +15,7 @@ const addDays = (days: number) => {
 
 export default function AdminOwnersPage() {
   const confirm = useConfirm();
+  const { t } = useTranslation();
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -27,11 +29,11 @@ export default function AdminOwnersPage() {
       const res = await api.get("/admin/users");
       setUsers(res.data);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load owner accounts");
+      setError(e?.response?.data?.message ?? t("adm.owner.loadFail"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -65,7 +67,7 @@ export default function AdminOwnersPage() {
       setIdFile(null);
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to create owner account");
+      setError(err?.response?.data?.message ?? t("adm.owner.createFail"));
     }
   };
 
@@ -107,33 +109,33 @@ export default function AdminOwnersPage() {
       setEditing(null);
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to update user");
+      setError(err?.response?.data?.message ?? t("adm.owner.updateFail"));
     }
   };
 
   const deleteUser = async (id: number, name: string) => {
-    if (!(await confirm(`Delete "${name}"? This cannot be undone.`))) return;
+    if (!(await confirm(t("adm.owner.delConfirm", { name })))) return;
     setError("");
     try {
       await api.delete(`/admin/users/${id}`);
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to delete user");
+      setError(err?.response?.data?.message ?? t("users.delFail"));
     }
   };
 
-  if (loading) return <p className="text-gray-500">Loading…</p>;
+  if (loading) return <p className="text-gray-500">{t("common.loading")}</p>;
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800">Users</h1>
+      <h1 className="text-2xl font-bold text-gray-800">{t("nav.adminUsers")}</h1>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
 
       <div className="bg-white p-4 rounded-lg border border-gray-200">
-        <h2 className="font-semibold text-gray-800 mb-3">Create Owner Account</h2>
+        <h2 className="font-semibold text-gray-800 mb-3">{t("adm.owner.createTitle")}</h2>
         <form onSubmit={createOwner} className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <input
-            placeholder="Full name"
+            placeholder={t("users.fullName")}
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             className="border border-gray-300 rounded p-2 text-sm"
@@ -141,7 +143,7 @@ export default function AdminOwnersPage() {
           />
           <input
             type="email"
-            placeholder="Email"
+            placeholder={t("common.email")}
             value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })}
             className="border border-gray-300 rounded p-2 text-sm"
@@ -149,14 +151,14 @@ export default function AdminOwnersPage() {
           />
           <input
             type="password"
-            placeholder="Password (min 8 chars)"
+            placeholder={t("adm.owner.passwordPh")}
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
             className="border border-gray-300 rounded p-2 text-sm"
             required
           />
           <label className="flex items-center gap-2 text-xs text-gray-600">
-            <span className="whitespace-nowrap">AI trial ends:</span>
+            <span className="whitespace-nowrap">{t("adm.owner.aiTrialEnds")}</span>
             <input
               type="date"
               value={form.aiTrialEndsAt}
@@ -165,11 +167,11 @@ export default function AdminOwnersPage() {
             />
           </label>
           <label className="flex items-center gap-2 text-xs text-gray-600">
-            <span className="whitespace-nowrap">AI daily limit:</span>
+            <span className="whitespace-nowrap">{t("adm.owner.aiDaily")}</span>
             <input
               type="number"
               min="0"
-              placeholder="default"
+              placeholder={t("adm.owner.defaultPh")}
               value={form.dailyAiQuota}
               onChange={(e) => setForm({ ...form, dailyAiQuota: e.target.value })}
               className="border border-gray-300 rounded p-2 text-sm w-full"
@@ -177,7 +179,7 @@ export default function AdminOwnersPage() {
           </label>
           <label className="md:col-span-2 border border-dashed border-gray-300 rounded p-2 bg-gray-50 cursor-pointer">
             <span className="text-xs font-medium text-gray-600">
-              National ID (optional — attach to start verification)
+              {t("adm.owner.nidHint")}
             </span>
             <input
               type="file"
@@ -188,7 +190,7 @@ export default function AdminOwnersPage() {
             {idFile && <span className="text-[11px] text-green-600 mt-1 block">✓ {idFile.name}</span>}
           </label>
           <button type="submit" className="bg-blue-600 text-white rounded p-2 text-sm font-medium md:col-span-2">
-            Create User Account
+            {t("adm.owner.createBtn")}
           </button>
         </form>
       </div>
@@ -200,17 +202,22 @@ export default function AdminOwnersPage() {
               <div>
                 <p className="text-sm font-medium text-gray-800">{u.name}</p>
                 <p className="text-xs text-gray-400">
-                  {u.email} · {u.memberships?.length ?? 0} business(es) · AI trial{" "}
-                  {u.aiTrialEndsAt ? `ends ${String(u.aiTrialEndsAt).slice(0, 10)}` : "unlimited"}
-                  · AI {u.dailyAiQuota != null ? `${u.dailyAiQuota}/day` : "default quota"}
+                  {u.email} · {t("adm.owner.bizCount", { count: u.memberships?.length ?? 0 })} ·{" "}
+                  {u.aiTrialEndsAt
+                    ? t("biz.aiTrialEnds", { date: String(u.aiTrialEndsAt).slice(0, 10) })
+                    : t("adm.owner.aiTrialUnlimited")}{" "}
+                  ·{" "}
+                  {u.dailyAiQuota != null
+                    ? t("adm.owner.aiPerDay", { count: u.dailyAiQuota })
+                    : t("adm.owner.aiDefaultQuota")}
                 </p>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => startEdit(u)} className="text-xs text-blue-600 hover:underline">
-                  Edit
+                  {t("common.edit")}
                 </button>
                 <button onClick={() => deleteUser(u.id, u.name)} className="text-xs text-red-600 hover:underline">
-                  Delete
+                  {t("common.delete")}
                 </button>
                 <button
                   onClick={() => toggleStatus(u.id, u.status)}
@@ -218,24 +225,24 @@ export default function AdminOwnersPage() {
                     u.status === "ACTIVE" ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-500"
                   }`}
                 >
-                  {u.status === "ACTIVE" ? "Active" : "Inactive"}
+                  {u.status === "ACTIVE" ? t("status.active") : t("status.inactive")}
                 </button>
               </div>
             </li>
           ))}
-          {users.length === 0 && <li className="px-4 py-3 text-gray-400 text-sm">No owner accounts yet.</li>}
+          {users.length === 0 && <li className="px-4 py-3 text-gray-400 text-sm">{t("adm.owner.none")}</li>}
         </ul>
       </div>
 
       {editing && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl">
-            <h2 className="font-semibold text-gray-800 mb-4">Edit User</h2>
+            <h2 className="font-semibold text-gray-800 mb-4">{t("users.editUser")}</h2>
             <form onSubmit={saveEdit} className="space-y-3">
               <input
                 value={editForm.name}
                 onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                placeholder="Full name"
+                placeholder={t("users.fullName")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
                 required
               />
@@ -243,7 +250,7 @@ export default function AdminOwnersPage() {
                 type="email"
                 value={editForm.email}
                 onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                placeholder="Email"
+                placeholder={t("common.email")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
                 required
               />
@@ -251,11 +258,11 @@ export default function AdminOwnersPage() {
                 type="password"
                 value={editForm.password}
                 onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
-                placeholder="New password (leave blank to keep current)"
+                placeholder={t("adm.owner.newPasswordPh")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
               />
               <div>
-                <label className="block text-xs text-gray-500 mb-1">AI trial end date</label>
+                <label className="block text-xs text-gray-500 mb-1">{t("adm.owner.aiTrialLabel")}</label>
                 <input
                   type="date"
                   value={editForm.aiTrialEndsAt}
@@ -263,17 +270,17 @@ export default function AdminOwnersPage() {
                   className="border border-gray-300 rounded p-2 text-sm w-full"
                 />
                 <p className="text-[11px] text-gray-400 mt-1">
-                  Leave empty to grant unlimited AI access (paid).
+                  {t("adm.owner.unlimitedHint")}
                 </p>
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">
-                  Daily AI query limit
+                  {t("adm.owner.dailyLimitLabel")}
                 </label>
                 <input
                   type="number"
                   min="0"
-                  placeholder="Default (global)"
+                  placeholder={t("adm.owner.defaultGlobalPh")}
                   value={editForm.dailyAiQuota}
                   onChange={(e) =>
                     setEditForm({ ...editForm, dailyAiQuota: e.target.value })
@@ -281,15 +288,15 @@ export default function AdminOwnersPage() {
                   className="border border-gray-300 rounded p-2 text-sm w-full"
                 />
                 <p className="text-[11px] text-gray-400 mt-1">
-                  Leave empty to use the global default quota.
+                  {t("adm.owner.defaultQuotaHint")}
                 </p>
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setEditing(null)} className="px-3 py-2 text-sm text-gray-600">
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button type="submit" className="bg-blue-600 text-white rounded px-3 py-2 text-sm font-medium">
-                  Save
+                  {t("common.save")}
                 </button>
               </div>
             </form>

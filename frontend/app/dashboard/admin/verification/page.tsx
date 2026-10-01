@@ -1,8 +1,11 @@
 "use client";
 
 import { VERTICAL_LABELS } from "@/lib/verticals";
+import { statusLabel } from "@/lib/statusLabel";
+import { formatDateTime } from "@/lib/datetime";
 import api from "@/lib/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface AdminDoc {
   id: string;
@@ -63,13 +66,29 @@ const STATUS_STYLES: Record<string, string> = {
   BLOCKED: "bg-red-200 text-red-900 border-red-300",
 };
 
-const DOC_LABELS: Record<string, string> = {
-  NATIONAL_ID: "National ID",
-  TRADE_LICENSE: "Trade License",
-  TIN_CERTIFICATE: "TIN Certificate",
+// Document type → i18n key under `verif.*`; resolved with `t` at render time.
+const DOC_LABEL_KEYS: Record<string, string> = {
+  NATIONAL_ID: "verif.docNationalId",
+  TRADE_LICENSE: "verif.docTradeLicense",
+  TIN_CERTIFICATE: "verif.docTinCertificate",
 };
 
+/** Localized document label (falls back to the raw enum value). */
+function docLabel(type: string, t: (key: string) => string): string {
+  const key = DOC_LABEL_KEYS[type];
+  return key ? t(key) : type;
+}
+
 export default function AdminVerificationPage() {
+  const { t } = useTranslation();
+  // Business-type display name from the shared `verticals.*` catalog, with the
+  // static English label as the fallback for an unknown type.
+  const verticalName = (type?: string | null) =>
+    type
+      ? t(`verticals.${type.toLowerCase()}`, {
+          defaultValue: VERTICAL_LABELS[type] ?? type,
+        })
+      : "";
   const [queue, setQueue] = useState<Queue>({ users: [], organizations: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -102,11 +121,11 @@ export default function AdminVerificationPage() {
       );
       setQueue(res.data);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load verification queue");
+      setError(e?.response?.data?.message ?? t("adm.verif.loadFail"));
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, [filter, t]);
 
   useEffect(() => {
     load();
@@ -129,7 +148,7 @@ export default function AdminVerificationPage() {
       await action();
       await load();
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Action failed");
+      setError(e?.response?.data?.message ?? t("adm.verif.actionFail"));
     } finally {
       setBusy(false);
     }
@@ -195,21 +214,20 @@ export default function AdminVerificationPage() {
       await load();
       setDetail(null);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to change the status");
+      setError(e?.response?.data?.message ?? t("adm.verif.statusFail"));
     } finally {
       setBusy(false);
     }
   };
 
-  if (loading) return <p className="text-gray-500">Loading…</p>;
+  if (loading) return <p className="text-gray-500">{t("common.loading")}</p>;
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-800">Verification Review</h1>
+        <h1 className="text-2xl font-bold text-gray-800">{t("adm.verif.title")}</h1>
         <p className="text-sm text-gray-500 mt-1">
-          {pendingCount} item(s) waiting for review. Suspicious documents are flagged
-          here by the AI agent for manual decision.
+          {t("adm.verif.subtitle", { count: pendingCount })}
         </p>
       </div>
 
@@ -226,17 +244,17 @@ export default function AdminVerificationPage() {
                 : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
             }`}
           >
-            {f}
+            {f === "ALL" ? t("common.all") : statusLabel(f)}
           </button>
         ))}
       </div>
 
       <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <h2 className="font-semibold text-gray-800 px-5 py-3 border-b border-gray-100">
-          Owner Accounts ({queue.users.length})
+          {t("adm.verif.ownerAccounts", { count: queue.users.length })}
         </h2>
         {queue.users.length === 0 && (
-          <p className="text-gray-400 text-sm p-5">No accounts match this filter.</p>
+          <p className="text-gray-400 text-sm p-5">{t("adm.verif.noAccounts")}</p>
         )}
         {queue.users.map((u) => (
           <AccountRow
@@ -263,16 +281,16 @@ export default function AdminVerificationPage() {
 
       <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <h2 className="font-semibold text-gray-800 px-5 py-3 border-b border-gray-100">
-          Businesses ({queue.organizations.length})
+          {t("adm.verif.businesses", { count: queue.organizations.length })}
         </h2>
         {queue.organizations.length === 0 && (
-          <p className="text-gray-400 text-sm p-5">No businesses match this filter.</p>
+          <p className="text-gray-400 text-sm p-5">{t("adm.verif.noBusinesses")}</p>
         )}
         {queue.organizations.map((o) => (
           <AccountRow
             key={o.id}
             title={o.name}
-            subtitle={`${o.label ?? VERTICAL_LABELS[o.businessType] ?? o.businessType} · ${o.memberships?.[0]?.user?.name ?? "No owner"}`}
+            subtitle={`${o.label ?? (verticalName(o.businessType) || o.businessType)} · ${o.memberships?.[0]?.user?.name ?? t("adm.verif.noOwner")}`}
             attempts={o.verificationAttempts}
             note={o.verificationNote}
             status={o.verificationStatus}
@@ -294,15 +312,14 @@ export default function AdminVerificationPage() {
       {rejecting && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl">
-            <h2 className="font-semibold text-gray-800 mb-1">Reject verification</h2>
+            <h2 className="font-semibold text-gray-800 mb-1">{t("adm.verif.rejectTitle")}</h2>
             <p className="text-xs text-gray-500 mb-3">
-              {rejecting.name} — the user will be notified with this reason and can
-              re-upload. Repeated rejections block the account permanently.
+              {t("adm.verif.rejectHint", { name: rejecting.name })}
             </p>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. The document is not legible / looks edited. Please upload a clear photo of the physical document."
+              placeholder={t("adm.verif.rejectPh")}
               className="border border-gray-300 rounded p-2 text-sm w-full h-24"
             />
             <div className="flex justify-end gap-2 mt-4">
@@ -310,14 +327,14 @@ export default function AdminVerificationPage() {
                 onClick={() => setRejecting(null)}
                 className="px-3 py-2 text-sm text-gray-600"
               >
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 onClick={submitReject}
                 disabled={!reason.trim() || busy}
                 className="bg-red-600 text-white rounded px-4 py-2 text-sm font-medium disabled:opacity-50"
               >
-                Reject
+                {t("adm.verif.rejectBtn")}
               </button>
             </div>
           </div>
@@ -327,13 +344,12 @@ export default function AdminVerificationPage() {
       {requesting && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl">
-            <h2 className="font-semibold text-gray-800 mb-1">Request documents</h2>
+            <h2 className="font-semibold text-gray-800 mb-1">{t("adm.verif.requestTitle")}</h2>
             <p className="text-xs text-gray-500 mb-3">
-              {requesting.name} — notify the owner which pictures they still need
-              to upload for approval.
+              {t("adm.verif.requestHint", { name: requesting.name })}
             </p>
             <div className="space-y-2">
-              {Object.entries(DOC_LABELS).map(([value, label]) => (
+              {Object.keys(DOC_LABEL_KEYS).map((value) => (
                 <label
                   key={value}
                   className="flex items-center gap-2 text-sm text-gray-700"
@@ -350,7 +366,7 @@ export default function AdminVerificationPage() {
                     }
                     className="rounded"
                   />
-                  {label}
+                  {docLabel(value, t)}
                 </label>
               ))}
             </div>
@@ -359,14 +375,14 @@ export default function AdminVerificationPage() {
                 onClick={() => setRequesting(null)}
                 className="px-3 py-2 text-sm text-gray-600"
               >
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 onClick={submitRequestDocs}
                 disabled={requestedDocs.length === 0 || busy}
                 className="bg-sky-600 text-white rounded px-4 py-2 text-sm font-medium disabled:opacity-50"
               >
-                Send request
+                {t("adm.verif.sendRequest")}
               </button>
             </div>
           </div>
@@ -417,6 +433,7 @@ function AccountRow({
   onRequestDocs: () => void;
   busy: boolean;
 }) {
+  const { t } = useTranslation();
   const style = STATUS_STYLES[status] ?? STATUS_STYLES.PENDING;
   return (
     <div className="px-5 py-4 border-b border-gray-100 last:border-0">
@@ -425,10 +442,10 @@ function AccountRow({
           <div className="flex items-center gap-2 flex-wrap">
             <p className="font-medium text-gray-800">{title}</p>
             <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${style}`}>
-              {status}
+              {statusLabel(status)}
             </span>
             {attempts > 0 && (
-              <span className="text-[11px] text-gray-400">rejections: {attempts}</span>
+              <span className="text-[11px] text-gray-400">{t("adm.verif.rejections", { count: attempts })}</span>
             )}
           </div>
           <p className="text-xs text-gray-400">{subtitle}</p>
@@ -439,34 +456,34 @@ function AccountRow({
             onClick={onDetails}
             disabled={busy}
             className="text-xs px-3 py-1.5 rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-            title="View full details, document previews, and change the verification status"
+            title={t("adm.verif.detailsTitle")}
           >
-            Details
+            {t("adm.verif.details")}
           </button>
           <button
             onClick={onReject}
             disabled={busy}
             className="text-xs px-3 py-1.5 rounded border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
-            title="Reject / request a new document"
+            title={t("adm.verif.rejectAttr")}
           >
-            Reject
+            {t("adm.verif.rejectBtn")}
           </button>
           <button
             onClick={onApprove}
             disabled={busy}
             className="text-xs px-3 py-1.5 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
-            title="Approve this account/business"
+            title={t("adm.verif.approveAttr")}
           >
-            Approve
+            {t("adm.verif.approve")}
           </button>
         </div>
         <button
           onClick={onRequestDocs}
           disabled={busy}
           className="text-xs px-3 py-1.5 rounded border border-sky-200 text-sky-600 hover:bg-sky-50 disabled:opacity-50 flex-shrink-0"
-          title="Notify the owner which pictures/documents to upload"
+          title={t("adm.verif.requestDocsAttr")}
         >
-          📎 Request Docs
+          {t("adm.verif.requestDocs")}
         </button>
       </div>
 
@@ -480,12 +497,12 @@ function AccountRow({
                 className="flex items-center gap-3 text-xs border border-gray-100 rounded p-2 flex-wrap"
               >
                 <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLES[d.status] ?? STATUS_STYLES.PENDING}`}>
-                  {d.status}
+                  {statusLabel(d.status)}
                 </span>
-                <span className="text-gray-600">{DOC_LABELS[d.documentType] ?? d.documentType}</span>
+                <span className="text-gray-600">{docLabel(d.documentType, t)}</span>
                 {ai && (
                   <span className="text-gray-500">
-                    AI: {ai.decision ?? "—"}
+                    {t("adm.verif.aiLabel")} {ai.decision ?? "—"}
                     {ai.confidence != null ? ` (${Math.round(ai.confidence * 100)}%)` : ""}
                   </span>
                 )}
@@ -493,11 +510,11 @@ function AccountRow({
                   onClick={() => onPreview(d)}
                   className="text-blue-600 hover:underline ml-auto"
                 >
-                  {previews[d.id] ? "View" : "Preview"}
+                  {previews[d.id] ? t("common.view") : t("common.preview")}
                 </button>
                 {previews[d.id] && (
                   <a href={previews[d.id]} target="_blank" rel="noreferrer">
-                    Open
+                    {t("adm.verif.open")}
                   </a>
                 )}
                 {ai?.reasons && ai.reasons.length > 0 && (
@@ -527,6 +544,7 @@ function DetailModal({
   onClose: () => void;
   onApply: (status: string, note: string) => Promise<void>;
 }) {
+  const { t } = useTranslation();
   const [status, setStatus] = useState(account.verificationStatus);
   const [note, setNote] = useState("");
 
@@ -534,6 +552,13 @@ function DetailModal({
   const user = account as AdminUser;
   const org = account as AdminOrg;
   const docs = account.verificationDocs ?? [];
+  // Business-type display name, localized via `verticals.*`.
+  const verticalName = (type?: string | null) =>
+    type
+      ? t(`verticals.${type.toLowerCase()}`, {
+          defaultValue: VERTICAL_LABELS[type] ?? type,
+        })
+      : "";
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -545,20 +570,20 @@ function DetailModal({
             </h2>
             <p className="text-xs text-gray-500">
               {isUser
-                ? `${user.email}${user.phone ? ` · ${user.phone}` : ""} · Owner account #${user.id}`
-                : `${org.label ?? VERTICAL_LABELS[org.businessType] ?? org.businessType} · Business #${org.id} · ${org.memberships?.[0]?.user?.name ?? "No owner"}`}
+                ? `${user.email}${user.phone ? ` · ${user.phone}` : ""} · ${t("adm.verif.ownerAccountNum", { id: user.id })}`
+                : `${org.label ?? (verticalName(org.businessType) || org.businessType)} · ${t("adm.verif.businessNum", { id: org.id })} · ${org.memberships?.[0]?.user?.name ?? t("adm.verif.noOwner")}`}
             </p>
           </div>
           <div className="flex items-center gap-2">
             <span
               className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_STYLES[account.verificationStatus] ?? STATUS_STYLES.PENDING}`}
             >
-              {account.verificationStatus}
+              {statusLabel(account.verificationStatus)}
             </span>
             <button
               onClick={onClose}
               className="text-gray-400 hover:text-gray-600 text-xl leading-none"
-              aria-label="Close"
+              aria-label={t("common.close")}
             >
               ×
             </button>
@@ -568,20 +593,20 @@ function DetailModal({
         <div className="p-5 space-y-5">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
             <div>
-              <p className="text-[11px] uppercase tracking-wide text-gray-400">Created</p>
-              <p className="text-gray-700">{new Date(account.createdAt).toLocaleString()}</p>
+              <p className="text-[11px] uppercase tracking-wide text-gray-400">{t("adm.verif.created")}</p>
+              <p className="text-gray-700">{formatDateTime(account.createdAt)}</p>
             </div>
             <div>
-              <p className="text-[11px] uppercase tracking-wide text-gray-400">Rejections</p>
+              <p className="text-[11px] uppercase tracking-wide text-gray-400">{t("adm.verif.rejectionsLabel")}</p>
               <p className="text-gray-700">{account.verificationAttempts}</p>
             </div>
             <div>
-              <p className="text-[11px] uppercase tracking-wide text-gray-400">Status</p>
-              <p className="text-gray-700">{account.verificationStatus}</p>
+              <p className="text-[11px] uppercase tracking-wide text-gray-400">{t("common.status")}</p>
+              <p className="text-gray-700">{statusLabel(account.verificationStatus)}</p>
             </div>
             {account.verificationNote && (
               <div className="col-span-full">
-                <p className="text-[11px] uppercase tracking-wide text-gray-400">Note</p>
+                <p className="text-[11px] uppercase tracking-wide text-gray-400">{t("adm.verif.note")}</p>
                 <p className="text-amber-700 text-xs bg-amber-50 border border-amber-100 rounded p-2">
                   {account.verificationNote}
                 </p>
@@ -591,10 +616,10 @@ function DetailModal({
 
           <div>
             <h3 className="text-sm font-semibold text-gray-800 mb-2">
-              Documents ({docs.length})
+              {t("adm.verif.documents", { count: docs.length })}
             </h3>
             {docs.length === 0 && (
-              <p className="text-xs text-gray-400">No documents uploaded yet.</p>
+              <p className="text-xs text-gray-400">{t("adm.verif.noDocs")}</p>
             )}
             <div className="space-y-3">
               {docs.map((d) => {
@@ -603,26 +628,26 @@ function DetailModal({
                   <div key={d.id} className="border border-gray-200 rounded-lg p-3">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLES[d.status] ?? STATUS_STYLES.PENDING}`}>
-                        {d.status}
+                        {statusLabel(d.status)}
                       </span>
                       <span className="text-sm font-medium text-gray-700">
-                        {DOC_LABELS[d.documentType] ?? d.documentType}
+                        {docLabel(d.documentType, t)}
                       </span>
                       <span className="text-[11px] text-gray-400">
-                        {new Date(d.createdAt).toLocaleString()}
+                        {formatDateTime(d.createdAt)}
                       </span>
                     </div>
                     {ai && (
                       <div className="mt-1.5 text-xs text-gray-500 space-y-0.5">
                         <p>
                           <span className={ai.decision === "CLEAR" ? "text-emerald-600 font-semibold" : "text-orange-600 font-semibold"}>
-                            AI: {ai.decision ?? "—"}
+                            {t("adm.verif.aiLabel")} {ai.decision ?? "—"}
                           </span>
                           {ai.confidence != null
-                            ? ` (${Math.round(ai.confidence * 100)}% confidence)`
+                            ? ` (${t("adm.verif.confidence", { percent: Math.round(ai.confidence * 100) })})`
                             : ""}
                           {ai.detectedType
-                            ? ` · detected: ${ai.detectedType.replace(/_/g, " ")}`
+                            ? ` · ${t("adm.verif.detected", { type: ai.detectedType.replace(/_/g, " ") })}`
                             : ""}
                         </p>
                         {ai.reasons && ai.reasons.length > 0 && (
@@ -647,11 +672,10 @@ function DetailModal({
               </div>
             )}
             <h3 className="text-sm font-semibold text-gray-800 mb-2">
-              Change verification status
+              {t("adm.biz.vstatusChange")}
             </h3>
             <p className="text-xs text-gray-400 mb-3">
-              Set any status from the current one. Approving also approves pending
-              documents; rejecting/blocking rejects them. The owner is notified.
+              {t("adm.verif.changeHint")}
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <select
@@ -661,14 +685,14 @@ function DetailModal({
               >
                 {FILTERS.map((s) => (
                   <option key={s} value={s}>
-                    {s}
+                    {s === "ALL" ? t("common.all") : statusLabel(s)}
                   </option>
                 ))}
               </select>
               <input
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="Optional note (shown to the owner)"
+                placeholder={t("adm.verif.notePh")}
                 className="border border-gray-300 rounded-lg p-2 text-sm w-full"
                 maxLength={500}
               />
@@ -679,14 +703,14 @@ function DetailModal({
                 disabled={busy}
                 className="px-4 py-2 text-sm text-gray-600 disabled:opacity-50"
               >
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 onClick={() => onApply(status, note)}
                 disabled={busy || status === account.verificationStatus}
                 className="bg-gray-800 text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50"
               >
-                {busy ? "Applying…" : "Apply Status"}
+                {busy ? t("adm.verif.applying") : t("adm.verif.applyStatus")}
               </button>
             </div>
           </div>
@@ -697,6 +721,7 @@ function DetailModal({
 }
 
 function DocPreview({ doc }: { doc: AdminDoc }) {
+  const { t } = useTranslation();
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -723,35 +748,35 @@ function DocPreview({ doc }: { doc: AdminDoc }) {
   if (failed)
     return (
       <p className="text-xs text-gray-400">
-        Preview unavailable. Open the file directly to view it.
+        {t("adm.verif.previewUnavailable")}
       </p>
     );
-  if (!url) return <p className="text-xs text-gray-400">Loading preview…</p>;
+  if (!url) return <p className="text-xs text-gray-400">{t("adm.verif.loadingPreview")}</p>;
 
   return (
     <div>
       {mime.startsWith("image/") && !unrenderable ? (
         <img
           src={url}
-          alt={DOC_LABELS[doc.documentType] ?? doc.documentType}
+          alt={docLabel(doc.documentType, t)}
           className="max-h-72 rounded border border-gray-200 object-contain bg-gray-50"
         />
       ) : unrenderable ? (
         <div className="flex items-center gap-3 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded p-2">
-          <span>📷 HEIC/HEIF photos can't be previewed in the browser.</span>
+          <span>{t("adm.verif.heicNote")}</span>
           <a
             href={url}
             target="_blank"
             rel="noreferrer"
             className="text-blue-600 hover:underline"
           >
-            Open original file
+            {t("adm.verif.openOriginal")}
           </a>
         </div>
       ) : (
         <iframe
           src={url}
-          title={DOC_LABELS[doc.documentType] ?? doc.documentType}
+          title={docLabel(doc.documentType, t)}
           className="w-full h-72 rounded border border-gray-200 bg-gray-50"
         />
       )}
