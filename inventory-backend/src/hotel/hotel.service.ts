@@ -22,6 +22,7 @@ import { UPLOAD_ROOT } from '../common/upload.config';
 import type { UploadedFileShape } from '../common/upload.config';
 import { FinanceService } from '../finance/finance.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 import {
   AddFolioEntryDto,
   CheckInGuestDto,
@@ -734,11 +735,11 @@ export class HotelService {
 
     if (preview.hasOpenItems && !opts?.force) {
       throw new BadRequestException({
-        message: `Cannot check out: ${preview.unsettledCount} package guest(s) still have an open folio${
-          preview.reservationBalanceDue > 0
-            ? ' and the room folio has a balance'
-            : ''
-        }. Settle them first, or release the room with force.`,
+        message: preview.reservationBalanceDue > 0
+          ? tr('errors.checkoutOpenFoliosBalance', {
+              count: preview.unsettledCount,
+            })
+          : tr('errors.checkoutOpenFolios', { count: preview.unsettledCount }),
         code: 'UNSETTLED_FOLIOS',
         ...preview,
       });
@@ -880,7 +881,7 @@ export class HotelService {
     });
     if (clash) {
       throw new BadRequestException(
-        `Room is already booked for those dates (${clash.guestName}) — pick another room or different dates.`,
+        tr('errors.roomBookingClash', { guest: clash.guestName }),
       );
     }
   }
@@ -1140,7 +1141,7 @@ export class HotelService {
     });
     if (existing) {
       throw new BadRequestException(
-        `An ID type with the code "${code}" already exists.`,
+        tr('errors.guestIdTypeCodeExists', { code }),
       );
     }
 
@@ -1538,7 +1539,10 @@ export class HotelService {
 
       if (paidTotal - 0.01 > totalDue) {
         throw new BadRequestException({
-          message: `Collected ${paidTotal} but only ${totalDue} is outstanding — adjust the payment split.`,
+          message: tr('errors.overpaymentCollected', {
+            paid: paidTotal,
+            due: totalDue,
+          }),
           code: 'OVERPAYMENT',
           totalDue,
           paidTotal,
@@ -1546,7 +1550,10 @@ export class HotelService {
       }
       if (totalDue > 0 && !dto.force && paidTotal + 0.01 < totalDue) {
         throw new BadRequestException({
-          message: `Collected ${paidTotal} of ${totalDue} due — collect the balance or check out with force.`,
+          message: tr('errors.settleBalanceDue', {
+            paid: paidTotal,
+            due: totalDue,
+          }),
           code: 'UNSETTLED_FOLIOS',
           totalDue,
           paidTotal,

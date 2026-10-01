@@ -56,9 +56,9 @@ export const amMessages: Record<string, any> = {
     productNotFound: 'ምርት አልተገኘም',
     productVariantNotFound: 'የምርት አይነት አልተገኘም',
     unitNotFound: 'አሃድ አልተገኘም',
-    locationNotFound: 'አካባቢ አልተገኘም',
-    locationNameRequired: 'የአካባቢ ስም ያስፈልጋል',
-    locationTypeInvalid: 'የአካባቢ አይነት ትክክል አይደለም',
+    locationNotFound: 'ቦታ አልተገኘም',
+    locationNameRequired: 'የቦታ ስም ያስፈልጋል',
+    locationTypeInvalid: 'የቦታ አይነት ትክክል አይደለም',
     customerNotFound: 'ደንበኛ አልተገኘም',
     paymentMethodNotFound: 'የክፍያ ዘዴ አልተገኘም',
     duplicatePaymentMethod: 'በዚያ ስም ያለ የክፍያ ዘዴ ቀድሞ አለ',
@@ -211,6 +211,55 @@ export const amMessages: Record<string, any> = {
       grnOverReceipt: "ከቀሪ ብዛት በላይ መቀበል አይቻልም — ምርት #{{productId}} (የቀረ {{remaining}})",
       grnNothingReceived: "ቢያንስ ለአንድ መስመር የተቀበለውን ወይም የተጣለውን ብዛት ያስገቡ",
     },
+
+    // በውስጣቸው ተለዋዋጭ ጽሑፍ ያላቸው ጥያቄዎች (ደረጃ 7) — የ HTTP ማጣሪያ ሊተረጉማቸው
+    // ስለማይችል እያንዳንዱ በ tr('errors.<key>', {...}) ይነሳል።
+    aiTrialEnded:
+      '⚠️ የ AI ነፃ ሙከራው በ{{date}} አብቅቷል። ለማራዘም ወይም የ AI ባህሪውን ለማንቃት አስተዳዳሪውን ያግኙ።',
+    aiDailyLimitReached:
+      '⚠️ የቀኑ ገደብ ደርሷል፦ {{quota}}/{{quota}} የ AI ጥያቄዎችን ተጠቅመዋል። ገደቡ እኩለ ሌሊት ይታደሳል።',
+    creditPaymentExceedsRemaining:
+      'የ {{amount}} ክፍያ ለዚያ ሽያጭ ከቀረው {{remaining}} ይበልጣል',
+    customerDuplicate:
+      'ከ «{{name}}» ጋር የሚመሳሰል ደንበኛ ቀድሞ አለ። አዲስ ከመፍጠር ይልቅ ያለውን ደንበኛ ይምረጡ።',
+    unknownPostingAction: 'ያልታወቀ የመዝገብ እርምጃ «{{type}}»።',
+    accountManagedByInventory:
+      '«{{name}}» በክምችት እንቅስቃሴዎች በራሱ ይያዛል። የክምችት ግዢዎችን በምትኩ በእቃ ማስገባት / በግዢ ይመዝግቡ።',
+    orderNotPaid: 'ትዕዛዝ {{orderNumber}} አልተከፈለም',
+    checkoutOpenFolios:
+      'መውጣት አይቻልም፦ {{count}} የፓኬጅ እንግዳ(ዎች) ክፍት ፎሊዮ አላቸው። መጀመሪያ ያስታርቁዋቸው፣ ወይም ክፍሉን በኃይል (force) ይልቀቁ።',
+    checkoutOpenFoliosBalance:
+      'መውጣት አይቻልም፦ {{count}} የፓኬጅ እንግዳ(ዎች) ክፍት ፎሊዮ አላቸው እና የክፍሉ ፎሊዮ ቀሪ ሒሳብ አለው። መጀመሪያ ያስታርቁዋቸው፣ ወይም ክፍሉን በኃይል (force) ይልቀቁ።',
+    roomBookingClash:
+      'ክፍሉ ለእነዚያ ቀናት ቀድሞ ተይዟል ({{guest}}) — ሌላ ክፍል ወይም ሌላ ቀናት ይምረጡ።',
+    guestIdTypeCodeExists: 'በ «{{code}}» ኮድ ያለ የመታወቂያ ዓይነት ቀድሞ አለ።',
+    overpaymentCollected:
+      '{{paid}} ተሰብስቧል ግን የሚቀረው {{due}} ብቻ ነው — የክፍያ ክፍፍሉን ያስተካክሉ።',
+    settleBalanceDue:
+      'ከሚገባው {{due}} ውስጥ {{paid}} ተሰብስቧል — ቀሪውን ይሰብስቡ ወይም በኃይል (force) ያውጡ።',
+    insufficientStockAtLocation:
+      'በቂ ክምችት የለም፦ በዚህ ቦታ {{available}} አሃድ ይገኛል።',
+    paymentExceedsBillOutstanding: 'የ {{amount}} ክፍያ ከቀሪው {{due}} ይበልጣል',
+    entitlementNeedsService: 'የ {{kind}} መብቶች አገልግሎት ማነጣጠር አለባቸው።',
+    packageAllowanceExceeded:
+      '«{{name}}» ከፓኬጁ ድርሻ ይበልጣል እና የዋጋ ማካካሻ ጠፍቷል — ለብቻው ያስከፍሉት ወይም ትዕዛዙን ይቀንሱ።',
+    paymentMethodNameExists: '«{{name}}» የሚባል የክፍያ ዘዴ ቀድሞ አለ',
+    variantPricesRequired:
+      'ተለዋጭ {{index}}፦ ለተለዋጭ ምርቶች የግዢ እና የሽያጭ ዋጋ ያስፈልጋል።',
+    productDuplicate:
+      '«{{brand}} {{name}}» የሚባል ምርት ቀድሞ አለ። አዲስ ከመፍጠር ይልቅ ያለውን ምርት ያስተካክሉ።',
+    itemAlreadyExists:
+      '«{{name}}» ቀድሞ አለ — አዲስ ከመፍጠር ይልቅ ከዕቃ ፍለጋ ውስጥ ይምረጡት።',
+    variantNotFoundForProduct: 'ተለዋጭ {{id}} በዚህ ምርት ውስጥ አልተገኘም',
+    missingPostingAccounts:
+      '{{context}} መጠናቀቅ አልቻለም — ራስ-ሰር የመዝገብ ማስገባቱ የጎደለ የሒሳብ ዝርዝር መዝገብ ይፈልጋል፦ {{accounts}}። በፋይናንስ -> ሒሳቦች ውስጥ ያክሉት፣ ከዚያ እንደገና ይሞክሩ።',
+    insufficientStockForProduct: 'ለምርት መለያ ቁጥር {{id}} በቂ ክምችት የለም',
+    insufficientBatchStock:
+      'ለሚበላሽ ምርት በቂ የቡድን (batch) ክምችት የለም ({{short}} አሃድ ይጎድላል)',
+    cannotSellQuantity: '{{quantity}}x «{{name}}» መሸጥ አይቻልም። ያለው {{available}} ብቻ ነው።',
+    productNotInSale: 'ምርት {{id}} በዚህ ሽያጭ ውስጥ አልነበረም',
+    returnExceedsSold: 'ከምርት {{id}} {{quantity}} መመለስ አይቻልም (ቢበዛ {{max}})',
+    serviceItemNotFound: 'የአገልግሎት ዕቃ {{id}} አልተገኘም',
 
 
   },

@@ -4,6 +4,7 @@ import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { FinanceService } from '../finance/finance.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 import { RecordWastageDto } from './dto/record-wastage.dto';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -72,7 +73,7 @@ export class InventoryService {
     const available = inv?.quantity ?? 0;
     if (available < dto.quantity) {
       throw new BadRequestException(
-        `Insufficient stock: ${available} unit(s) available at this location.`,
+        tr('errors.insufficientStockAtLocation', { available }),
       );
     }
 

@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 import { Paging, pagedResult } from '../common/pagination.util';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import {
@@ -150,7 +151,7 @@ export class CustomersService {
     });
     if (existing) {
       throw new ConflictException(
-        `A customer matching "${existing.name}" already exists. Please select the existing customer instead of creating a duplicate.`,
+        tr('errors.customerDuplicate', { name: existing.name }),
       );
     }
 

@@ -23,6 +23,7 @@ import { itemDisplayName } from '../common/variant-label.util';
 import { FinanceService } from '../finance/finance.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 import { RegisterPurchaseDto } from './dto/register-purchase.dto';
 import { RestockDto } from './dto/restock.dto';
 import { BatchRestockDto } from './dto/batch-restock.dto';
@@ -1034,11 +1035,11 @@ export class RestockService {
       });
       if (existing) {
         throw new BadRequestException(
-          `"${[existing.brand, existing.baseName]
-            .filter(Boolean)
-            .join(
-              ' ',
-            )}" already exists — select it from the item search instead of creating a duplicate.`,
+          tr('errors.itemAlreadyExists', {
+            name: [existing.brand, existing.baseName]
+              .filter(Boolean)
+              .join(' '),
+          }),
         );
       }
     }
@@ -1258,7 +1259,7 @@ export class RestockService {
             });
             if (!variant) {
               throw new BadRequestException(
-                `Variant ${line.variantId} not found for this product`,
+                tr('errors.variantNotFoundForProduct', { id: line.variantId }),
               );
             }
             variantLines.push({

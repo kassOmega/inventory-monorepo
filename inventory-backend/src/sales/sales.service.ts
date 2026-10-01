@@ -12,6 +12,7 @@ import { resolveTax, round2, splitTax } from '../common/tax.util';
 import { FinanceService } from '../finance/finance.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 import { inventoryFind, inventoryUpsert } from '../common/inventory.util';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { ReturnSaleDto } from './dto/return-sale.dto';
@@ -59,7 +60,10 @@ export class SalesService {
     );
     if (missing.length > 0) {
       throw new BadRequestException(
-        `${context} could not be completed because the automatic ledger posting needs a chart-of-accounts entry that is missing: ${missing.join(', ')}. Add it in Finance -> Accounts, then retry.`,
+        tr('errors.missingPostingAccounts', {
+          context,
+          accounts: missing.join(', '),
+        }),
       );
     }
   }
@@ -123,7 +127,7 @@ export class SalesService {
     );
     if (!inventory || inventory.quantity < args.quantity) {
       throw new BadRequestException(
-        `Insufficient stock for Product ID: ${args.productId}`,
+        tr('errors.insufficientStockForProduct', { id: args.productId }),
       );
     }
     const product = inventory.product;
@@ -204,7 +208,7 @@ export class SalesService {
     }
     if (remaining > 0) {
       throw new BadRequestException(
-        `Insufficient batch stock for perishable product (${remaining} unit(s) short)`,
+        tr('errors.insufficientBatchStock', { short: remaining }),
       );
     }
     return allocs;
@@ -693,7 +697,11 @@ export class SalesService {
               item.variantId ?? null,
             );
             throw new BadRequestException(
-              `Cannot sell ${item.quantity}x "${name}". Only ${currentStock + originalQty} available.`,
+              tr('errors.cannotSellQuantity', {
+                quantity: item.quantity,
+                name,
+                available: currentStock + originalQty,
+              }),
             );
           }
         }
@@ -1021,7 +1029,9 @@ export class SalesService {
       for (const item of dto.items) {
         const saleItem = sale.items.find((i) => i.productId === item.productId);
         if (!saleItem) {
-          throw new BadRequestException(`Product ${item.productId} was not in this sale`);
+          throw new BadRequestException(
+            tr('errors.productNotInSale', { id: item.productId }),
+          );
         }
 
         const alreadyReturned = sale.returns.reduce(
@@ -1035,7 +1045,11 @@ export class SalesService {
         const maxReturnable = saleItem.quantity - alreadyReturned;
         if (item.quantity > maxReturnable) {
           throw new BadRequestException(
-            `Cannot return ${item.quantity} of product ${item.productId} (max ${maxReturnable})`,
+            tr('errors.returnExceedsSold', {
+              quantity: item.quantity,
+              id: item.productId,
+              max: maxReturnable,
+            }),
           );
         }
 

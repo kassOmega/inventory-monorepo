@@ -6,6 +6,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { asNumericId } from '../common/business-number.util';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -132,7 +133,7 @@ export class CreditPaymentsService {
     const remaining = creditSale.sale.remainingAmount;
     if (amount > remaining + 0.0001) {
       throw new BadRequestException(
-        `Payment of ${amount} exceeds the remaining balance of ${remaining} for that sale`,
+        tr('errors.creditPaymentExceedsRemaining', { amount, remaining }),
       );
     }
   }

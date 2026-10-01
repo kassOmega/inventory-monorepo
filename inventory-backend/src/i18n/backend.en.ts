@@ -219,6 +219,56 @@ export const enMessages: Record<string, any> = {
       grnNothingReceived: "Enter a received or rejected quantity for at least one line",
     },
 
+    // Interpolated throw sites (Phase 7): text the HTTP exception filter cannot
+    // reverse-map, so each of these is raised through tr('errors.<key>', {...}).
+    aiTrialEnded:
+      '⚠️ The AI free trial ended on {{date}}. Contact the admin to extend or enable the AI feature.',
+    aiDailyLimitReached:
+      '⚠️ Daily limit reached: You have used {{quota}}/{{quota}} daily AI queries. Quota resets at midnight.',
+    creditPaymentExceedsRemaining:
+      'Payment of {{amount}} exceeds the remaining balance of {{remaining}} for that sale',
+    customerDuplicate:
+      'A customer matching "{{name}}" already exists. Please select the existing customer instead of creating a duplicate.',
+    unknownPostingAction: "Unknown posting action '{{type}}'.",
+    accountManagedByInventory:
+      '"{{name}}" is managed automatically by inventory movements. Record inventory purchases via Restock / Procurement instead.',
+    orderNotPaid: 'Order {{orderNumber}} is not paid',
+    checkoutOpenFolios:
+      'Cannot check out: {{count}} package guest(s) still have an open folio. Settle them first, or release the room with force.',
+    checkoutOpenFoliosBalance:
+      'Cannot check out: {{count}} package guest(s) still have an open folio and the room folio has a balance. Settle them first, or release the room with force.',
+    roomBookingClash:
+      'Room is already booked for those dates ({{guest}}) — pick another room or different dates.',
+    guestIdTypeCodeExists: 'An ID type with the code "{{code}}" already exists.',
+    overpaymentCollected:
+      'Collected {{paid}} but only {{due}} is outstanding — adjust the payment split.',
+    settleBalanceDue:
+      'Collected {{paid}} of {{due}} due — collect the balance or check out with force.',
+    insufficientStockAtLocation:
+      'Insufficient stock: {{available}} unit(s) available at this location.',
+    paymentExceedsBillOutstanding: 'Payment {{amount}} exceeds outstanding {{due}}',
+    entitlementNeedsService: '{{kind}} entitlements must target a service.',
+    packageAllowanceExceeded:
+      '"{{name}}" exceeds the package allowance and price compensation is disabled — bill it separately or reduce the order.',
+    paymentMethodNameExists: 'A payment method named "{{name}}" already exists',
+    variantPricesRequired:
+      'Variant {{index}}: buy and sell prices are required for variant products.',
+    productDuplicate:
+      'A product "{{brand}} {{name}}" already exists. Please edit the existing product instead of creating a duplicate.',
+    itemAlreadyExists:
+      '"{{name}}" already exists — select it from the item search instead of creating a duplicate.',
+    variantNotFoundForProduct: 'Variant {{id}} not found for this product',
+    missingPostingAccounts:
+      '{{context}} could not be completed because the automatic ledger posting needs a chart-of-accounts entry that is missing: {{accounts}}. Add it in Finance -> Accounts, then retry.',
+    insufficientStockForProduct: 'Insufficient stock for Product ID: {{id}}',
+    insufficientBatchStock:
+      'Insufficient batch stock for perishable product ({{short}} unit(s) short)',
+    cannotSellQuantity:
+      'Cannot sell {{quantity}}x "{{name}}". Only {{available}} available.',
+    productNotInSale: 'Product {{id}} was not in this sale',
+    returnExceedsSold: 'Cannot return {{quantity}} of product {{id}} (max {{max}})',
+    serviceItemNotFound: 'Service item {{id}} not found',
+
 
   },
 };

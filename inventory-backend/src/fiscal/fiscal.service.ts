@@ -13,6 +13,7 @@ import { FiscalStatus, OrderStatus } from '@prisma/client';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { round2 } from '../common/tax.util';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 import { FiscalAckDto, FiscalBatchDto, FiscalConfigDto, FiscalFailDto } from './dto/fiscal.dto';
 
 export type FiscalTarget = { orderId?: number; saleId?: number };
@@ -577,7 +578,9 @@ export class FiscalService {
     const { orders, sales } = await this.batchDocs(targets);
     for (const o of orders) {
       if (o.status !== OrderStatus.PAID) {
-        throw new ConflictException(`Order ${o.orderNumber} is not paid`);
+        throw new ConflictException(
+          tr('errors.orderNotPaid', { orderNumber: o.orderNumber }),
+        );
       }
       await this.prisma.order.update({
         where: { id: o.id },

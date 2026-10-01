@@ -4773,7 +4773,12 @@ export class ManufacturingService {
     });
     const netDue = round2((bill.totalAmount ?? 0) - ((creditAgg._sum.totalAmount as number) ?? 0));
     if (dto.amount > netDue + 0.01)
-      throw new BadRequestException(`Payment ${dto.amount} exceeds outstanding ${netDue}`);
+      throw new BadRequestException(
+        tr('errors.paymentExceedsBillOutstanding', {
+          amount: dto.amount,
+          due: netDue,
+        }),
+      );
     await this.finance.postVendorBillPayment({
       ref: `VBP-${bill.id}-${Date.now()}`,
       amount: dto.amount,

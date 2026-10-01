@@ -25,6 +25,7 @@ import { Paging, pagedResult } from '../common/pagination.util';
 import { FinanceService } from '../finance/finance.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { AddVariantDto } from './dto/add-variant.dto';
 import {
@@ -122,7 +123,7 @@ export class ProductsService {
       const v = variants[i];
       if (!(Number(v.buyPrice) > 0) || !(Number(v.sellPrice) > 0)) {
         throw new BadRequestException(
-          `Variant ${i + 1}: buy and sell prices are required for variant products.`,
+          tr('errors.variantPricesRequired', { index: i + 1 }),
         );
       }
     }
@@ -152,7 +153,10 @@ export class ProductsService {
     });
     if (existing) {
       throw new ConflictException(
-        `A product "${existing.brand} ${existing.baseName}" already exists. Please edit the existing product instead of creating a duplicate.`,
+        tr('errors.productDuplicate', {
+          brand: existing.brand,
+          name: existing.baseName,
+        }),
       );
     }
 

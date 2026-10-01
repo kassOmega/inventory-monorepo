@@ -13,6 +13,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 
 const DEFAULT_AI_TRIAL_DAYS = 15;
 
@@ -91,7 +92,7 @@ export class AiUsageService {
     const entitlement = await this.getEntitlement(tenantId);
     if (entitlement.expired) {
       throw new ForbiddenException(
-        `⚠️ The AI free trial ended on ${entitlement.trialEndsAt}. Contact the admin to extend or enable the AI feature.`,
+        tr('errors.aiTrialEnded', { date: entitlement.trialEndsAt ?? '' }),
       );
     }
     if (entitlement.requiresDate) {
@@ -170,7 +171,7 @@ export class AiUsageService {
         {
           statusCode: HttpStatus.TOO_MANY_REQUESTS,
           error: 'Too Many Requests',
-          message: `⚠️ Daily limit reached: You have used ${quota}/${quota} daily AI queries. Quota resets at midnight.`,
+          message: tr('errors.aiDailyLimitReached', { quota }),
           remainingChats: 0,
           quota,
           count: row.count,

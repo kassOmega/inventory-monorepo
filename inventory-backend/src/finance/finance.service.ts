@@ -10,6 +10,7 @@ import {
   renderGlJournalPdf,
 } from './gl-journal-pdf';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 import {
   DEFAULT_POSTING_MAPS,
   isKnownPostingType,
@@ -273,7 +274,9 @@ export class FinanceService {
     creditAccountId?: number | null,
   ) {
     if (!isKnownPostingType(transactionType)) {
-      throw new BadRequestException(`Unknown posting action '${transactionType}'.`);
+      throw new BadRequestException(
+        tr('errors.unknownPostingAction', { type: transactionType }),
+      );
     }
     if (isManagedBySystem(transactionType)) {
       throw new BadRequestException(
@@ -317,7 +320,9 @@ export class FinanceService {
 
   async resetAccountMapping(transactionType: string) {
     if (!isKnownPostingType(transactionType)) {
-      throw new BadRequestException(`Unknown posting action '${transactionType}'.`);
+      throw new BadRequestException(
+        tr('errors.unknownPostingAction', { type: transactionType }),
+      );
     }
     if (isManagedBySystem(transactionType)) {
       throw new BadRequestException(
@@ -527,7 +532,7 @@ export class FinanceService {
     ]);
     if (account && systemManagedAccounts.has(account.name)) {
       throw new BadRequestException(
-        `"${account.name}" is managed automatically by inventory movements. Record inventory purchases via Restock / Procurement instead.`,
+        tr('errors.accountManagedByInventory', { name: account.name }),
       );
     }
 

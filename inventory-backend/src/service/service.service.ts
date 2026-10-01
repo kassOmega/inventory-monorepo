@@ -11,6 +11,7 @@ import { ServiceBookingStatus, ServiceTicketStatus } from '@prisma/client';
 import { assertNotDuplicate } from '../common/duplicate.util';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 import {
   CreateServiceBookingDto,
   CreateServiceCategoryDto,
@@ -182,7 +183,10 @@ export class ServiceService {
       const item = await this.prisma.serviceItem.findUnique({
         where: { id: line.serviceItemId },
       });
-      if (!item) throw new NotFoundException(`Service item ${line.serviceItemId} not found`);
+      if (!item)
+        throw new NotFoundException(
+          tr('errors.serviceItemNotFound', { id: line.serviceItemId }),
+        );
       lines.push({ serviceItemId: item.id, quantity: line.quantity ?? 1, unitPrice: item.price });
     }
     const total = lines.reduce((sum, l) => sum + l.unitPrice * l.quantity, 0);

@@ -13,6 +13,7 @@ import {
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { FinanceService } from '../finance/finance.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 import {
   CheckInGuestDto,
   CreatePackageDto,
@@ -114,7 +115,7 @@ export class PackagesService {
     }
     if (!e.hospitalityServiceId) {
       throw new BadRequestException(
-        `${kind} entitlements must target a service.`,
+        tr('errors.entitlementNeedsService', { kind }),
       );
     }
     return {
@@ -987,7 +988,7 @@ export class PackagesService {
 
         if (!allowCompensation && gross - packageDiscount > 0) {
           throw new BadRequestException(
-            `"${item.name}" exceeds the package allowance and price compensation is disabled — bill it separately or reduce the order.`,
+            tr('errors.packageAllowanceExceeded', { name: item.name }),
           );
         }
 

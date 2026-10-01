@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 
 @Injectable()
 export class PaymentMethodsService {
@@ -30,7 +31,7 @@ export class PaymentMethodsService {
       .then((existing) => {
         if (existing) {
           throw new BadRequestException(
-            `A payment method named "${name}" already exists`,
+            tr('errors.paymentMethodNameExists', { name }),
           );
         }
         return this.prisma.paymentMethod.create({
@@ -54,7 +55,7 @@ export class PaymentMethodsService {
       });
       if (dup) {
         throw new BadRequestException(
-          `A payment method named "${name}" already exists`,
+          tr('errors.paymentMethodNameExists', { name }),
         );
       }
       data.name = name;
