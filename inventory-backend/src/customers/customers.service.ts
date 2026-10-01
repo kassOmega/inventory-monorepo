@@ -28,7 +28,7 @@ export class CustomersService {
       where: { publicId: ref },
       select: { id: true },
     });
-    if (!row) throw new NotFoundException('Customer not found');
+    if (!row) throw new NotFoundException(tr('errors.customerNotFound'));
     return row.id;
   }
 
@@ -157,7 +157,7 @@ export class CustomersService {
 
     const organizationId = getCurrentTenantId();
     if (organizationId == null) {
-      throw new BadRequestException('A business must be selected to create a customer.');
+      throw new BadRequestException(tr('errors.businessRequiredForCustomer'));
     }
 
     return this.prisma.customer.create({ data: { organizationId, ...data, name } });

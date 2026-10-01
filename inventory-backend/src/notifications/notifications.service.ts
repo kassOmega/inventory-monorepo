@@ -5,6 +5,7 @@ import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { itemDisplayName } from '../common/variant-label.util';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 import { PushService } from '../push/push.service';
 
 /** Deep link used for low-stock alerts (kept in sync with the bell/toast map). */
@@ -577,10 +578,10 @@ export class NotificationsService {
       where: { id },
     });
     if (!notification) {
-      throw new NotFoundException('Notification not found');
+      throw new NotFoundException(tr('errors.notificationNotFound'));
     }
     if (!user.isSuperuser && !this.isVisibleTo(notification, user)) {
-      throw new ForbiddenException('You cannot read this notification');
+      throw new ForbiddenException(tr('errors.cannotReadThisNotification'));
     }
     // Tenant-scoped update (multi-tenant): only update notifications that
     // belong to the active organization.

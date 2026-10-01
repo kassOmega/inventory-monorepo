@@ -5,6 +5,7 @@ import { UserStatus } from '@prisma/client';
 import { JwtPayload } from '../../common/interfaces/jwt-payload.interface';
 import { buildUserPayload } from '../../common/user-payload.util';
 import { PrismaService } from '../../prisma/prisma.service';
+import { tr } from '../../i18n/i18n.service';
 
 const VALIDATION_TTL_MS = 10_000;
 
@@ -58,10 +59,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         },
       },
     });
-    if (!user) throw new UnauthorizedException();
+    if (!user) throw new UnauthorizedException(tr('errors.unauthorized'));
 
     if (user.status === UserStatus.INACTIVE) {
-      throw new UnauthorizedException('Account is inactive');
+      throw new UnauthorizedException(tr('errors.accountInactive'));
     }
 
     return buildUserPayload(user);

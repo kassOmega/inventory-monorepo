@@ -29,6 +29,7 @@ import { BusinessType } from '@prisma/client';
 import { VERTICAL_KEY } from '../../decorators/vertical.decorator';
 import { JwtPayload } from '../../interfaces/jwt-payload.interface';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { tr } from '../../../i18n/i18n.service';
 
 const ORG_TYPE_CACHE_TTL_MS = 5000;
 
@@ -94,7 +95,7 @@ export class VerticalGuard implements CanActivate {
     const orgType = await this.getOrgBusinessType(tenantId);
     if (orgType && !allowedTypes.includes(orgType)) {
       throw new ForbiddenException(
-        'This feature is not available for your industry.',
+        tr('errors.verticalNotAvailable'),
       );
     }
     return true;

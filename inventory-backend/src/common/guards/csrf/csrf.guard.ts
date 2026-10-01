@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../../decorators/public.decorator';
+import { tr } from '../../../i18n/i18n.service';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -35,7 +36,7 @@ export class CsrfGuard implements CanActivate {
     if (req.headers?.authorization) return true;
 
     if (req.headers?.['x-requested-with'] !== 'XMLHttpRequest') {
-      throw new ForbiddenException('CSRF protection failed');
+      throw new ForbiddenException(tr('errors.csrfFailed'));
     }
     return true;
   }

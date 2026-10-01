@@ -26,6 +26,7 @@ import { ALLOW_UNVERIFIED_KEY } from '../../decorators/allow-unverified.decorato
 import { IS_PUBLIC_KEY } from '../../decorators/public.decorator';
 import { JwtPayload } from '../../interfaces/jwt-payload.interface';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { tr } from '../../../i18n/i18n.service';
 
 const ORG_STATUS_CACHE_TTL_MS = 5000;
 
@@ -69,9 +70,7 @@ export class VerificationGuard implements CanActivate {
 
     // Permanently blocked for repeated fraudulent verification attempts.
     if (user.verificationStatus === VerificationStatus.BLOCKED) {
-      throw new ForbiddenException(
-        'Your account has been permanently blocked for repeated fraudulent verification attempts.',
-      );
+      throw new ForbiddenException(tr('errors.accountBlockedFraud'));
     }
 
     // User-level verification: owner accounts must be approved before they can
@@ -80,9 +79,7 @@ export class VerificationGuard implements CanActivate {
       user.isOwnerAccount &&
       user.verificationStatus !== VerificationStatus.APPROVED
     ) {
-      throw new ForbiddenException(
-        'Your account must be verified before you can use the system. Please complete the verification steps.',
-      );
+      throw new ForbiddenException(tr('errors.accountMustBeVerified'));
     }
 
     // Business-level verification: the active organization must be approved.
@@ -90,14 +87,10 @@ export class VerificationGuard implements CanActivate {
     if (tenantId != null) {
       const orgStatus = await this.getOrgStatus(tenantId);
       if (orgStatus === VerificationStatus.BLOCKED) {
-        throw new ForbiddenException(
-          'This business has been permanently blocked for repeated fraudulent verification attempts.',
-        );
+        throw new ForbiddenException(tr('errors.businessBlockedFraud'));
       }
       if (orgStatus !== VerificationStatus.APPROVED) {
-        throw new ForbiddenException(
-          'This business is not verified yet. Only verification actions are available until it is approved.',
-        );
+        throw new ForbiddenException(tr('errors.businessNotVerified'));
       }
     }
 

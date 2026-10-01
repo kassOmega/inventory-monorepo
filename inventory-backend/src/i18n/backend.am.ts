@@ -261,6 +261,46 @@ export const amMessages: Record<string, any> = {
     returnExceedsSold: 'ከምርት {{id}} {{quantity}} መመለስ አይቻልም (ቢበዛ {{max}})',
     serviceItemNotFound: 'የአገልግሎት ዕቃ {{id}} አልተገኘም',
 
+    // የጋራ ሞጁሎች ስብስብ (ደረጃ 7)፦ auth / users / roles / taxes / cash / guards /
+    // ተደጋጋሚ-መከላከያ እና አነስተኛ የ CRUD አገልግሎቶች።
+    tooManyAttempts: 'በጣም ብዙ ያልተሳኩ ሙከራዎች። ቆይተው እንደገና ይሞክሩ።',
+    systemRoleNotEditable: 'የስርዓት ሚና ማስተካከል አይቻልም',
+    systemRoleNotDeletable: 'የስርዓት ሚና ማጥፋት አይቻልም',
+    roleAssignedToUsers: 'ለተጠቃሚዎች የተመደበ ሚና ማጥፋት አይቻልም',
+    onlyOwnerCanModifyOwner:
+      'የስርዓቱን ባለቤት መለያ ማስተካከል የሚችለው የስርዓቱ ባለቤት ብቻ ነው',
+    cannotDemoteLastOwner: 'የመጨረሻውን የስርዓት ባለቤት ደረጃ ማውረድ አይቻልም',
+    cannotChangeOwnStatus: 'የራስዎን ሁኔታ መቀየር አይችሉም',
+    cannotDeactivateSystemRole: 'የስርዓት ሚናውን ማቦዘን አይቻልም',
+    cannotDeleteOwnAccount: 'የራስዎን መለያ ማጥፋት አይችሉም',
+    cannotDeleteLastOwner: 'የመጨረሻውን የስርዓት ባለቤት ማጥፋት አይቻልም',
+    defaultTaxRateUndeletable:
+      'ነባሪው የታክስ መጠን ማጥፋት አይቻልም። መጀመሪያ ሌላ መጠን ነባሪ ያድርጉ።',
+    paymentNotFound: 'ክፍያ አልተገኘም',
+    facilityPaymentNotFound: 'የፋሲሊቲ ክፍያ አልተገኘም',
+    recordNotFound: 'መዝገብ አልተገኘም',
+    noProfileFields: 'ምንም ትክክለኛ የመገለጫ መስክ አልተሰጠም',
+    ownerOnlyPushCounts: 'የግፊት ምዝገባ ቁጥርን ማየት የሚችለው ባለቤቱ ብቻ ነው',
+    ownerOnlyPurgeSubscriptions: 'የግፊት ምዝገባዎችን ማጽዳት የሚችለው ባለቤቱ ብቻ ነው',
+    csrfFailed: 'የ CSRF ጥበቃ አልተሳካም',
+    notOrgMember: 'የዚህ ድርጅት አባል አይደሉም',
+    verticalNotAvailable: 'ይህ ባህሪ ለኢንዱስትሪዎ አይገኝም።',
+    accountBlockedFraud:
+      'የእርስዎ መለያ በተደጋጋሚ የማጭበርበር የማረጋገጫ ሙከራዎች እስከመጨረሻው ታግዷል።',
+    accountMustBeVerified:
+      'ስርዓቱን ከመጠቀምዎ በፊት መለያዎ መረጋገጥ አለበት። እባክዎ የማረጋገጫ ደረጃዎቹን ያጠናቅቁ።',
+    businessBlockedFraud:
+      'ይህ ንግድ በተደጋጋሚ የማጭበርበር የማረጋገጫ ሙከራዎች እስከመጨረሻው ታግዷል።',
+    businessNotVerified:
+      'ይህ ንግድ ገና አልተረጋገጠም። እስኪጸድቅ ድረስ የማረጋገጫ ተግባራት ብቻ ይገኛሉ።',
+    recordExists: 'ይህ መዝገብ ቀድሞ አለ።',
+    purchaseAlreadySubmitted:
+      'ይህ ግዢ ቀድሞ ገብቷል። እባክዎ ገጹን አድስተው እንደገና ይሞክሩ።',
+    saleAlreadySubmitted: 'ይህ ሽያጭ ቀድሞ ገብቷል። እባክዎ ገጹን አድስተው እንደገና ይሞክሩ።',
+    orderAlreadySubmitted: 'ይህ ትዕዛዝ ቀድሞ ገብቷል። እባክዎ ገጹን አድስተው እንደገና ይሞክሩ።',
+    paymentAlreadySubmitted: 'ይህ ክፍያ ቀድሞ ገብቷል። እባክዎ ገጹን አድስተው እንደገና ይሞክሩ።',
+    duplicateService: 'በዚህ ስም ያለ አገልግሎት ቀድሞ አለ።',
+
 
   },
 };

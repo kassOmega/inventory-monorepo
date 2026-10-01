@@ -11,7 +11,7 @@ section 0.
 | Catalog (frontend) | `cd frontend && node scripts/i18n-check.mjs` | **all gates clean** — parity 3778/3778 ✓, no identical-value misses, 0 glossary violations |
 | Catalog (backend) | `cd inventory-backend && node scripts/i18n-check.mjs` | **all gates clean** — parity 218/218 ✓, no identical-value misses, 0 glossary violations |
 | Frontend UI | `cd frontend && node scripts/i18n-audit.mjs [--list --file X --strict]` | **178 files scanned, 0 dirty, 0 hits** |
-| Backend messages | `cd inventory-backend && node scripts/i18n-audit.mjs [--list --strict]` | 667 `throw` sites, 269 localized, 398 remaining (398 static + **0 interpolated**) |
+| Backend messages | `cd inventory-backend && node scripts/i18n-audit.mjs [--list --strict]` | 667 `throw` sites, 319 localized, 348 remaining (348 static + **0 interpolated**) |
 
 - `docs/i18n-glossary.md` is the single source of truth for terminology; `i18n-check.mjs`
   parses its table and fails on an avoided variant.
@@ -265,8 +265,16 @@ categories automatically (`tenants.service.ts`, `common/verticals.ts`).
   inventory, manufacturing, packages, payment-methods, products, restock, sales and service.
   `inventory-backend/scripts/i18n-check.mjs` is new: it mirrors the frontend gate (parity,
   identical-value, glossary — same `docs/i18n-glossary.md`) and its first run caught three
-  `Location` values still using the avoided `አካባቢ` (now `ቦታ`). Backend audit after the batch:
-  **667 throw sites, 269 localized, 398 remaining (0 interpolated)**.
+  `Location` values still using the avoided `አካባቢ` (now `ቦታ`). The **shared-modules batch**
+  followed the same pattern for the static sites the filter can already reverse-map once
+  cataloged: `auth`, `users` (system-owner guards, last-owner protection, own-account/status
+  guards), `roles`, `taxes`, `cash`, `categories`, `locations`, `price-history`,
+  `vertical-profiles`, `push`, `notifications`, `customers` and the cross-cutting guards/utils
+  (`csrf`, `tenant`, `vertical`, `verification`, `jwt.strategy`, `tenant.context`) — reusing the
+  existing `errors.*` keys wherever the English matched exactly. `assertNotDuplicate()` now takes
+  a **catalog key** (default `errors.recordExists`) and translates inside, so its six call sites
+  (purchases/sales ×2/service ×2/restaurant) localize the 409 text too. Backend audit after both
+  batches: **667 throw sites, 319 localized, 348 remaining (0 interpolated)**.
 - Notifications/push/audit: content still created in English at write time. Recommended next
   step: store `templateKey`+`params` and hydrate per viewer language; until then the FE shows
   the stored text.

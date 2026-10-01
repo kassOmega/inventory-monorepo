@@ -7,6 +7,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { AccountType, Prisma, TaxDirection } from '@prisma/client';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 import {
   CreateTaxRateDto,
   TaxSettingsDto,
@@ -24,7 +25,7 @@ export class TaxesService {
 
   private orgId(): number {
     const id = getCurrentTenantId();
-    if (id == null) throw new BadRequestException('No active organization');
+    if (id == null) throw new BadRequestException(tr('errors.noActiveOrganization'));
     return id;
   }
 
@@ -90,7 +91,7 @@ export class TaxesService {
     const existing = await this.prisma.taxRate.findFirst({
       where: { id, organizationId },
     });
-    if (!existing) throw new BadRequestException('Tax rate not found');
+    if (!existing) throw new BadRequestException(tr('errors.taxRateNotFound'));
 
     const data: Prisma.TaxRateUpdateManyMutationInput = {};
     if (dto.name !== undefined) data.name = dto.name.trim();
@@ -128,10 +129,10 @@ export class TaxesService {
     const existing = await this.prisma.taxRate.findFirst({
       where: { id, organizationId },
     });
-    if (!existing) throw new BadRequestException('Tax rate not found');
+    if (!existing) throw new BadRequestException(tr('errors.taxRateNotFound'));
     if (existing.isDefault) {
       throw new BadRequestException(
-        'The default tax rate cannot be deleted. Set another rate as default first.',
+        tr('errors.defaultTaxRateUndeletable'),
       );
     }
     await this.prisma.taxRate.deleteMany({ where: { id, organizationId } });

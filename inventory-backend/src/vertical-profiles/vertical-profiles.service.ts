@@ -5,6 +5,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { BusinessType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 
 // Prisma client delegate (camelCase) per business type — also the relation name
 // on the Organization model.
@@ -38,7 +39,7 @@ export class VerticalProfilesService {
       where: { id: orgId },
       select: { businessType: true },
     });
-    if (!org) throw new BadRequestException('Organization not found');
+    if (!org) throw new BadRequestException(tr('errors.orgNotFound'));
 
     const delegate = this.delegate(org.businessType);
     const existing = await (this.prisma as any)[delegate].findUnique({
@@ -62,7 +63,7 @@ export class VerticalProfilesService {
       if (PROFILE_FIELDS.has(key)) patch[key] = value;
     }
     if (Object.keys(patch).length === 0) {
-      throw new BadRequestException('No valid profile fields provided');
+      throw new BadRequestException(tr('errors.noProfileFields'));
     }
 
     return (this.prisma as any)[delegate].update({

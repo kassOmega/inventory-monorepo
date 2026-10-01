@@ -15,6 +15,7 @@ import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { Paging, pagedResult } from '../common/pagination.util';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 import { UserDto } from './dto/user.dto';
 
 @Injectable()
@@ -29,7 +30,7 @@ export class UsersService {
       where: { publicId: ref },
       select: { id: true },
     });
-    if (!row) throw new NotFoundException('User not found');
+    if (!row) throw new NotFoundException(tr('errors.userNotFound'));
     return row.id;
   }
 
@@ -107,7 +108,7 @@ export class UsersService {
       where: { id },
       include: { role: true },
     });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException(tr('errors.userNotFound'));
     return user;
   }
 
@@ -117,7 +118,7 @@ export class UsersService {
   ) {
     if (target.role?.isSystem && !caller.isSuperuser) {
       throw new ForbiddenException(
-        'Only the system owner can modify the system owner account',
+        tr('errors.onlyOwnerCanModifyOwner'),
       );
     }
   }
@@ -128,7 +129,7 @@ export class UsersService {
 
     if (dto.password && !caller.isSuperuser) {
       throw new ForbiddenException(
-        'Only the system owner can change passwords',
+        tr('errors.onlyOwnerCanChangePassword'),
       );
     }
 
@@ -136,10 +137,10 @@ export class UsersService {
       const role = await this.prisma.role.findUnique({
         where: { id: dto.roleId },
       });
-      if (!role) throw new BadRequestException('Role not found');
+      if (!role) throw new BadRequestException(tr('errors.roleNotFound'));
       if (role.isSystem && !caller.isSuperuser) {
         throw new ForbiddenException(
-          'Only the system owner can assign system roles',
+          tr('errors.onlyOwnerCanAssignSystemRoles'),
         );
       }
       if (
@@ -148,7 +149,7 @@ export class UsersService {
         caller.sub === id &&
         (await this.countSystemUsers()) <= 1
       ) {
-        throw new BadRequestException('Cannot demote the last system owner');
+        throw new BadRequestException(tr('errors.cannotDemoteLastOwner'));
       }
     }
 
@@ -156,7 +157,7 @@ export class UsersService {
       const location = await this.prisma.location.findUnique({
         where: { id: dto.locationId },
       });
-      if (!location) throw new BadRequestException('Location not found');
+      if (!location) throw new BadRequestException(tr('errors.locationNotFound'));
     }
 
     const { password, locationId, ...rest } = dto;
@@ -198,7 +199,7 @@ export class UsersService {
   async resetPassword(id: number, newPassword: string, caller: JwtPayload) {
     if (!caller.isSuperuser) {
       throw new ForbiddenException(
-        'Only the system owner can change passwords',
+        tr('errors.onlyOwnerCanChangePassword'),
       );
     }
 
@@ -219,14 +220,14 @@ export class UsersService {
 
   async updateStatus(id: number, status: UserStatus, caller: JwtPayload) {
     if (id === caller.sub) {
-      throw new BadRequestException('You cannot change your own status');
+      throw new BadRequestException(tr('errors.cannotChangeOwnStatus'));
     }
 
     const target = await this.getTargetOrThrow(id);
     this.assertCanModify(target, caller);
 
     if (target.role?.isSystem && status === UserStatus.INACTIVE) {
-      throw new BadRequestException('Cannot deactivate the system role');
+      throw new BadRequestException(tr('errors.cannotDeactivateSystemRole'));
     }
 
     const updated = await this.prisma.user.update({
@@ -244,14 +245,14 @@ export class UsersService {
 
   async remove(id: number, caller: JwtPayload) {
     if (id === caller.sub) {
-      throw new BadRequestException('You cannot delete your own account');
+      throw new BadRequestException(tr('errors.cannotDeleteOwnAccount'));
     }
 
     const target = await this.getTargetOrThrow(id);
     this.assertCanModify(target, caller);
 
     if (target.role?.isSystem && (await this.countSystemUsers()) <= 1) {
-      throw new BadRequestException('Cannot delete the last system owner');
+      throw new BadRequestException(tr('errors.cannotDeleteLastOwner'));
     }
 
     // The user can be referenced by audit logs (ON DELETE RESTRICT) and sales

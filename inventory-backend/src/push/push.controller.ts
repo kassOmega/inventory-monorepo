@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { AllowUnverified } from '../common/decorators/allow-unverified.decorator';
 import { RequestWithUser } from '../common/interfaces/request-with-user.interface';
+import { tr } from '../i18n/i18n.service';
 import { PushService } from './push.service';
 
 // Push subscription must work while an account is pending verification.
@@ -29,7 +30,7 @@ export class PushController {
   async subscriptionCount(@Req() req: RequestWithUser) {
     if (!req.user?.isSuperuser) {
       throw new ForbiddenException(
-        'Only the owner can view push subscription counts',
+        tr('errors.ownerOnlyPushCounts'),
       );
     }
     return { count: await this.svc.countSubscriptions() };
@@ -41,7 +42,7 @@ export class PushController {
   async purgeSubscriptions(@Req() req: RequestWithUser) {
     if (!req.user?.isSuperuser) {
       throw new ForbiddenException(
-        'Only the owner can purge push subscriptions',
+        tr('errors.ownerOnlyPurgeSubscriptions'),
       );
     }
     return { deleted: await this.svc.purgeSubscriptions() };

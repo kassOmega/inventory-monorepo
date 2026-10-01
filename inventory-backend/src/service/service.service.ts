@@ -91,7 +91,7 @@ export class ServiceService {
         },
       });
     } catch (err) {
-      return assertNotDuplicate(err, 'A service with this name already exists.');
+      return assertNotDuplicate(err, 'errors.duplicateService');
     }
   }
 
@@ -250,7 +250,7 @@ export class ServiceService {
         },
       });
     } catch (err) {
-      return assertNotDuplicate(err, 'This payment was already submitted. Please refresh and try again.');
+      return assertNotDuplicate(err, 'errors.paymentAlreadySubmitted');
     }
 
     const paid = paidSoFar + amount;

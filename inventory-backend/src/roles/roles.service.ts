@@ -3,6 +3,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PERMISSION_GROUPS_BY_BUSINESS_TYPE, PERMISSIONS } from '../common/permissions';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 import { CreateRoleDto, UpdateRoleDto } from './dto/role.dto';
 
 @Injectable()
@@ -85,8 +86,10 @@ export class RolesService {
 
   async update(id: number, dto: UpdateRoleDto) {
     const role = await this.prisma.role.findUnique({ where: { id } });
-    if (!role) throw new BadRequestException('Role not found');
-    if (role.isSystem) throw new BadRequestException('System role cannot be edited');
+    if (!role) throw new BadRequestException(tr('errors.roleNotFound'));
+    if (role.isSystem) {
+      throw new BadRequestException(tr('errors.systemRoleNotEditable'));
+    }
 
     const data: { name?: string; description?: string } = {};
     if (dto.name) data.name = dto.name;
@@ -117,10 +120,12 @@ export class RolesService {
       where: { id },
       include: { _count: { select: { users: true } } },
     });
-    if (!role) throw new BadRequestException('Role not found');
-    if (role.isSystem) throw new BadRequestException('System role cannot be deleted');
+    if (!role) throw new BadRequestException(tr('errors.roleNotFound'));
+    if (role.isSystem) {
+      throw new BadRequestException(tr('errors.systemRoleNotDeletable'));
+    }
     if (role._count.users > 0) {
-      throw new BadRequestException('Cannot delete a role that is assigned to users');
+      throw new BadRequestException(tr('errors.roleAssignedToUsers'));
     }
     return this.prisma.role.delete({ where: { id } });
   }

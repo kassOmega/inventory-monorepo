@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Paging, pagedResult } from '../common/pagination.util';
+import { tr } from '../i18n/i18n.service';
 import { CreateLocationDto } from './dto/create-location.dto';
 import { UpdateLocationDto } from './dto/update-location.dto';
 
@@ -40,7 +41,7 @@ export class LocationsService {
 
   async findOne(id: number) {
     const location = await this.prisma.location.findUnique({ where: { id } });
-    if (!location) throw new NotFoundException('Location not found');
+    if (!location) throw new NotFoundException(tr('errors.locationNotFound'));
     return location;
   }
 

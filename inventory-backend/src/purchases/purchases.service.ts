@@ -76,7 +76,7 @@ export class PurchasesService {
 
       return purchase;
     } catch (err) {
-      return assertNotDuplicate(err, 'This purchase was already submitted. Please refresh and try again.');
+      return assertNotDuplicate(err, 'errors.purchaseAlreadySubmitted');
     }
   }
 

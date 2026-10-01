@@ -269,6 +269,49 @@ export const enMessages: Record<string, any> = {
     returnExceedsSold: 'Cannot return {{quantity}} of product {{id}} (max {{max}})',
     serviceItemNotFound: 'Service item {{id}} not found',
 
+    // Shared modules batch (Phase 7): auth / users / roles / taxes / cash /
+    // guards / duplicate-detection and the small CRUD services.
+    tooManyAttempts: 'Too many failed attempts. Try again later.',
+    systemRoleNotEditable: 'System role cannot be edited',
+    systemRoleNotDeletable: 'System role cannot be deleted',
+    roleAssignedToUsers: 'Cannot delete a role that is assigned to users',
+    onlyOwnerCanModifyOwner:
+      'Only the system owner can modify the system owner account',
+    cannotDemoteLastOwner: 'Cannot demote the last system owner',
+    cannotChangeOwnStatus: 'You cannot change your own status',
+    cannotDeactivateSystemRole: 'Cannot deactivate the system role',
+    cannotDeleteOwnAccount: 'You cannot delete your own account',
+    cannotDeleteLastOwner: 'Cannot delete the last system owner',
+    defaultTaxRateUndeletable:
+      'The default tax rate cannot be deleted. Set another rate as default first.',
+    paymentNotFound: 'Payment not found',
+    facilityPaymentNotFound: 'Facility payment not found',
+    recordNotFound: 'Record not found',
+    noProfileFields: 'No valid profile fields provided',
+    ownerOnlyPushCounts: 'Only the owner can view push subscription counts',
+    ownerOnlyPurgeSubscriptions: 'Only the owner can purge push subscriptions',
+    csrfFailed: 'CSRF protection failed',
+    notOrgMember: 'You are not a member of this organization',
+    verticalNotAvailable: 'This feature is not available for your industry.',
+    accountBlockedFraud:
+      'Your account has been permanently blocked for repeated fraudulent verification attempts.',
+    accountMustBeVerified:
+      'Your account must be verified before you can use the system. Please complete the verification steps.',
+    businessBlockedFraud:
+      'This business has been permanently blocked for repeated fraudulent verification attempts.',
+    businessNotVerified:
+      'This business is not verified yet. Only verification actions are available until it is approved.',
+    recordExists: 'This record already exists.',
+    purchaseAlreadySubmitted:
+      'This purchase was already submitted. Please refresh and try again.',
+    saleAlreadySubmitted:
+      'This sale was already submitted. Please refresh and try again.',
+    orderAlreadySubmitted:
+      'This order was already submitted. Please refresh and try again.',
+    paymentAlreadySubmitted:
+      'This payment was already submitted. Please refresh and try again.',
+    duplicateService: 'A service with this name already exists.',
+
 
   },
 };

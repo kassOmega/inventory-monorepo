@@ -9,6 +9,7 @@ import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../../decorators/public.decorator';
 import { JwtPayload } from '../../interfaces/jwt-payload.interface';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { tr } from '../../../i18n/i18n.service';
 
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -51,7 +52,7 @@ export class TenantGuard implements CanActivate {
         });
         if (!membership) {
           throw new ForbiddenException(
-            'You are not a member of this organization',
+            tr('errors.notOrgMember'),
           );
         }
       }

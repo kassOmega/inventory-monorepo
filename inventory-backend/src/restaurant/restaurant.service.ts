@@ -1312,7 +1312,7 @@ export class RestaurantService {
       .catch((err: unknown) =>
         assertNotDuplicate(
           err,
-          'This order was already submitted. Please refresh and try again.',
+          'errors.orderAlreadySubmitted',
         ),
       );
 

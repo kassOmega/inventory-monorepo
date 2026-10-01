@@ -3,6 +3,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { FinanceService } from '../finance/finance.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../i18n/i18n.service';
 import { RecordCollectionDto, RecordFloatDto, UpdateCashSettingsDto } from './dto/cash.dto';
 
 @Injectable()
@@ -11,7 +12,7 @@ export class CashService {
 
   private tenant(): number {
     const id = getCurrentTenantId();
-    if (id == null) throw new BadRequestException('No active organization');
+    if (id == null) throw new BadRequestException(tr('errors.noActiveOrganization'));
     return id;
   }
 
@@ -77,7 +78,7 @@ export class CashService {
         order: { select: { billingType: true, packageGuestId: true, orderNumber: true } },
       },
     });
-    if (!payment) throw new NotFoundException('Payment not found');
+    if (!payment) throw new NotFoundException(tr('errors.paymentNotFound'));
 
     const updated = await this.prisma.orderPayment.update({
       where: { id },
@@ -103,7 +104,7 @@ export class CashService {
   async confirmFacilityPayment(id: number, userId: number) {
     const tenantId = this.tenant();
     const payment = await this.prisma.facilityPayment.findFirst({ where: { tenantId, id } });
-    if (!payment) throw new NotFoundException('Facility payment not found');
+    if (!payment) throw new NotFoundException(tr('errors.facilityPaymentNotFound'));
 
     const updated = await this.prisma.facilityPayment.update({
       where: { id },

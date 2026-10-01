@@ -124,7 +124,7 @@ export class AuthService {
       const location = await this.prisma.location.findUnique({
         where: { id: dto.locationId },
       });
-      if (!location) throw new BadRequestException('Location not found');
+      if (!location) throw new BadRequestException(tr('errors.locationNotFound'));
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
@@ -173,7 +173,7 @@ export class AuthService {
       where: { email: dto.email },
     });
     if (existingUser) {
-      throw new ConflictException('Email already exists');
+      throw new ConflictException(tr('errors.emailAlreadyExists'));
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
@@ -269,7 +269,7 @@ export class AuthService {
     const key = this.lockoutKey(dto.email, ip);
     if (this.isBlocked(key)) {
       throw new HttpException(
-        'Too many failed attempts. Try again later.',
+        tr('errors.tooManyAttempts'),
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }

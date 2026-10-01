@@ -5,6 +5,7 @@
 // scope queries and tag new rows with the tenant.
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { BadRequestException } from '@nestjs/common';
+import { tr } from '../../i18n/i18n.service';
 
 export const tenantContext = new AsyncLocalStorage<number | null>();
 
@@ -20,6 +21,6 @@ export function getCurrentTenantId(): number | null {
  */
 export function requireTenantId(): number {
   const id = getCurrentTenantId();
-  if (id == null) throw new BadRequestException('No active organization');
+  if (id == null) throw new BadRequestException(tr('errors.noActiveOrganization'));
   return id;
 }

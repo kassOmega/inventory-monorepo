@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Paging, pagedResult } from '../common/pagination.util';
+import { tr } from '../i18n/i18n.service';
 
 /** Filters the history list accepts (all optional). */
 export interface PriceHistoryQuery {
@@ -130,7 +131,7 @@ export class PriceHistoryService {
 
   async findOne(id: number) {
     const record = await this.prisma.priceHistory.findUnique({ where: { id } });
-    if (!record) throw new NotFoundException('Record not found');
+    if (!record) throw new NotFoundException(tr('errors.recordNotFound'));
     return record;
   }
 

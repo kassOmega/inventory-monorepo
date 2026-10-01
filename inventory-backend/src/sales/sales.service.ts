@@ -410,13 +410,13 @@ export class SalesService {
       try {
         return await run(opts.tx);
       } catch (err) {
-        return assertNotDuplicate(err, 'This sale was already submitted. Please refresh and try again.');
+        return assertNotDuplicate(err, 'errors.saleAlreadySubmitted');
       }
     }
     try {
       return await this.prisma.$transaction(run);
     } catch (err) {
-      return assertNotDuplicate(err, 'This sale was already submitted. Please refresh and try again.');
+      return assertNotDuplicate(err, 'errors.saleAlreadySubmitted');
     }
   }
 
