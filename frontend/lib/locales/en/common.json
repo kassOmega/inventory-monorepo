@@ -2325,7 +2325,15 @@
       "addCustomHint": "Create a custom hospitality facility (e.g. Spa, Tennis). It appears as a toggle here and in the sidebar with its own dashboard.",
       "serviceNamePh": "Service name (e.g. Spa)",
       "serviceKeyPh": "Key (optional, e.g. spa)",
-      "deleteConfirm": "Delete custom service \"{{name}}\"?"
+      "deleteConfirm": "Delete custom service \"{{name}}\"?",
+      "loadHospServicesFail": "Failed to load hospitality services",
+      "ownerOnly": "Only the business owner can manage hospitality services.",
+      "hospOnly": "Hospitality services only apply to a Hospitality business. The active business is a {{type}} type.",
+      "backToDashboard": "← Back to dashboard",
+      "switchBusiness": "← Switch business",
+      "hospHint": "Turn service lines on as your business expands. The sidebar only shows the modules for the services you enable.",
+      "activeCount": "{{enabled}} of {{total}} service lines active.",
+      "toggleAria": "Toggle {{name}}"
     }
   },
   "hdb": {
