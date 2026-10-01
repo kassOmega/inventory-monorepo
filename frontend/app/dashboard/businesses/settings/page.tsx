@@ -9,10 +9,12 @@ import {
 } from "@/lib/verticals";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 export default function BusinessSettingsPage() {
   const { user, activeOrganizationId, switchOrganization } = useAuth();
   const confirm = useConfirm();
+  const { t } = useTranslation();
   const owned = (user?.memberships ?? []).filter((m: any) => m.isSystem);
   const [orgId, setOrgId] = useState<number | null>(activeOrganizationId);
   const [services, setServices] = useState<any[]>([]);
@@ -52,11 +54,11 @@ export default function BusinessSettingsPage() {
             : "FLEXIBLE",
       });
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load services");
+      setError(e?.response?.data?.message ?? t("biz.set.loadFail"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const savePolicy = async (next: any) => {
     if (!orgId) return;
@@ -79,7 +81,7 @@ export default function BusinessSettingsPage() {
       });
     } catch (e: any) {
       setPolicy(prev);
-      setError(e?.response?.data?.message ?? "Failed to save policy settings");
+      setError(e?.response?.data?.message ?? t("biz.set.savePolicyFail"));
     } finally {
       setPolicySaving(false);
     }
@@ -102,7 +104,7 @@ export default function BusinessSettingsPage() {
         isEnabled: !service.isEnabled,
       });
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to update service");
+      setError(e?.response?.data?.message ?? t("biz.set.updateServiceFail"));
       load(orgId);
     } finally {
       setSaving(null);
@@ -123,34 +125,33 @@ export default function BusinessSettingsPage() {
       await load(orgId);
       window.dispatchEvent(new Event("services:changed"));
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to create service");
+      setError(err?.response?.data?.message ?? t("biz.set.createServiceFail"));
     }
   };
 
   const removeCustom = async (s: any) => {
     if (!orgId) return;
-    if (!(await confirm(`Delete custom service "${serviceName(s)}"?`))) return;
+    if (!(await confirm(t("biz.set.deleteConfirm", { name: serviceName(s) })))) return;
     setError("");
     try {
       await api.delete(`/tenants/${orgId}/services/${s.id}`);
       await load(orgId);
       window.dispatchEvent(new Event("services:changed"));
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to delete service");
+      setError(err?.response?.data?.message ?? t("biz.set.deleteServiceFail"));
     }
   };
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800">Business Settings</h1>
+      <h1 className="text-2xl font-bold text-gray-800">{t("biz.set.title")}</h1>
 
       <div className="bg-white p-4 rounded-lg border border-gray-200">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
-            <h2 className="font-semibold text-gray-800">Active Services</h2>
+            <h2 className="font-semibold text-gray-800">{t("biz.set.activeServices")}</h2>
             <p className="text-xs text-gray-400 mt-0.5">
-              Enable or disable hospitality services. The sidebar only shows
-              routes for services that are turned on.
+              {t("biz.set.activeServicesHint")}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -158,7 +159,7 @@ export default function BusinessSettingsPage() {
               href="/dashboard/settings/hospitality-services"
               className="text-sm text-blue-600 hover:underline"
             >
-              Manage services →
+              {t("biz.set.manageServices")}
             </Link>
             <button
               onClick={() => {
@@ -167,7 +168,7 @@ export default function BusinessSettingsPage() {
               }}
               className="bg-blue-600 text-white rounded px-3 py-2 text-sm font-medium hover:bg-blue-700"
             >
-              + Add Custom Service
+              {t("biz.set.addCustom")}
             </button>
             {owned.length > 1 && (
               <select
@@ -192,7 +193,7 @@ export default function BusinessSettingsPage() {
         {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm mb-3">{error}</div>}
 
         {loading ? (
-          <p className="text-gray-500 text-sm py-6 text-center">Loading services…</p>
+          <p className="text-gray-500 text-sm py-6 text-center">{t("biz.set.loadingServices")}</p>
         ) : (
           <ul className="divide-y divide-gray-100 border border-gray-100 rounded-lg">
             {services.map((s) => (
@@ -202,20 +203,20 @@ export default function BusinessSettingsPage() {
                     {serviceName(s)}
                     {s.serviceType === "CUSTOM" && (
                       <span className="ml-2 bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded text-[10px]">
-                        Custom
+                        {t("biz.set.customTag")}
                       </span>
                     )}
                   </p>
                   <p className="text-xs text-gray-400">
                     {s.customName
-                      ? HOSPITALITY_SERVICE_DESCRIPTIONS[s.serviceType] ?? "Custom facility service."
+                      ? HOSPITALITY_SERVICE_DESCRIPTIONS[s.serviceType] ?? t("biz.set.customServiceDesc")
                       : (HOSPITALITY_SERVICE_DESCRIPTIONS[s.serviceType] ?? "")}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {s.serviceType === "CUSTOM" && (
                     <button onClick={() => removeCustom(s)} className="text-xs text-red-600 hover:underline">
-                      Del
+                      {t("common.del")}
                     </button>
                   )}
                   <button
@@ -238,7 +239,7 @@ export default function BusinessSettingsPage() {
             ))}
             {services.length === 0 && (
               <li className="px-4 py-6 text-sm text-gray-400 text-center">
-                No services available for this business.
+                {t("biz.set.noServices")}
               </li>
             )}
           </ul>
@@ -248,19 +249,17 @@ export default function BusinessSettingsPage() {
       {/* --- Hospitality Packages & Guest Folio Policy --- */}
       <div className="bg-white p-4 rounded-lg border border-gray-200">
         <div className="mb-4">
-          <h2 className="font-semibold text-gray-800">Hospitality Packages & Guest Folio Policy</h2>
+          <h2 className="font-semibold text-gray-800">{t("biz.set.policyTitle")}</h2>
           <p className="text-xs text-gray-400 mt-0.5">
-            Off by default — the POS, kitchen and cashier keep the standard
-            workflow until a feature is explicitly enabled here.
+            {t("biz.set.policyHint")}
           </p>
         </div>
         <div className="space-y-3">
           <label className="flex items-start justify-between gap-3 py-2 border-b border-gray-100">
             <div>
-              <p className="text-sm font-medium text-gray-800">Enable Package &amp; Entitlement Routing</p>
+              <p className="text-sm font-medium text-gray-800">{t("biz.set.enableRouting")}</p>
               <p className="text-xs text-gray-400 mt-0.5">
-                Lets waiters bill orders to guest packages with per-station
-                entitlements. Off = POS ordering/checkout is unchanged.
+                {t("biz.set.enableRoutingHint")}
               </p>
             </div>
             <button
@@ -282,10 +281,9 @@ export default function BusinessSettingsPage() {
 
           <label className="flex items-start justify-between gap-3 py-2 border-b border-gray-100">
             <div>
-              <p className="text-sm font-medium text-gray-800">Enable Room Folio Charging</p>
+              <p className="text-sm font-medium text-gray-800">{t("biz.set.enableFolioCharging")}</p>
               <p className="text-xs text-gray-400 mt-0.5">
-                Posts net add-on charges to reception room folios for settlement
-                at guest checkout.
+                {t("biz.set.enableFolioChargingHint")}
               </p>
             </div>
             <button
@@ -307,11 +305,9 @@ export default function BusinessSettingsPage() {
 
           <label className="flex items-start justify-between gap-3 py-2 border-b border-gray-100">
             <div>
-              <p className="text-sm font-medium text-gray-800">Allow Package Price Compensation</p>
+              <p className="text-sm font-medium text-gray-800">{t("biz.set.allowCompensation")}</p>
               <p className="text-xs text-gray-400 mt-0.5">
-                Lets guests pay the difference when an item costs more than the
-                allowance (e.g. 500 ETB Tibs vs 300 ETB allowance → 200 ETB
-                excess). Off = over-allowance items are blocked.
+                {t("biz.set.allowCompensationHint")}
               </p>
             </div>
             <button
@@ -333,11 +329,9 @@ export default function BusinessSettingsPage() {
 
           <div className="flex items-center justify-between gap-3 py-2">
             <div>
-              <p className="text-sm font-medium text-gray-800">Default Excess Settlement Mode</p>
+              <p className="text-sm font-medium text-gray-800">{t("biz.set.settlementMode")}</p>
               <p className="text-xs text-gray-400 mt-0.5">
-                How the net charge on a package order is settled: flexible
-                (staff choose at POS), always defer to the folio, or always
-                collect at the POS.
+                {t("biz.set.settlementModeHint")}
               </p>
             </div>
             <select
@@ -346,43 +340,42 @@ export default function BusinessSettingsPage() {
               onChange={(e) => savePolicy({ ...policy, defaultExcessSettlementMode: e.target.value })}
               className="border border-gray-300 rounded p-2 text-sm bg-white"
             >
-              <option value="FLEXIBLE">Flexible (staff chooses)</option>
-              <option value="DEFER_TO_FOLIO_ONLY">Defer to folio only</option>
-              <option value="COLLECT_NOW_ONLY">Collect now only</option>
+              <option value="FLEXIBLE">{t("biz.set.modeFlexible")}</option>
+              <option value="DEFER_TO_FOLIO_ONLY">{t("biz.set.modeDeferFolio")}</option>
+              <option value="COLLECT_NOW_ONLY">{t("biz.set.modeCollectNow")}</option>
             </select>
           </div>
         </div>
-        {policySaving && <p className="text-xs text-gray-400 mt-2">Saving…</p>}
+        {policySaving && <p className="text-xs text-gray-400 mt-2">{t("common.saving")}</p>}
       </div>
 
       {customOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-5 w-full max-w-sm shadow-xl">
-            <h2 className="font-semibold text-gray-800 mb-3">Add Custom Service</h2>
+            <h2 className="font-semibold text-gray-800 mb-3">{t("biz.set.addCustomTitle")}</h2>
             <p className="text-xs text-gray-400 mb-3">
-              Create a custom hospitality facility (e.g. Spa, Tennis). It appears
-              as a toggle here and in the sidebar with its own dashboard.
+              {t("biz.set.addCustomHint")}
             </p>
             <form onSubmit={createCustom} className="space-y-3">
               <input
                 value={customForm.name}
                 onChange={(e) => setCustomForm({ ...customForm, name: e.target.value })}
-                placeholder="Service name (e.g. Spa)"
+                placeholder={t("biz.set.serviceNamePh")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
                 required
               />
               <input
                 value={customForm.key}
                 onChange={(e) => setCustomForm({ ...customForm, key: e.target.value })}
-                placeholder="Key (optional, e.g. spa)"
+                placeholder={t("biz.set.serviceKeyPh")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
               />
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setCustomOpen(false)} className="px-3 py-2 text-sm text-gray-600">
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button type="submit" className="bg-blue-600 text-white rounded px-3 py-2 text-sm font-medium">
-                  Create
+                  {t("common.create")}
                 </button>
               </div>
             </form>

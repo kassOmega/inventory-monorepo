@@ -337,7 +337,7 @@ export default function BusinessesPage() {
                           }}
                           className="text-xs text-blue-600 hover:underline"
                         >
-                          Services
+                          {t("biz.services")}
                         </button>
                       )}
                       <button onClick={() => deleteBusiness(m)} className="text-xs text-red-600 hover:underline">{t("roles.delete")}</button>
