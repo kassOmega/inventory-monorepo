@@ -12,7 +12,7 @@ const ConfirmCtx = createContext<((msg: string) => Promise<boolean>) | null>(nul
 
 export function useConfirm() {
   const ctx = useContext(ConfirmCtx);
-  if (!ctx) throw new Error("useConfirm must be inside ConfirmProvider");
+  if (!ctx) throw new Error("useConfirm must be inside ConfirmProvider"); // i18n-ignore — developer error, never rendered
   return ctx;
 }
 

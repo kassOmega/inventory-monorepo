@@ -4,7 +4,9 @@
 import { useToast } from "@/app/components/ToastProvider";
 import Loading from "@/app/components/Loading";
 import api, { markHandled } from "@/lib/api";
+import { fmtCurrency } from "@/lib/currency";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface CashFlowBucket {
   period: string;
@@ -77,9 +79,6 @@ interface PoDraft {
   createdAt: string;
 }
 
-const fmt = (n: number | null | undefined) =>
-  n == null ? "—" : n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-
 const RISK_BADGE: Record<string, string> = {
   HIGH: "bg-red-100 text-red-700",
   MEDIUM: "bg-amber-100 text-amber-700",
@@ -92,6 +91,7 @@ const DIR_BADGE: Record<string, string> = {
 };
 
 export default function AiSmartFeatures() {
+  const { t } = useTranslation();
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -109,9 +109,9 @@ export default function AiSmartFeatures() {
       markHandled(err);
       setError(
         err?.response?.data?.message ||
-          "Something went wrong. Please try again.",
+          t("ai.errorGeneric"),
       );
-      if (err?.response?.status === 429) toast.error("Daily AI limit reached.");
+      if (err?.response?.status === 429) toast.error(t("ai.limitReached"));
     } finally {
       setBusy(null);
     }
@@ -161,10 +161,9 @@ export default function AiSmartFeatures() {
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-lg font-bold text-gray-800">✨ AI Smart Features</h2>
+        <h2 className="text-lg font-bold text-gray-800">✨ {t("ai.title")}</h2>
         <p className="text-sm text-gray-500">
-          Cash flow projections, dynamic pricing, churn risk and automated
-          purchase order drafts from your live data.
+          {t("ai.subtitle")}
         </p>
       </div>
 
@@ -178,9 +177,9 @@ export default function AiSmartFeatures() {
         {/* --- Cash flow --- */}
         <Panel
           icon="💵"
-          title="Cash Flow Forecast"
-          desc="30–90 day liquidity from live sales velocity minus COGS, overhead expenses and purchase outflows."
-          actionLabel={busy === "cashflow" ? "Analyzing…" : "Generate Cash Flow"}
+          title={t("ai.cashflowTitle")}
+          desc={t("ai.cashflowDesc")}
+          actionLabel={busy === "cashflow" ? t("ai.analyzing") : t("ai.cashflowAction")}
           onAction={generateCashFlow}
           busy={busy === "cashflow"}
         >
@@ -191,12 +190,12 @@ export default function AiSmartFeatures() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-[11px] text-gray-500 uppercase">
-                      <th className="pb-1">Period</th>
-                      <th className="pb-1">Opening</th>
-                      <th className="pb-1">In</th>
-                      <th className="pb-1">Out</th>
-                      <th className="pb-1">Net</th>
-                      <th className="pb-1">Closing</th>
+                      <th className="pb-1">{t("ai.colPeriod")}</th>
+                      <th className="pb-1">{t("ai.colOpening")}</th>
+                      <th className="pb-1">{t("ai.colIn")}</th>
+                      <th className="pb-1">{t("ai.colOut")}</th>
+                      <th className="pb-1">{t("ai.colNet")}</th>
+                      <th className="pb-1">{t("ai.colClosing")}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -205,16 +204,16 @@ export default function AiSmartFeatures() {
                         <td className="py-1.5 font-medium text-gray-700">
                           {b.period.replace("NEXT_", "Next ").replace("_", " ")}
                         </td>
-                        <td className="py-1.5">{fmt(b.openingBalance)}</td>
+                        <td className="py-1.5">{fmtCurrency(b.openingBalance, 0)}</td>
                         <td className="py-1.5 text-emerald-600">
-                          +{fmt(b.inflows)}
+                          +{fmtCurrency(b.inflows, 0)}
                         </td>
                         <td className="py-1.5 text-red-600">
-                          −{fmt(b.outflows)}
+                          −{fmtCurrency(b.outflows, 0)}
                         </td>
-                        <td className="py-1.5">{fmt(b.netCashFlow)}</td>
+                        <td className="py-1.5">{fmtCurrency(b.netCashFlow, 0)}</td>
                         <td className="py-1.5 font-semibold">
-                          {fmt(b.closingBalance)}
+                          {fmtCurrency(b.closingBalance, 0)}
                         </td>
                       </tr>
                     ))}
@@ -250,9 +249,9 @@ export default function AiSmartFeatures() {
         {/* --- Dynamic pricing --- */}
         <Panel
           icon="🏷️"
-          title="Dynamic Pricing"
-          desc="Margin protection — price raises on rising purchase costs, discounts for slow-moving stock."
-          actionLabel={busy === "pricing" ? "Analyzing…" : "Get Pricing Plan"}
+          title={t("ai.pricingTitle")}
+          desc={t("ai.pricingDesc")}
+          actionLabel={busy === "pricing" ? t("ai.analyzing") : t("ai.pricingAction")}
           onAction={generatePricing}
           busy={busy === "pricing"}
         >
@@ -297,9 +296,9 @@ export default function AiSmartFeatures() {
         {/* --- Churn --- */}
         <Panel
           icon="🧲"
-          title="Customer Churn Risk"
-          desc="Buying-pattern insights with win-back offers for inactive clients."
-          actionLabel={busy === "churn" ? "Analyzing…" : "Analyze Churn"}
+          title={t("ai.churnTitle")}
+          desc={t("ai.churnDesc")}
+          actionLabel={busy === "churn" ? t("ai.analyzing") : t("ai.churnAction")}
           onAction={generateChurn}
           busy={busy === "churn"}
         >
@@ -321,7 +320,7 @@ export default function AiSmartFeatures() {
                         {c.name}
                       </span>
                       <span className="text-gray-400 text-xs">
-                        {c.daysInactive} days inactive
+                        {t("ai.daysInactive", { count: c.daysInactive })}
                       </span>
                     </div>
                     <p className="text-gray-500 text-xs mt-0.5">
@@ -337,17 +336,16 @@ export default function AiSmartFeatures() {
         {/* --- PO drafts --- */}
         <Panel
           icon="📦"
-          title="Automated PO Drafts"
-          desc="Auto-generated purchase order drafts when items hit reorder thresholds."
-          actionLabel={busy === "podraft" ? "Generating…" : "Generate PO Draft"}
+          title={t("ai.poTitle")}
+          desc={t("ai.poDesc")}
+          actionLabel={busy === "podraft" ? t("ai.generating") : t("ai.poAction")}
           onAction={generatePoDraft}
           busy={busy === "podraft"}
           onOpen={loadDrafts}
         >
           {drafts.length === 0 ? (
             <p className="text-sm text-gray-400 mt-3">
-              No purchase order drafts yet. Generate one to auto-collect the
-              items below their reorder threshold.
+              {t("ai.poEmpty")}
             </p>
           ) : (
             <ul className="divide-y divide-gray-100 mt-3 max-h-72 overflow-y-auto">
@@ -361,14 +359,19 @@ export default function AiSmartFeatures() {
                           : "bg-blue-100 text-blue-700"
                       }`}
                     >
-                      {d.status}
+                      {d.status === "SUBMITTED"
+                        ? t("ai.statusSubmitted")
+                        : t("ai.statusDraft")}
                     </span>
                     <span className="font-medium text-gray-800">
-                      PO #{d.id}
+                      {t("ai.poRef", { id: d.id })}
                       {d.supplier ? ` · ${d.supplier}` : ""}
                     </span>
                     <span className="text-gray-500 text-xs">
-                      {fmt(d.estimatedTotal)} ETB · {d.items.length} item(s)
+                      {t("ai.poMeta", {
+                        total: fmtCurrency(d.estimatedTotal, 0),
+                        count: d.items.length,
+                      })}
                     </span>
                   </div>
                   <p className="text-gray-500 text-xs mt-0.5">
@@ -389,13 +392,13 @@ export default function AiSmartFeatures() {
                         onClick={() => submitDraft(d.id)}
                         className="text-xs bg-blue-600 text-white px-2.5 py-1 rounded-md hover:bg-blue-700"
                       >
-                        Mark Submitted
+                        {t("ai.markSubmitted")}
                       </button>
                       <button
                         onClick={() => deleteDraft(d.id)}
                         className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-md hover:bg-gray-200"
                       >
-                        Delete
+                        {t("common.delete")}
                       </button>
                     </div>
                   )}

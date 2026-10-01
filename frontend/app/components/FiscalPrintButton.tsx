@@ -12,6 +12,7 @@ import {
   prepareFiscalPrintPayload,
 } from "@/lib/fiscal";
 import FiscalPrintPreviewModal from "@/app/components/FiscalPrintPreviewModal";
+import { useTranslation } from "react-i18next";
 
 /**
  * Reusable fiscal print action + status badge. Intercepts the print with a
@@ -29,6 +30,7 @@ export default function FiscalPrintButton({
   receipt?: { fsNumber?: string; ejNumber?: string } | null;
   onUpdated?: () => void;
 }) {
+  const { t } = useTranslation();
   const [state, setState] = useState<"idle" | "printing" | "done" | "error">(
     "idle",
   );
@@ -46,9 +48,9 @@ export default function FiscalPrintButton({
       const summary = await fetchFiscalSummary(target);
       setPreview(prepareFiscalPrintPayload(summary));
     } catch (e: any) {
-      setError(e?.message ?? "Failed to load fiscal summary");
+      setError(e?.message ?? t("fiscal.failedLoadSummary"));
     }
-  }, [target]);
+  }, [target, t]);
 
   const confirmPrint = useCallback(async () => {
     if (!preview) return;
@@ -62,21 +64,21 @@ export default function FiscalPrintButton({
       onUpdated?.();
     } catch (e: any) {
       try {
-        await markFiscalPrintFailed(target, e?.message ?? "Fiscal print failed");
+        await markFiscalPrintFailed(target, e?.message ?? t("fiscal.printFailedDetail"));
       } catch {
         // ack-side failure is reported below
       }
-      setError(e?.message ?? "Fiscal print failed");
+      setError(e?.message ?? t("fiscal.printFailedDetail"));
       setState("error");
       setPreview(null);
       onUpdated?.();
     }
-  }, [preview, target, onUpdated]);
+  }, [preview, target, onUpdated, t]);
 
   if (printed) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 text-green-800 text-[11px] font-medium">
-        ✓ Fiscally Printed
+        ✓ {t("fiscal.printedBadge")}
         {receipt?.fsNumber ? ` · ${receipt.fsNumber}` : ""}
         {receipt?.ejNumber ? ` / ${receipt.ejNumber}` : ""}
       </span>
@@ -85,7 +87,7 @@ export default function FiscalPrintButton({
   if (pending) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 text-[11px] font-medium">
-        Printing…
+        {t("fiscal.printing")}
       </span>
     );
   }
@@ -95,13 +97,13 @@ export default function FiscalPrintButton({
         onClick={openPreview}
         className="text-xs bg-gray-800 text-white rounded px-2.5 py-1 font-medium hover:bg-gray-700 disabled:opacity-40"
       >
-        🖨 Print Fiscal Invoice
+        🖨 {t("fiscal.printButton")}
       </button>
       {failed && (
         <span className="inline-flex items-center gap-1 text-[11px] text-red-600">
-          {error ? "Print Failed" : "Print Failed"}
+          {error || t("fiscal.printFailed")}
           <button onClick={openPreview} className="underline">
-            Retry
+            {t("fiscal.retry")}
           </button>
         </span>
       )}

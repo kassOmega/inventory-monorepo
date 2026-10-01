@@ -3,6 +3,7 @@
 import api from "@/lib/api";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 // Shared SERVICE-vertical overview (stat tiles + quick actions). Used by
 // `/dashboard/service` and by the dashboard home for SERVICE staff — mirrors how
@@ -15,6 +16,7 @@ interface ServiceDashboardData {
 }
 
 export default function ServiceDashboard() {
+  const { t } = useTranslation();
   const [data, setData] = useState<ServiceDashboardData | null>(null);
   const [error, setError] = useState("");
 
@@ -25,15 +27,15 @@ export default function ServiceDashboard() {
       .catch((e: unknown) => {
         const msg = (e as { response?: { data?: { message?: string } } })
           ?.response?.data?.message;
-        setError(msg ?? "Failed to load");
+        setError(msg ?? t("svc.failedLoad"));
       });
-  }, []);
+  }, [t]);
 
   const cards = [
-    { label: "Bookings Today", value: data?.todayBookings ?? 0, href: "/dashboard/service/bookings" },
-    { label: "Open Tickets", value: data?.openTickets ?? 0, href: "/dashboard/service/tickets" },
-    { label: "Paid Today (ETB)", value: (data?.paidToday ?? 0).toLocaleString(), href: "/dashboard/service/tickets" },
-    { label: "Active Services", value: data?.activeServices ?? 0, href: "/dashboard/service/catalog" },
+    { label: t("svc.bookingsToday"), value: data?.todayBookings ?? 0, href: "/dashboard/service/bookings" },
+    { label: t("svc.openTickets"), value: data?.openTickets ?? 0, href: "/dashboard/service/tickets" },
+    { label: t("svc.paidToday"), value: (data?.paidToday ?? 0).toLocaleString(), href: "/dashboard/service/tickets" },
+    { label: t("svc.activeServices"), value: data?.activeServices ?? 0, href: "/dashboard/service/catalog" },
   ];
 
   return (
@@ -52,11 +54,11 @@ export default function ServiceDashboard() {
         ))}
       </div>
       <div className="bg-white rounded-lg border border-gray-200 p-5">
-        <h2 className="font-semibold text-gray-800 mb-2">Quick Actions</h2>
+        <h2 className="font-semibold text-gray-800 mb-2">{t("svc.quickActions")}</h2>
         <div className="flex gap-2 flex-wrap text-sm">
-          <Link href="/dashboard/service/bookings" className="px-3 py-2 rounded bg-blue-600 text-white">New Booking</Link>
-          <Link href="/dashboard/service/tickets" className="px-3 py-2 rounded bg-gray-800 text-white">New Ticket</Link>
-          <Link href="/dashboard/service/catalog" className="px-3 py-2 rounded border border-gray-300 text-gray-700">Manage Catalog</Link>
+          <Link href="/dashboard/service/bookings" className="px-3 py-2 rounded bg-blue-600 text-white">{t("svc.newBooking")}</Link>
+          <Link href="/dashboard/service/tickets" className="px-3 py-2 rounded bg-gray-800 text-white">{t("svc.newTicket")}</Link>
+          <Link href="/dashboard/service/catalog" className="px-3 py-2 rounded border border-gray-300 text-gray-700">{t("svc.manageCatalog")}</Link>
         </div>
       </div>
     </div>

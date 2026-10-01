@@ -4,6 +4,7 @@
 // whatever language the user writes in (English, Amharic, Afaan Oromoo, etc.).
 import api from "@/lib/api";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface ChatMessage {
   id?: string;
@@ -43,6 +44,7 @@ export default function AiCoachDrawer({
   open: boolean;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -122,7 +124,7 @@ export default function AiCoachDrawer({
       setShowSessions(false);
       setError("");
     } catch {
-      setError("Failed to load that conversation.");
+      setError(t("coach.failedLoadSession"));
     }
   };
 
@@ -132,7 +134,7 @@ export default function AiCoachDrawer({
       setSessions((prev) => prev.filter((s) => s.id !== id));
       if (sessionId === id) newChat();
     } catch {
-      setError("Failed to delete conversation.");
+      setError(t("coach.failedDeleteSession"));
     }
   };
 
@@ -173,7 +175,7 @@ export default function AiCoachDrawer({
         if (res.status === 429) {
           const msg =
             errData?.message ||
-            "⚠️ Daily limit reached: You have used your daily AI queries. Quota resets at midnight.";
+            t("coach.limitNote");
           setLimitReached(true);
           setUsage((prev) => (prev ? { ...prev, limitReached: true, remaining: 0 } : prev));
           setError(msg);
@@ -183,13 +185,13 @@ export default function AiCoachDrawer({
         if (res.status === 403) {
           const msg =
             errData?.message ||
-            "🤖 The AI feature is not enabled for this business. Contact the admin.";
+            t("coach.notEnabledShort");
           setEntitlement((prev) => (prev ? { ...prev, enabled: false } : prev));
           setError(msg);
           setStreaming(false);
           return;
         }
-        throw new Error(errData?.message || "Request failed");
+        throw new Error(errData?.message || t("coach.requestFailed"));
       }
 
       const reader = res.body.getReader();
@@ -236,7 +238,7 @@ export default function AiCoachDrawer({
               setEntitlement(payload.entitlement);
             }
           } else if (payload.type === "error") {
-            setError(payload.message || "The assistant ran into a problem.");
+            setError(payload.message || t("coach.assistantProblem"));
           }
         }
       }
@@ -258,7 +260,7 @@ export default function AiCoachDrawer({
         .catch(() => undefined);
     } catch (err: any) {
       if (err?.name !== "AbortError") {
-        setError(err?.message || "Failed to reach the AI coach.");
+        setError(err?.message || t("coach.unreachable"));
       }
       setMessages((prev) =>
         prev.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
@@ -288,10 +290,10 @@ export default function AiCoachDrawer({
             </span>
             <div className="min-w-0">
               <h2 className="font-semibold text-sm sm:text-base truncate">
-                AI Business Coach
+                {t("coach.title")}
               </h2>
               <p className="text-[11px] text-gray-400 truncate">
-                Replies in your language — አማርኛ · Afaan Oromoo · English
+                {t("coach.repliesInYourLanguage")}
               </p>
               {usage && (
                 <span
@@ -301,11 +303,14 @@ export default function AiCoachDrawer({
                       : "bg-blue-100 text-blue-700 border-blue-200"
                   }`}
                 >
-                  {usage.count} / {usage.quota} queries used today
+                  {t("coach.queriesUsedToday", {
+                    count: usage.count,
+                    quota: usage.quota,
+                  })}
                   {entitlement?.trialEndsAt && !entitlementLocked
-                    ? ` · trial ends ${entitlement.trialEndsAt}`
+                    ? t("coach.trialEnds", { date: entitlement.trialEndsAt })
                     : entitlementLocked && entitlement?.expired
-                      ? " · trial expired"
+                      ? t("coach.trialExpired")
                       : ""}
                 </span>
               )}
@@ -316,13 +321,13 @@ export default function AiCoachDrawer({
               onClick={() => setShowSessions((v) => !v)}
               className="p-2 rounded hover:bg-gray-700 text-gray-300 hover:text-white text-xs font-medium"
             >
-              {showSessions ? "New chat" : "History"}
+              {showSessions ? t("coach.newChat") : t("coach.history")}
             </button>
             <button
               onClick={newChat}
               className="p-2 rounded hover:bg-gray-700 text-gray-300 hover:text-white"
-              aria-label="New chat"
-              title="New chat"
+              aria-label={t("coach.newChat")}
+              title={t("coach.newChat")}
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -331,7 +336,7 @@ export default function AiCoachDrawer({
             <button
               onClick={onClose}
               className="p-2 rounded hover:bg-gray-700 text-gray-300 hover:text-white"
-              aria-label="Close"
+              aria-label={t("common.close")}
             >
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -345,11 +350,11 @@ export default function AiCoachDrawer({
           /* Session history */
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             <p className="text-xs font-semibold text-gray-500 px-1">
-              Past conversations
+              {t("coach.pastConversations")}
             </p>
             {sessions.length === 0 && (
               <p className="text-sm text-gray-400 px-1">
-                No conversations yet.
+                {t("coach.noConversations")}
               </p>
             )}
             {sessions.map((s) => (
@@ -362,7 +367,7 @@ export default function AiCoachDrawer({
                   className="flex-1 text-left min-w-0"
                 >
                   <p className="text-sm font-medium text-gray-800 truncate">
-                    {s.title || "Untitled chat"}
+                    {s.title || t("coach.untitledChat")}
                   </p>
                   <p className="text-[11px] text-gray-400">
                     {new Date(s.createdAt).toLocaleString()}
@@ -371,7 +376,7 @@ export default function AiCoachDrawer({
                 <button
                   onClick={() => deleteSession(s.id)}
                   className="text-gray-400 hover:text-red-500 p-1"
-                  aria-label="Delete"
+                  aria-label={t("common.delete")}
                 >
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m1 0v12a1 1 0 01-1 1H8a1 1 0 01-1-1V7" />
@@ -390,12 +395,10 @@ export default function AiCoachDrawer({
               <div className="text-center mt-10 px-4">
                 <div className="text-4xl mb-3">🤖</div>
                 <p className="text-gray-700 font-medium text-sm sm:text-base">
-                  Ask me about your business
+                  {t("coach.askMe")}
                 </p>
                 <p className="text-gray-400 text-xs sm:text-sm mt-2 leading-relaxed">
-                  Inventory, staff efficiency, customer retention, dead stock,
-                  reordering — I&apos;ll answer using your live data and in the
-                  language you write in.
+                  {t("coach.blurb")}
                 </p>
               </div>
             )}
@@ -434,8 +437,8 @@ export default function AiCoachDrawer({
               <span aria-hidden="true">🤖</span>
               <span>
                 {entitlement?.expired
-                  ? `AI free trial ended on ${entitlement.trialEndsAt}. Contact the admin to extend or enable the AI feature.`
-                  : "The AI feature is not enabled for this business. Contact the admin to enable it."}
+                  ? t("coach.trialEnded", { date: entitlement.trialEndsAt })
+                  : t("coach.notEnabled")}
               </span>
             </div>
           )}
@@ -443,8 +446,7 @@ export default function AiCoachDrawer({
             <div className="mb-2 flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-xs leading-relaxed">
               <span aria-hidden="true">⚠️</span>
               <span>
-                Daily limit reached: You have used {usage?.quota ?? 15}/
-                {usage?.quota ?? 15} daily AI queries. Quota resets at midnight.
+                {t("coach.limitNote")}
               </span>
             </div>
           )}
@@ -462,10 +464,10 @@ export default function AiCoachDrawer({
               disabled={streaming || limitReached || usage?.limitReached || entitlementLocked}
               placeholder={
                 entitlementLocked
-                  ? "AI is unavailable — contact the admin"
+                  ? t("coach.phUnavailable")
                   : limitReached || usage?.limitReached
-                    ? "Daily limit reached — try again tomorrow"
-                    : "Type your question…"
+                    ? t("coach.phLimit")
+                    : t("coach.phTypeQuestion")
               }
               className="flex-1 resize-none border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 max-h-32 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
             />
@@ -479,7 +481,7 @@ export default function AiCoachDrawer({
                 entitlementLocked
               }
               className="bg-blue-600 text-white rounded-xl px-3.5 py-2.5 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
-              aria-label="Send"
+              aria-label={t("coach.send")}
             >
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -487,7 +489,7 @@ export default function AiCoachDrawer({
             </button>
           </div>
           <p className="text-[10px] text-gray-400 mt-1.5 text-center">
-            Grounded in your live sales &amp; inventory data · Powered by Gemini
+            {t("coach.groundedBy")}
           </p>
         </div>
       </div>

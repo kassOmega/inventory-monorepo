@@ -3,6 +3,7 @@ import { useToast } from "@/app/components/ToastProvider";
 import Loading from "@/app/components/Loading";
 import api, { markHandled } from "@/lib/api";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface Props {
   onCreated: (customer: any) => void;
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export default function CustomerForm({ onCreated, onUpdated, onCancel, initialData }: Props) {
+  const { t } = useTranslation();
   const toast = useToast();
   const isEdit = !!initialData;
   const [name, setName] = useState(initialData?.name || "");
@@ -44,7 +46,7 @@ export default function CustomerForm({ onCreated, onUpdated, onCancel, initialDa
       }
     } catch (err: any) {
       markHandled(err);
-      toast.error(isEdit ? "Failed to update customer" : "Failed to create customer");
+      toast.error(isEdit ? t("common.failedUpdateCustomer") : t("common.failedCreateCustomer"));
     } finally {
       setLoading(false);
     }
@@ -53,7 +55,7 @@ export default function CustomerForm({ onCreated, onUpdated, onCancel, initialDa
   return (
     <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4">
       <div>
-        <label className="block text-sm font-medium text-gray-500 mb-1">Name</label>
+        <label className="block text-sm font-medium text-gray-500 mb-1">{t("common.name")}</label>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -62,12 +64,12 @@ export default function CustomerForm({ onCreated, onUpdated, onCancel, initialDa
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-500 mb-1">Phone</label>
+        <label className="block text-sm font-medium text-gray-500 mb-1">{t("common.phone")}</label>
         <input
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
           className="border p-2 rounded-lg w-full text-sm"
-          placeholder="Optional"
+          placeholder={t("common.optional")}
         />
       </div>
       <div className="flex gap-2 mt-2">
@@ -79,12 +81,12 @@ export default function CustomerForm({ onCreated, onUpdated, onCancel, initialDa
           {loading ? (
             <span className="inline-flex items-center gap-2">
               <Loading size="sm" />
-              Saving...
+              {t("common.saving")}
             </span>
           ) : isEdit ? (
-            "Update Customer"
+            t("common.updateCustomer")
           ) : (
-            "Save Customer"
+            t("common.saveCustomer")
           )}
         </button>
         <button
@@ -92,7 +94,7 @@ export default function CustomerForm({ onCreated, onUpdated, onCancel, initialDa
           onClick={onCancel}
           className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-300"
         >
-          Cancel
+          {t("common.cancel")}
         </button>
       </div>
     </form>

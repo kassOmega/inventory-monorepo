@@ -5,6 +5,7 @@
 // action is unambiguous at a glance.
 import { useLanguage } from "@/context/LanguageContext";
 import { LOCALE_FLAGS } from "@/lib/locale";
+import { useTranslation } from "react-i18next";
 
 export default function LanguageSwitcher({
   className = "",
@@ -13,14 +14,12 @@ export default function LanguageSwitcher({
   className?: string;
   variant?: "dark" | "light";
 }) {
+  const { t } = useTranslation();
   const { locale, setLocale } = useLanguage();
   const target = locale === "am" ? "en" : "am";
   const label =
     target === "am" ? "አማርኛ" : "English";
-  const title =
-    target === "am"
-      ? "ወደ አማርኛ ቀይር"
-      : "Switch to English";
+  const title = t(target === "am" ? "language.switchToAm" : "language.switchToEn");
 
   const tone =
     variant === "dark"

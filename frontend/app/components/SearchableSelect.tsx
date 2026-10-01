@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 export interface SearchableOption {
   value: string;
@@ -40,14 +41,17 @@ export default function SearchableSelect({
   options,
   value,
   onChange,
-  placeholder = "Select...",
+  placeholder,
   disabled = false,
   required = false,
   className = "",
   onInputChange,
   clearable = false,
-  clearLabel = "Clear",
+  clearLabel,
 }: SearchableSelectProps) {
+  const { t } = useTranslation();
+  const ph = placeholder ?? t("common.select");
+  const clearTitle = clearLabel ?? t("common.clear");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   /** True while the field has been emptied by hand (display-only, not the value). */
@@ -88,7 +92,7 @@ export default function SearchableSelect({
         ref={inputRef}
         type="text"
         value={open ? query : cleared ? "" : (selected?.label ?? "")}
-        placeholder={placeholder}
+        placeholder={ph}
         disabled={disabled}
         required={required}
         onFocus={() => {
@@ -111,8 +115,8 @@ export default function SearchableSelect({
           <button
             type="button"
             tabIndex={-1}
-            aria-label={clearLabel}
-            title={clearLabel}
+            aria-label={clearTitle}
+            title={clearTitle}
             // preventDefault keeps the click from blurring the input or tripping
             // the outside-click handler before it lands.
             onMouseDown={(e) => e.preventDefault()}
@@ -133,7 +137,7 @@ export default function SearchableSelect({
       {open && (
         <ul className="absolute z-40 w-full mt-1 max-h-60 overflow-auto bg-white border border-gray-200 rounded-lg shadow-lg">
           {filtered.length === 0 && (
-            <li className="px-3 py-2 text-sm text-gray-400">No results</li>
+            <li className="px-3 py-2 text-sm text-gray-400">{t("common.noResults")}</li>
           )}
           {filtered.map((o) => (
             <li key={o.value}>

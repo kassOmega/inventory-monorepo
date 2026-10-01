@@ -62,6 +62,20 @@ const CODE_START =
 const CALL_SYNTAX = /[\p{L}\p{N}_$]\(/u;
 // A line that follows `(`/`{`/`,`/`=>`/`=`/`:` continues a JS expression, not prose.
 const AFTER_EXPR = /(?:[{(,\[]|=>|=|:)\s*$/;
+// One Tailwind/CSS utility token: `px-3`, `hover:bg-white/10`, `text-[11px]`, `bg-blue-100`.
+const CSS_TOKEN = /^(?:[a-z-]+:)*!?[a-z][a-z0-9]*(?:[-/][a-z0-9.]+|\[[^\]]*\])*$/;
+/**
+ * A run of CSS utility classes (a wrapped `className` value or a colour-token
+ * array) is plumbing, not prose. Real prose keeps its capital letters and does
+ * not carry size/opacity/variant tokens, so `guest name` and `walk-in guest`
+ * still report while `px-3 rounded-lg text-sm` does not.
+ */
+function looksLikeClassList(s) {
+  if (/[A-Z]/.test(s)) return false;
+  const tokens = s.split(/\s+/);
+  if (tokens.length < 2 || !tokens.every((tok) => CSS_TOKEN.test(tok))) return false;
+  return tokens.some((tok) => tok.includes(":") || (/[-/]/.test(tok) && /[0-9]/.test(tok)));
+}
 
 function scanJsxText(lines, hits) {
   let inText = false;
@@ -144,6 +158,7 @@ function keep(text) {
   if (/^(https?|mailto|tel):/.test(s)) return false;
   if (/^[a-z][A-Za-z0-9_.-]*$/.test(s)) return false; // identifiers, css tokens
   if (/^[a-z]+(?:-[a-z]+)+$/.test(s)) return false; // kebab tokens
+  if (looksLikeClassList(s)) return false; // className runs, colour-token arrays
   if (/=>|\?\?|\?\.|&&|\|\|/.test(s)) return false; // JS operators, never prose
   return true;
 }
@@ -193,6 +208,9 @@ function scanFile(abs) {
   const lines = readFileSync(abs, "utf8").split("\n");
   const hits = [];
   let inBlock = false;
+  // A multi-line `import { … } from "…"` statement: its continuation lines are a
+  // bare list of identifiers, which would otherwise read as JSX text.
+  let inImport = false;
   lines.forEach((raw, i) => {
     const trimmed = raw.trim();
     if (inBlock) {
@@ -206,9 +224,17 @@ function scanFile(abs) {
     if (!trimmed || /^\/\//.test(trimmed) || trimmed.startsWith("{/*")) return;
     if (/i18n-ignore/.test(raw) || /i18n-ignore/.test(lines[i - 1] ?? "")) return;
     const code = stripComment(raw);
+    if (/^\s*import\b/.test(code)) {
+      inImport = code.includes("{") && !code.includes("}");
+      return;
+    }
+    if (inImport) {
+      if (code.includes("}")) inImport = false;
+      return;
+    }
     // Already localized, or pure plumbing.
     if (/\B(t|i18n\.t|statusLabel|fmtCurrency|fmtNumber|formatDate|formatDateTime|formatWeekdayDate|timeAgo|weekdayShort)\(/.test(code)) return;
-    if (/^\s*(import|export|interface|type|enum|declare)\b/.test(code)) return;
+    if (/^\s*(export|interface|type|enum|declare)\b/.test(code)) return;
     for (const hit of scanLine(code)) hits.push({ line: i + 1, ...hit });
   });
   scanJsxText(lines, hits);

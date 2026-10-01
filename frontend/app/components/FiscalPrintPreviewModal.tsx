@@ -1,12 +1,18 @@
 "use client";
 
 import { FiscalPrintPayload } from "@/lib/fiscal";
+import { useTranslation } from "react-i18next";
 
 /**
  * Thermal-receipt preview mirroring the Ethiopian MoR / Antica fiscal receipt
  * template. The card is strictly 300px wide with fixed monospace character
  * widths and explicit CSS grids, so no row wraps or overflows the paper.
  * "Confirm & Print" runs the agent dispatch + ack lifecycle.
+ *
+ * The receipt body (`fiscal.receipt.*`) stays Latin on purpose: those labels are
+ * printed by the fiscal device itself, so translating them here would desync the
+ * preview from the paper it reproduces. Only the surrounding app chrome and the
+ * action buttons are localized.
  */
 export default function FiscalPrintPreviewModal({
   payload,
@@ -19,6 +25,7 @@ export default function FiscalPrintPreviewModal({
   onConfirm: () => void;
   printing?: boolean;
 }) {
+  const { t } = useTranslation();
   const f = payload.financials;
   const m = payload.metadata;
   const ids = payload.fiscalIds;
@@ -49,7 +56,7 @@ export default function FiscalPrintPreviewModal({
             )}
             {payload.header.tin && (
               <p className="whitespace-nowrap overflow-hidden text-ellipsis">
-                TIN: {payload.header.tin}
+                {t("fiscal.receipt.tin")} {payload.header.tin}
               </p>
             )}
             {payload.header.taxName && (
@@ -62,7 +69,7 @@ export default function FiscalPrintPreviewModal({
             )}
             {payload.header.phone && (
               <p className="whitespace-nowrap overflow-hidden text-ellipsis">
-                Tel:{payload.header.phone}
+                {t("fiscal.receipt.tel")}{payload.header.phone}
               </p>
             )}
           </div>
@@ -70,45 +77,45 @@ export default function FiscalPrintPreviewModal({
           {/* Printer audit placeholders — natural width, never clipped */}
           <div className="flex justify-between items-baseline gap-1 mt-1.5">
             <span className="min-w-0 truncate text-left">
-              EJ Rec.{ids.ejNumber || "00042056 @1"}
+              {t("fiscal.receipt.ejRec")} {ids.ejNumber || "00042056 @1"}
             </span>
             <span className="text-right whitespace-nowrap">
-              DATE: {payload.date}
+              {t("fiscal.receipt.date")} {payload.date}
             </span>
           </div>
           <div className="flex justify-between items-baseline gap-1">
             <span className="min-w-0 truncate text-left">
-              FS No. {ids.fsNumber || "00040528"}
+              {t("fiscal.receipt.fsNo")} {ids.fsNumber || "00040528"}
             </span>
             <span />
           </div>
 
           {/* B. Document title */}
           <p className="text-center font-bold my-1 truncate">
-            ===== CASH INVOICE =====
+            {t("fiscal.receipt.docTitle")}
           </p>
 
           {/* C. Context metadata grid */}
           <div className="space-y-0.5">
             <div className={metaGrid}>
-              <span className="whitespace-nowrap text-left">Customer :</span>
+              <span className="whitespace-nowrap text-left">{t("fiscal.receipt.customer")}</span>
               <span className="truncate">{m.customerName}</span>
             </div>
             <div className={metaGrid}>
-              <span className="whitespace-nowrap text-left">Ref No.  :</span>
+              <span className="whitespace-nowrap text-left">{t("fiscal.receipt.refNo")}</span>
               <span className="truncate">{m.referenceNo}</span>
             </div>
             <div className={metaGrid}>
-              <span className="whitespace-nowrap text-left">Cashier :</span>
+              <span className="whitespace-nowrap text-left">{t("fiscal.receipt.cashier")}</span>
               <span className="truncate">{m.cashierName || "—"}</span>
             </div>
             {(m.tableNo || m.waiterName) && (
               <div className="flex justify-between gap-1">
                 <span className="min-w-0 truncate text-left">
-                  Table: {m.tableNo || "—"}
+                  {t("fiscal.receipt.table")} {m.tableNo || "—"}
                 </span>
                 <span className="whitespace-nowrap text-left">
-                  Waiter: {m.waiterName || "—"}
+                  {t("fiscal.receipt.waiter")} {m.waiterName || "—"}
                 </span>
               </div>
             )}
@@ -117,10 +124,10 @@ export default function FiscalPrintPreviewModal({
           {/* D. Line items table header */}
           <div className={rule} />
           <div className={`${itemGrid} font-bold`}>
-            <span className="truncate text-left">Description</span>
-            <span className="text-right">Qty</span>
-            <span className="text-right">Price</span>
-            <span className="text-right">Amount</span>
+            <span className="truncate text-left">{t("fiscal.receipt.description")}</span>
+            <span className="text-right">{t("fiscal.receipt.qty")}</span>
+            <span className="text-right">{t("fiscal.receipt.price")}</span>
+            <span className="text-right">{t("fiscal.receipt.amount")}</span>
           </div>
           <div className={rule} />
 
@@ -150,34 +157,34 @@ export default function FiscalPrintPreviewModal({
           {/* F. Financial totals & tax breakdown */}
           <div className="space-y-0.5">
             <div className="grid grid-cols-[1fr_auto] gap-x-1">
-              <span className="truncate">SUBTOTAL:</span>
+              <span className="truncate">{t("fiscal.receipt.subtotal")}</span>
               <span className="whitespace-nowrap">{f.fmtSubtotal}</span>
             </div>
             {showServiceCharge && (
               <div className="grid grid-cols-[1fr_auto] gap-x-1">
-                <span className="truncate">(+) Service Charge (10%):</span>
+                <span className="truncate">{t("fiscal.receipt.serviceCharge")}</span>
                 <span className="whitespace-nowrap">{f.fmtServiceCharge}</span>
               </div>
             )}
             <div className={rule} />
             <div className="grid grid-cols-[1fr_auto] gap-x-1">
-              <span className="truncate">TAXABLE 1:</span>
+              <span className="truncate">{t("fiscal.receipt.taxable1")}</span>
               <span className="whitespace-nowrap">{f.fmtTaxable}</span>
             </div>
             <div className="grid grid-cols-[1fr_auto] gap-x-1">
-              <span className="truncate">TAX 1 15%:</span>
+              <span className="truncate">{t("fiscal.receipt.tax1")}</span>
               <span className="whitespace-nowrap">{f.fmtVat}</span>
             </div>
             <div className="grid grid-cols-[1fr_auto] gap-x-1 font-bold text-sm">
-              <span className="truncate">TOTAL:</span>
+              <span className="truncate">{t("fiscal.receipt.total")}</span>
               <span className="whitespace-nowrap">{f.fmtGrandTotal}</span>
             </div>
             <div className="grid grid-cols-[1fr_auto] gap-x-1">
-              <span className="truncate">CASH:</span>
+              <span className="truncate">{t("fiscal.receipt.cash")}</span>
               <span className="whitespace-nowrap">{f.fmtGrandTotal}</span>
             </div>
             <div className="grid grid-cols-[1fr_auto] gap-x-1">
-              <span className="truncate">ITEM COUNT:</span>
+              <span className="truncate">{t("fiscal.receipt.itemCount")}</span>
               <span className="whitespace-nowrap">{payload.totalItemQty}</span>
             </div>
           </div>
@@ -186,10 +193,10 @@ export default function FiscalPrintPreviewModal({
 
           {/* Footer machine serial + preview watermark */}
           <p className="text-center truncate">
-            [ET Logo] {ids.machineSerial || "AAD0001542"}
+            {t("fiscal.receipt.etLogo")} {ids.machineSerial || "AAD0001542"}
           </p>
           <p className="text-center font-bold mt-1 leading-snug">
-            *** PREVIEW ONLY /<br />NOT AN OFFICIAL FISCAL RECEIPT ***
+            {t("fiscal.receipt.previewOnly")}
           </p>
         </div>
 
@@ -200,14 +207,14 @@ export default function FiscalPrintPreviewModal({
             disabled={printing}
             className="px-3 py-2 text-sm bg-gray-200 text-gray-700 rounded disabled:opacity-40"
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             onClick={onConfirm}
             disabled={printing}
             className="px-3 py-2 text-sm bg-green-600 text-white rounded font-medium disabled:opacity-40"
           >
-            {printing ? "Printing…" : "Confirm & Print"}
+            {printing ? t("fiscal.printing") : t("fiscal.confirmPrint")}
           </button>
         </div>
       </div>

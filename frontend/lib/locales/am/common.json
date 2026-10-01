@@ -645,7 +645,13 @@
     "saving": "በማስቀመጥ ላይ...",
     "deleting": "በማጥፋት ላይ...",
     "confirmAction": "እባክዎ ይህን እርምጃ ያረጋግጡ።",
-    "clearField": "መስኩን አጽዳ"
+    "clearField": "መስኩን አጽዳ",
+    "noResults": "ውጤት አልተገኘም",
+    "roomOrGuestPh": "የክፍል ቁጥር ወይም የእንግዳ ስም…",
+    "saveCustomer": "ደንበኛ ያስቀምጡ",
+    "updateCustomer": "ደንበኛ ያዘምኑ",
+    "failedCreateCustomer": "ደንበኛ መፍጠር አልተሳካም",
+    "failedUpdateCustomer": "ደንበኛ ማዘመን አልተሳካም"
   },
   "notifications": {
     "lowStockAlert": "ዝቅተኛ ክምችት ማስጠንቀቂያ",
@@ -693,7 +699,12 @@
     "httpsHint": "ስካን ለማድረግ HTTPS (ወይም localhost) ያስፈልጋል — የዚህን ጣቢያ የካሜራ ፈቃድ አረጋግጠው እንደገና ይሞክሩ።",
     "torchOn": "ቶርች አብራ",
     "torchOff": "ቶርች ያጥፉ",
-    "close": "ዝጋ"
+    "close": "ዝጋ",
+    "aiScan": "AI ስካን",
+    "aiScanTitle": "ምርትን በ AI ስካን ያድርጉ (ፎቶ ወይም ባርኮድ)",
+    "aiScanAria": "ምርትን በ AI ስካን ያድርጉ",
+    "aiReading": "AI ፎቶውን በማንበብ ላይ ነው…",
+    "takePhoto": "ፎቶ ያንሱ"
   },
   "auth": {
     "language": "ቋንቋ",
@@ -1310,7 +1321,13 @@
       "occupied": "ተይዟል",
       "reserved": "ተይዞ ቆይቷል",
       "cleaning": "በማጽዳት ላይ"
-    }
+    },
+    "billingStandard": "መደበኛ ክፍያ",
+    "billingPackage": "🎫 በእንግዳ ፓኬጅ ክፈል",
+    "billingRoom": "🛏️ ወደ ክፍል ክፈል",
+    "noPackageGuest": "ንቁ የፓኬጅ እንግዳ አልተገኘም።",
+    "deferToFolioNote": "DEFER_TO_FOLIO — የተዘረዘረው የተጣራ ክፍያ ወደ እንግዳው የክፍል ፎሊዮ ይጨመራል እና በዋናው መውጫ ላይ ይከፈላል።",
+    "payNowNote": "PAY_NOW — የተጣራ ክፍያው አሁን በተርሚናሉ ላይ ይሰበሰባል እና የክፍል ፎሊዮውን ያልፋል።"
   },
   "cashier": {
     "tabs": {
@@ -2178,7 +2195,11 @@
     "saving": "በማስቀመጥ ላይ…",
     "save": "ያስቀምጡ",
     "purchaseAdd": "ይግዙና ክምችት ይጨምሩ",
-    "saveExpense": "ወጪ ያስቀምጡ"
+    "saveExpense": "ወጪ ያስቀምጡ",
+    "newCatNamePh": "አዲስ የምድብ ስም",
+    "newCategoryLink": "+ አዲስ ምድብ (ሒሳብ ይፍጠሩ)",
+    "failedCreateCategory": "ምድብ መፍጠር አልተሳካም",
+    "categoryCreated": "ምድብ ተፈጥሯል"
   },
   "users": {
     "manageUsers": "ተጠቃሚዎችን ያስተዳድሩ",
@@ -2392,6 +2413,67 @@
     "errorGeneric": "የሆነ ችግር ተፈጠረ። እባክዎ ትንሽ ቆይተው ይሞክሩ።",
     "typing": "…"
   },
+  "ai": {
+    "errorGeneric": "የሆነ ችግር ተፈጠረ። እባክዎ እንደገና ይሞክሩ።",
+    "limitReached": "የዛሬው የ AI ገደብ ደርሷል።",
+    "analyzing": "በመተንተን ላይ…",
+    "generating": "በማዘጋጀት ላይ…",
+    "title": "AI ብልህ ባህሪያት",
+    "subtitle": "ከቀጥታ ውሂብዎ የገንዘብ ፍሰት ትንበያ፣ ተለዋዋጭ ዋጋ አሰጣጥ፣ የደንበኛ መጥፋት አደጋ እና በራስ-ሰር የተዘጋጁ የግዢ ትዕዛዝ ረቂቆች።",
+    "cashflowTitle": "የገንዘብ ፍሰት ትንበያ",
+    "cashflowDesc": "ከቀጥታ ሽያጭ ፍጥነት የ30–90 ቀን ገንዘብ አቅም፣ የሸቀጦች ወጪ (COGS)፣ የሥራ ማስኬጃ ወጪዎች እና የግዢ ወጪዎችን ቀንሶ።",
+    "cashflowAction": "የገንዘብ ፍሰት ያዘጋጁ",
+    "pricingTitle": "ተለዋዋጭ ዋጋ አሰጣጥ",
+    "pricingDesc": "የትርፍ መጠን ጥበቃ — የግዢ ወጪ ሲያሻሽል ዋጋ መጨመር፣ ለዘገሙ እቃዎች ቅናሽ።",
+    "pricingAction": "የዋጋ ዕቅድ ያግኙ",
+    "churnTitle": "የደንበኛ መጥፋት አደጋ",
+    "churnDesc": "ለማይንቀሳቀሱ ደንበኞች የመመለሻ ቅናሾችን ጨምሮ የግዢ ልማድ ግንዛቤ።",
+    "churnAction": "የመጥፋት አደጋን ይተንትኑ",
+    "poTitle": "በራስ-ሰር የተዘጋጁ የግዢ ትዕዛዞች",
+    "poDesc": "እቃዎች የዝቅተኛ ክምችት ገደባቸውን ሲደርሱ በራስ-ሰር የሚዘጋጁ የግዢ ትዕዛዝ ረቂቆች።",
+    "poAction": "የግዢ ትዕዛዝ ረቂቅ ያዘጋጁ",
+    "poEmpty": "እስካሁን የግዢ ትዕዛዝ ረቂቅ የለም። ከዝቅተኛ ክምችት ገደባቸው በታች ያሉትን እቃዎች በራስ-ሰር ለመሰብሰብ አንዱን ያዘጋጁ።",
+    "poRef": "የግዢ ትዕዛዝ #{{id}}",
+    "poMeta": "{{total}} · {{count}} እቃ",
+    "colPeriod": "ወቅት",
+    "colOpening": "መነሻ",
+    "colIn": "ገቢ",
+    "colOut": "ወጪ",
+    "colNet": "ተጣራ",
+    "colClosing": "ቀሪ",
+    "daysInactive": "{{count}} ቀን አልገዙም",
+    "markSubmitted": "እንደተላከ ምልክት ያድርጉ",
+    "statusDraft": "ረቂቅ",
+    "statusSubmitted": "ተልኳል"
+  },
+  "coach": {
+    "title": "AI የንግድ አሰልጣኝ",
+    "repliesInYourLanguage": "በእርስዎ ቋንቋ ይመልሳል — አማርኛ · Afaan Oromoo · English",
+    "queriesUsedToday": "ዛሬ {{count}} / {{quota}} ጥያቄዎች ተጠቅመዋል",
+    "trialEnds": " · የሙከራ ጊዜው {{date}} ያበቃል",
+    "trialExpired": " · የሙከራ ጊዜ አልቋል",
+    "newChat": "አዲስ ውይይት",
+    "history": "ታሪክ",
+    "pastConversations": "ያለፉ ውይይቶች",
+    "noConversations": "እስካሁን ውይይት የለም።",
+    "untitledChat": "ርዕስ የሌለው ውይይት",
+    "askMe": "ስለ ንግድዎ ይጠይቁኝ",
+    "blurb": "ክምችት፣ የሰራተኞች ቅልጥፍና፣ የደንበኛ ማቆየት፣ የዘገሙ እቃዎች፣ እንደገና ማዘዝ — በቀጥታ ውሂብዎን ተጠቅሜ በሚጽፉበት ቋንቋ እመልሳለሁ።",
+    "trialEnded": "የ AI ነጻ ሙከራ በ{{date}} አልቋል። የ AI ባህሪውን ለማራዘም ወይም ለማንቃት አስተዳዳሪውን ያግኙ።",
+    "notEnabled": "የ AI ባህሪ ለዚህ ንግድ አልነቃም። ለማንቃት አስተዳዳሪውን ያግኙ።",
+    "limitNote": "⚠️ የዛሬው ገደብ ደርሷል፡ የዛሬዎቹን የ AI ጥያቄዎች ተጠቅመዋል። ገደቡ እኩለ ሌሊት ይታደሳል።",
+    "notEnabledShort": "🤖 የ AI ባህሪ ለዚህ ንግድ አልነቃም። አስተዳዳሪውን ያግኙ።",
+    "phUnavailable": "AI አይገኝም — አስተዳዳሪውን ያግኙ",
+    "phLimit": "የዛሬው ገደብ ደርሷል — ነገ እንደገና ይሞክሩ",
+    "phTypeQuestion": "ጥያቄዎን ይጻፉ…",
+    "send": "ላክ",
+    "groundedBy": "በቀጥታ የሽያጭ እና የክምችት ውሂብዎ ላይ የተመሰረተ · በ Gemini የተሰራ",
+    "failedLoadSession": "ያንን ውይይት መጫን አልተሳካም።",
+    "failedDeleteSession": "ውይይቱን ማጥፋት አልተሳካም።",
+    "requestFailed": "ጥያቄው አልተሳካም",
+    "assistantProblem": "ረዳቱ ችግር አጋጠመው።",
+    "unreachable": "ወደ AI አሰልጣኙ መድረስ አልተሳካም።"
+  },
   "sv": {
     "variant": "ተለዋጭ",
     "stock": "ክምችት",
@@ -2404,6 +2486,53 @@
     "count": "{n} ተለዋጭ",
     "shopRequired": "መጀመሪያ የሱቅ ቦታ ይምረጡ።",
     "storeStock": "በመደብሩ ይገኛል"
+  },
+  "svc": {
+    "failedLoad": "መጫን አልተሳካም",
+    "bookingsToday": "የዛሬ ቦታ ማስያዣዎች",
+    "openTickets": "ክፍት ትኬቶች",
+    "paidToday": "ዛሬ የተከፈለ (ብር)",
+    "activeServices": "ንቁ አገልግሎቶች",
+    "quickActions": "ፈጣን እርምጃዎች",
+    "newBooking": "አዲስ ቦታ ማስያዝ",
+    "newTicket": "አዲስ ትኬት",
+    "manageCatalog": "ካታሎግ ያስተዳድሩ"
+  },
+  "fiscal": {
+    "printButton": "ፊስካል ደረሰኝ አትም",
+    "printedBadge": "በፊስካል ታትሟል",
+    "printing": "በማተም ላይ…",
+    "printFailed": "ማተም አልተሳካም",
+    "retry": "እንደገና ይሞክሩ",
+    "confirmPrint": "አረጋግጠው አትም",
+    "failedLoadSummary": "የፊስካል ማጠቃለያ መጫን አልተሳካም",
+    "printFailedDetail": "የፊስካል ማተም አልተሳካም",
+    "receipt": {
+      "tin": "TIN:",
+      "tel": "Tel:",
+      "ejRec": "EJ Rec.",
+      "date": "DATE:",
+      "fsNo": "FS No.",
+      "docTitle": "===== CASH INVOICE =====",
+      "customer": "Customer :",
+      "refNo": "Ref No.  :",
+      "cashier": "Cashier :",
+      "table": "Table:",
+      "waiter": "Waiter:",
+      "description": "Description",
+      "qty": "Qty",
+      "price": "Price",
+      "amount": "Amount",
+      "subtotal": "SUBTOTAL:",
+      "serviceCharge": "(+) Service Charge (10%):",
+      "taxable1": "TAXABLE 1:",
+      "tax1": "TAX 1 15%:",
+      "total": "TOTAL:",
+      "cash": "CASH:",
+      "itemCount": "ITEM COUNT:",
+      "etLogo": "[ET Logo]",
+      "previewOnly": "*** PREVIEW ONLY / NOT AN OFFICIAL FISCAL RECEIPT ***"
+    }
   },
   "mfg": {
     "common": {

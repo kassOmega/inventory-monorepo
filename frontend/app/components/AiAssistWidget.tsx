@@ -146,7 +146,7 @@ export default function AiAssistWidget() {
           setMessages((prev) => [...prev, { role: "assistant", text: msg }]);
           return;
         }
-        if (!res.ok || !res.body) throw new Error("bad response");
+        if (!res.ok || !res.body) throw new Error("bad response"); // i18n-ignore — sentinel; the catch shows assist.errorGeneric
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";

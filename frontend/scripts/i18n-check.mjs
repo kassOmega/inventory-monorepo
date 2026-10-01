@@ -46,6 +46,15 @@ const ALLOW_IDENTICAL = {
   "mfg.catalog.mediaPlaceholder": "a placeholder URL",
 };
 
+// A whole subtree that stays Latin on purpose (same rule, keyed by prefix so the
+// reason is written once). Every entry needs a reason.
+const ALLOW_IDENTICAL_PREFIX = {
+  // Receipt paper mirrors the MoR / Antica fiscal device template: the labels are
+  // burnt into the printer firmware, so translating them would desync the preview
+  // from the paper it reproduces (and overflow the 300px width). Phase 5.
+  "fiscal.receipt.": "fiscal device receipt template, Latin-only",
+};
+
 function flatten(obj, prefix = "", out = new Map()) {
   for (const [k, v] of Object.entries(obj)) {
     const key = prefix ? `${prefix}.${k}` : k;
@@ -87,17 +96,27 @@ const parity = {
   extraInAm: [...am.keys()].filter((k) => !en.has(k)),
 };
 
+const allowedIdentical = (key) =>
+  Boolean(ALLOW_IDENTICAL[key]) ||
+  Object.keys(ALLOW_IDENTICAL_PREFIX).some((p) => key.startsWith(p));
+
 const identical = [];
 for (const [key, value] of en) {
   if (typeof value !== "string" || typeof am.get(key) !== "string") continue;
   if (value !== am.get(key)) continue;
-  if (ALLOW_IDENTICAL[key]) continue;
+  if (allowedIdentical(key)) continue;
   if (!/[A-Za-z]/.test(value)) continue; // no Latin to translate
   identical.push({ key, value });
 }
 const staleAllowlist = Object.keys(ALLOW_IDENTICAL).filter(
   (key) => en.get(key) !== am.get(key),
 );
+// A prefix rule goes stale the moment its children are translated (Phase 5).
+for (const prefix of Object.keys(ALLOW_IDENTICAL_PREFIX)) {
+  for (const [key] of en) {
+    if (key.startsWith(prefix) && en.get(key) !== am.get(key)) staleAllowlist.push(key);
+  }
+}
 
 const glossary = [];
 for (const row of glossaryRows().filter((r) => r.enforce)) {

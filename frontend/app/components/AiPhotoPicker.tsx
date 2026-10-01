@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import { useTranslation } from "react-i18next";
 
 /**
  * Reusable AI photo picker: one button that opens the native OS sheet, which
@@ -21,6 +22,7 @@ export default function AiPhotoPicker({
   buttonLabel?: string;
 }) {
   const galleryRef = useRef<HTMLInputElement>(null);
+  const { t } = useTranslation();
 
   const downscaleToJpegBase64 = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -81,11 +83,11 @@ export default function AiPhotoPicker({
           type="button"
           onClick={() => galleryRef.current?.click()}
           disabled={busy}
-          title="AI scan product (photo or barcode)"
-          aria-label="AI scan product"
+          title={t("scan.aiScanTitle")}
+          aria-label={t("scan.aiScanAria")}
           className="border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-60 px-2 py-1 rounded-lg text-sm font-medium whitespace-nowrap"
         >
-          📷 {buttonLabel ?? "AI scan"}
+          📷 {buttonLabel ?? t("scan.aiScan")}
         </button>
       </>
     );
@@ -107,7 +109,7 @@ export default function AiPhotoPicker({
         disabled={busy}
         className="w-full border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-60 py-2.5 px-4 rounded-lg text-sm font-medium"
       >
-        {busy ? "✨ AI is reading the photo(s)…" : buttonLabel ?? "📷 Take Photo"}
+        {busy ? `✨ ${t("scan.aiReading")}` : buttonLabel ?? `📷 ${t("scan.takePhoto")}`}
       </button>
     </>
   );

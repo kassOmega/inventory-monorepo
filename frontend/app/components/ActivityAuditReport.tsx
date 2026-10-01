@@ -346,7 +346,7 @@ export default function ActivityAuditReport({ startDate, endDate }: Props) {
             {/* Full item breakdown */}
             <div className="border border-gray-200 rounded-lg mb-4">
               <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide px-3 pt-2 pb-1">
-                Items
+                {t("act.colItems")}
               </p>
               {(detailOrder.items ?? []).map((it: any, idx: number) => (
                 <div key={it.id ?? idx} className="flex items-center justify-between px-3 py-1.5 text-sm">

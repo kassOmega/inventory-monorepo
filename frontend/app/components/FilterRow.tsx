@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactNode, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface FilterRowProps {
   children: ReactNode;
@@ -10,6 +11,7 @@ interface FilterRowProps {
  * Collapsible filter bar — toggle on mobile, always visible on desktop.
  */
 export default function FilterRow({ children }: FilterRowProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
   return (
@@ -33,7 +35,7 @@ export default function FilterRow({ children }: FilterRowProps) {
               d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
             />
           </svg>
-          Filters
+          {t("common.filters")}
         </span>
         <svg
           className={`w-4 h-4 transition-transform ${open ? "rotate-180" : ""}`}

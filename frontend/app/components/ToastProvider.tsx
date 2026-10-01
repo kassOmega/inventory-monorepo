@@ -18,7 +18,7 @@ const ToastCtx = createContext<{
 
 export function useToast() {
   const ctx = useContext(ToastCtx);
-  if (!ctx) throw new Error("useToast must be inside ToastProvider");
+  if (!ctx) throw new Error("useToast must be inside ToastProvider"); // i18n-ignore — developer error, never rendered
   return ctx;
 }
 

@@ -817,9 +817,9 @@ export default function FoodServicePanel({ title }: { title: string }) {
                   }}
                   className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
                 >
-                  <option value="STANDARD">Standard billing</option>
-                  <option value="PACKAGE">🎫 Charge to Guest Package</option>
-                  <option value="ROOM_CHARGE">🛏️ Charge to Room</option>
+                  <option value="STANDARD">{t("orders.billingStandard")}</option>
+                  <option value="PACKAGE">{t("orders.billingPackage")}</option>
+                  <option value="ROOM_CHARGE">{t("orders.billingRoom")}</option>
                 </select>
                 {billingMode !== "STANDARD" &&
                   (billingGuest ? (
@@ -837,7 +837,7 @@ export default function FoodServicePanel({ title }: { title: string }) {
                           }}
                           className="text-red-600 hover:underline shrink-0"
                         >
-                          Clear
+                          {t("common.clear")}
                         </button>
                       </div>
                       <p className="text-gray-500">{billingGuest.package?.name}</p>
@@ -860,7 +860,7 @@ export default function FoodServicePanel({ title }: { title: string }) {
                       <input
                         value={guestQuery}
                         onChange={(e) => searchGuests(e.target.value)}
-                        placeholder="Room # or guest name…"
+                        placeholder={t("common.roomOrGuestPh")}
                         className="border border-gray-300 rounded p-2 text-sm w-full"
                       />
                       {guestResults.length > 0 && (
@@ -881,7 +881,7 @@ export default function FoodServicePanel({ title }: { title: string }) {
                         </ul>
                       )}
                       {guestQuery && guestResults.length === 0 && (
-                        <p className="text-[11px] text-gray-400 mt-1">No active package guest found.</p>
+                        <p className="text-[11px] text-gray-400 mt-1">{t("orders.noPackageGuest")}</p>
                       )}
                     </div>
                   ))}
@@ -1355,8 +1355,8 @@ export default function FoodServicePanel({ title }: { title: string }) {
                 )}
                 <p className="text-xs text-gray-400 mb-3">
                   {settleForm.netChargeMode === "FOLIO"
-                    ? "DEFER_TO_FOLIO — the itemized net charge is appended to the guest's room folio and settled at master checkout."
-                    : "PAY_NOW — the net charge is collected at the terminal now and bypasses the room folio."}
+                    ? t("orders.deferToFolioNote")
+                    : t("orders.payNowNote")}
                 </p>
               </>
             ) : (

@@ -152,9 +152,9 @@ export default function DualExpenseModal({
       setAccountId(String(res.data.id));
       setShowNewCat(false);
       setNewCatName("");
-      toast.success("Category created");
+      toast.success(t("de.categoryCreated"));
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to create category");
+      setError(err?.response?.data?.message ?? t("de.failedCreateCategory"));
     }
   };
 
@@ -1145,7 +1145,7 @@ export default function DualExpenseModal({
                     <input
                       value={newCatName}
                       onChange={(e) => setNewCatName(e.target.value)}
-                      placeholder="New category name"
+                      placeholder={t("de.newCatNamePh")}
                       className="border border-gray-300 rounded p-2 text-sm flex-1"
                     />
                     <button
@@ -1153,7 +1153,7 @@ export default function DualExpenseModal({
                       onClick={addExpenseCategory}
                       className="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm font-medium"
                     >
-                      Add
+                      {t("common.add")}
                     </button>
                   </div>
                 )}
@@ -1163,7 +1163,7 @@ export default function DualExpenseModal({
                     onClick={() => setShowNewCat(true)}
                     className="text-xs text-blue-600 hover:underline mt-1"
                   >
-                    + New category (create an account)
+                    {t("de.newCategoryLink")}
                   </button>
                 )}
                 {accountId && (
@@ -1172,6 +1172,7 @@ export default function DualExpenseModal({
                       (a: any) => String(a.id) === accountId,
                     );
                     const creditName =
+                      // i18n-ignore — chart-of-accounts name from the ledger (data, not UI text)
                       expenseMapping?.creditAccount?.name ?? "Cash";
                     return sel ? (
                       <p className="text-[11px] text-gray-400 mt-1">

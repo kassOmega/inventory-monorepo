@@ -645,7 +645,13 @@
     "saving": "Saving…",
     "deleting": "Deleting…",
     "confirmAction": "Confirm action",
-    "clearField": "Clear the field"
+    "clearField": "Clear the field",
+    "noResults": "No results",
+    "roomOrGuestPh": "Room # or guest name…",
+    "saveCustomer": "Save Customer",
+    "updateCustomer": "Update Customer",
+    "failedCreateCustomer": "Failed to create customer",
+    "failedUpdateCustomer": "Failed to update customer"
   },
   "notifications": {
     "lowStockAlert": "Low Stock Alert",
@@ -693,7 +699,12 @@
     "httpsHint": "Camera scanning needs HTTPS (or localhost) — check the camera permission for this site and try again.",
     "torchOn": "Torch on",
     "torchOff": "Torch off",
-    "close": "Close"
+    "close": "Close",
+    "aiScan": "AI scan",
+    "aiScanTitle": "AI scan product (photo or barcode)",
+    "aiScanAria": "AI scan product",
+    "aiReading": "AI is reading the photo(s)…",
+    "takePhoto": "Take Photo"
   },
   "auth": {
     "language": "Language",
@@ -1310,7 +1321,13 @@
       "occupied": "Occupied",
       "reserved": "Reserved",
       "cleaning": "Cleaning"
-    }
+    },
+    "billingStandard": "Standard billing",
+    "billingPackage": "🎫 Charge to Guest Package",
+    "billingRoom": "🛏️ Charge to Room",
+    "noPackageGuest": "No active package guest found.",
+    "deferToFolioNote": "DEFER_TO_FOLIO — the itemized net charge is appended to the guest's room folio and settled at master checkout.",
+    "payNowNote": "PAY_NOW — the net charge is collected at the terminal now and bypasses the room folio."
   },
   "cashier": {
     "tabs": {
@@ -2178,7 +2195,11 @@
     "saving": "Saving…",
     "save": "Save",
     "purchaseAdd": "Purchase & Add Stock",
-    "saveExpense": "Save Expense"
+    "saveExpense": "Save Expense",
+    "newCatNamePh": "New category name",
+    "newCategoryLink": "+ New category (create an account)",
+    "failedCreateCategory": "Failed to create category",
+    "categoryCreated": "Category created"
   },
   "users": {
     "manageUsers": "Manage Users",
@@ -2392,6 +2413,67 @@
     "errorGeneric": "Something went wrong. Please try again in a moment.",
     "typing": "…"
   },
+  "ai": {
+    "errorGeneric": "Something went wrong. Please try again.",
+    "limitReached": "Daily AI limit reached.",
+    "analyzing": "Analyzing…",
+    "generating": "Generating…",
+    "title": "AI Smart Features",
+    "subtitle": "Cash flow projections, dynamic pricing, churn risk and automated purchase order drafts from your live data.",
+    "cashflowTitle": "Cash Flow Forecast",
+    "cashflowDesc": "30–90 day liquidity from live sales velocity minus COGS, overhead expenses and purchase outflows.",
+    "cashflowAction": "Generate Cash Flow",
+    "pricingTitle": "Dynamic Pricing",
+    "pricingDesc": "Margin protection — price raises on rising purchase costs, discounts for slow-moving stock.",
+    "pricingAction": "Get Pricing Plan",
+    "churnTitle": "Customer Churn Risk",
+    "churnDesc": "Buying-pattern insights with win-back offers for inactive clients.",
+    "churnAction": "Analyze Churn",
+    "poTitle": "Automated PO Drafts",
+    "poDesc": "Auto-generated purchase order drafts when items hit reorder thresholds.",
+    "poAction": "Generate PO Draft",
+    "poEmpty": "No purchase order drafts yet. Generate one to auto-collect the items below their reorder threshold.",
+    "poRef": "PO #{{id}}",
+    "poMeta": "{{total}} · {{count}} item(s)",
+    "colPeriod": "Period",
+    "colOpening": "Opening",
+    "colIn": "In",
+    "colOut": "Out",
+    "colNet": "Net",
+    "colClosing": "Closing",
+    "daysInactive": "{{count}} days inactive",
+    "markSubmitted": "Mark Submitted",
+    "statusDraft": "Draft",
+    "statusSubmitted": "Submitted"
+  },
+  "coach": {
+    "title": "AI Business Coach",
+    "repliesInYourLanguage": "Replies in your language — አማርኛ · Afaan Oromoo · English",
+    "queriesUsedToday": "{{count}} / {{quota}} queries used today",
+    "trialEnds": " · trial ends {{date}}",
+    "trialExpired": " · trial expired",
+    "newChat": "New chat",
+    "history": "History",
+    "pastConversations": "Past conversations",
+    "noConversations": "No conversations yet.",
+    "untitledChat": "Untitled chat",
+    "askMe": "Ask me about your business",
+    "blurb": "Inventory, staff efficiency, customer retention, dead stock, reordering — I'll answer using your live data and in the language you write in.",
+    "trialEnded": "AI free trial ended on {{date}}. Contact the admin to extend or enable the AI feature.",
+    "notEnabled": "The AI feature is not enabled for this business. Contact the admin to enable it.",
+    "limitNote": "⚠️ Daily limit reached: You have used your daily AI queries. Quota resets at midnight.",
+    "notEnabledShort": "🤖 The AI feature is not enabled for this business. Contact the admin.",
+    "phUnavailable": "AI is unavailable — contact the admin",
+    "phLimit": "Daily limit reached — try again tomorrow",
+    "phTypeQuestion": "Type your question…",
+    "send": "Send",
+    "groundedBy": "Grounded in your live sales & inventory data · Powered by Gemini",
+    "failedLoadSession": "Failed to load that conversation.",
+    "failedDeleteSession": "Failed to delete conversation.",
+    "requestFailed": "Request failed",
+    "assistantProblem": "The assistant ran into a problem.",
+    "unreachable": "Failed to reach the AI coach."
+  },
   "sv": {
     "variant": "Variant",
     "stock": "Stock",
@@ -2404,6 +2486,53 @@
     "count": "{n} variants",
     "shopRequired": "Choose the shop location first.",
     "storeStock": "Available at store"
+  },
+  "svc": {
+    "failedLoad": "Failed to load",
+    "bookingsToday": "Bookings Today",
+    "openTickets": "Open Tickets",
+    "paidToday": "Paid Today (ETB)",
+    "activeServices": "Active Services",
+    "quickActions": "Quick Actions",
+    "newBooking": "New Booking",
+    "newTicket": "New Ticket",
+    "manageCatalog": "Manage Catalog"
+  },
+  "fiscal": {
+    "printButton": "Print Fiscal Invoice",
+    "printedBadge": "Fiscally Printed",
+    "printing": "Printing…",
+    "printFailed": "Print Failed",
+    "retry": "Retry",
+    "confirmPrint": "Confirm & Print",
+    "failedLoadSummary": "Failed to load fiscal summary",
+    "printFailedDetail": "Fiscal print failed",
+    "receipt": {
+      "tin": "TIN:",
+      "tel": "Tel:",
+      "ejRec": "EJ Rec.",
+      "date": "DATE:",
+      "fsNo": "FS No.",
+      "docTitle": "===== CASH INVOICE =====",
+      "customer": "Customer :",
+      "refNo": "Ref No.  :",
+      "cashier": "Cashier :",
+      "table": "Table:",
+      "waiter": "Waiter:",
+      "description": "Description",
+      "qty": "Qty",
+      "price": "Price",
+      "amount": "Amount",
+      "subtotal": "SUBTOTAL:",
+      "serviceCharge": "(+) Service Charge (10%):",
+      "taxable1": "TAXABLE 1:",
+      "tax1": "TAX 1 15%:",
+      "total": "TOTAL:",
+      "cash": "CASH:",
+      "itemCount": "ITEM COUNT:",
+      "etLogo": "[ET Logo]",
+      "previewOnly": "*** PREVIEW ONLY / NOT AN OFFICIAL FISCAL RECEIPT ***"
+    }
   },
   "mfg": {
     "common": {
