@@ -69,6 +69,34 @@ export function formatDate(iso?: string | null, locale?: Locale): string {
   return formatterByLocale(l, "date").format(d);
 }
 
+/** Abbreviated weekday name for a 0=Sunday … 6=Saturday index, localized. */
+export function weekdayShort(index: number, locale?: Locale): string {
+  const l = locale ?? getActiveLocale();
+  // 7 Jan 2024 is a Sunday; formatting in local time keeps the mapping stable.
+  const d = new Date(2024, 0, 7 + index);
+  const f = new Intl.DateTimeFormat(l === "am" ? "am-ET" : "en-US", {
+    weekday: "short",
+  });
+  return f.format(d);
+}
+
+/** Weekday + date, e.g. "Tue, Sep 30, 2026" (Ethiopic calendar for Amharic). */
+export function formatWeekdayDate(value: Date | string, locale?: Locale): string {
+  const l = locale ?? getActiveLocale();
+  const iso =
+    typeof value === "string"
+      ? value.length === 10
+        ? `${value}T00:00:00`
+        : value
+      : value.toISOString();
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const wd = new Intl.DateTimeFormat(l === "am" ? "am-ET" : "en-US", {
+    weekday: "short",
+  }).format(d);
+  return `${wd}, ${formatDate(iso, l)}`;
+}
+
 /** Relative "time ago" label, localized (en + am). */
 export function timeAgo(iso?: string | null, now = Date.now(), locale?: Locale): string {
   const l = locale ?? getActiveLocale();

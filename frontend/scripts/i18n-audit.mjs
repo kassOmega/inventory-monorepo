@@ -207,7 +207,7 @@ function scanFile(abs) {
     if (/i18n-ignore/.test(raw) || /i18n-ignore/.test(lines[i - 1] ?? "")) return;
     const code = stripComment(raw);
     // Already localized, or pure plumbing.
-    if (/\B(t|i18n\.t|statusLabel|fmtCurrency|fmtNumber|formatDate|formatDateTime|timeAgo)\(/.test(code)) return;
+    if (/\B(t|i18n\.t|statusLabel|fmtCurrency|fmtNumber|formatDate|formatDateTime|formatWeekdayDate|timeAgo|weekdayShort)\(/.test(code)) return;
     if (/^\s*(import|export|interface|type|enum|declare)\b/.test(code)) return;
     for (const hit of scanLine(code)) hits.push({ line: i + 1, ...hit });
   });

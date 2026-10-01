@@ -7,6 +7,7 @@ import { useToast } from "@/app/components/ToastProvider";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 const inputCls = "border p-2 rounded-lg w-full bg-white";
 
@@ -16,6 +17,7 @@ export default function ManufacturingTeamsPage() {
   const { hasPermission } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
+  const { t } = useTranslation();
   const [teams, setTeams] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -28,7 +30,7 @@ export default function ManufacturingTeamsPage() {
       const r = await api.get("/manufacturing/teams");
       setTeams(r.data ?? []);
     } catch {
-      toast.error("Failed to load teams");
+      toast.error(t("mfg.teams.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -44,20 +46,20 @@ export default function ManufacturingTeamsPage() {
           name: form.name,
           description: form.description || null,
         });
-        toast.success("Team updated");
+        toast.success(t("mfg.teams.updated"));
       } else {
         await api.post("/manufacturing/teams", {
           name: form.name,
           description: form.description || undefined,
         });
-        toast.success("Team added");
+        toast.success(t("mfg.teams.added"));
       }
       setShowForm(false);
       setEditing(null);
       setForm(emptyForm());
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to save team");
+      toast.error(err?.response?.data?.message || t("mfg.teams.saveFailed"));
     }
   };
 
@@ -70,10 +72,10 @@ export default function ManufacturingTeamsPage() {
   const toggleActive = async (team: any) => {
     try {
       await api.patch(`/manufacturing/teams/${team.id}`, { active: !team.active });
-      toast.success("Updated");
+      toast.success(t("mfg.common.updated"));
       load();
     } catch {
-      toast.error("Failed to update");
+      toast.error(t("mfg.common.updateFailed"));
     }
   };
 
@@ -87,19 +89,19 @@ export default function ManufacturingTeamsPage() {
       await api.patch("/manufacturing/teams/reorder", { ids: next });
       load();
     } catch {
-      toast.error("Failed to reorder teams");
+      toast.error(t("mfg.teams.reorderFailed"));
     }
   };
 
   const remove = async (team: any) => {
-    const ok = await confirm(`Delete team "${team.name}"?`);
+    const ok = await confirm(t("mfg.teams.deleteConfirm", { name: team.name }));
     if (!ok) return;
     try {
       await api.delete(`/manufacturing/teams/${team.id}`);
-      toast.success("Team deleted");
+      toast.success(t("mfg.teams.deleted"));
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to delete team");
+      toast.error(err?.response?.data?.message || t("mfg.teams.deleteFailed"));
     }
   };
 
@@ -109,9 +111,9 @@ export default function ManufacturingTeamsPage() {
     <div>
       <div className="flex justify-between items-center mb-1 flex-wrap gap-3">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Teams</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-800">{t("mfg.teams.title")}</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Teams own the steps of your order pipeline. Create them first, then arrange them into a flow.
+            {t("mfg.teams.subtitle")}
           </p>
         </div>
         {canManage && (
@@ -119,7 +121,7 @@ export default function ManufacturingTeamsPage() {
             onClick={() => { setEditing(null); setForm(emptyForm()); setShowForm(true); }}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm whitespace-nowrap"
           >
-            + Add Team
+            {t("mfg.teams.addTeam")}
           </button>
         )}
       </div>
@@ -129,11 +131,11 @@ export default function ManufacturingTeamsPage() {
           <thead className="bg-gray-50 border-b">
             <tr>
               <th className="p-3 w-10">#</th>
-              <th className="p-3">Name</th>
-              <th className="p-3">Description</th>
-              <th className="p-3 text-center">Used in flows</th>
-              <th className="p-3">Status</th>
-              {canManage && <th className="p-3 text-right">Actions</th>}
+              <th className="p-3">{t("common.name")}</th>
+              <th className="p-3">{t("common.description")}</th>
+              <th className="p-3 text-center">{t("mfg.teams.colUsedInFlows")}</th>
+              <th className="p-3">{t("common.status")}</th>
+              {canManage && <th className="p-3 text-right">{t("common.actions")}</th>}
             </tr>
           </thead>
           <tbody>
@@ -145,7 +147,7 @@ export default function ManufacturingTeamsPage() {
                 <td className="p-3 text-center">{team._count?.steps ?? 0}</td>
                 <td className="p-3">
                   <span className={`text-xs px-2 py-0.5 rounded-full ${team.active ? "bg-green-100 text-green-800" : "bg-gray-200 text-gray-500"}`}>
-                    {team.active ? "Active" : "Inactive"}
+                    {team.active ? t("status.active") : t("status.inactive")}
                   </span>
                 </td>
                 {canManage && (
@@ -153,11 +155,11 @@ export default function ManufacturingTeamsPage() {
                     <div className="flex items-center justify-end gap-2 text-xs">
                       <button onClick={() => move(team, -1)} disabled={i === 0} className="text-gray-500 hover:text-gray-800 disabled:opacity-30">↑</button>
                       <button onClick={() => move(team, 1)} disabled={i === teams.length - 1} className="text-gray-500 hover:text-gray-800 disabled:opacity-30">↓</button>
-                      <button onClick={() => openEdit(team)} className="text-blue-600 hover:underline">Edit</button>
+                      <button onClick={() => openEdit(team)} className="text-blue-600 hover:underline">{t("mfg.common.edit")}</button>
                       <button onClick={() => toggleActive(team)} className="text-gray-600 hover:underline">
-                        {team.active ? "Deactivate" : "Activate"}
+                        {team.active ? t("mfg.common.deactivate") : t("mfg.common.activate")}
                       </button>
-                      <button onClick={() => remove(team)} className="text-red-600 hover:underline">Delete</button>
+                      <button onClick={() => remove(team)} className="text-red-600 hover:underline">{t("mfg.common.delete")}</button>
                     </div>
                   </td>
                 )}
@@ -166,7 +168,7 @@ export default function ManufacturingTeamsPage() {
             {teams.length === 0 && (
               <tr>
                 <td colSpan={6} className="p-6 text-center text-gray-400">
-                  No teams yet — add your first team (e.g. Intake, Production) to start routing orders.
+                  {t("mfg.teams.noTeams")}
                 </td>
               </tr>
             )}
@@ -177,21 +179,21 @@ export default function ManufacturingTeamsPage() {
       <Modal
         isOpen={showForm}
         onClose={() => { setShowForm(false); setEditing(null); }}
-        title={editing ? `Edit Team — ${editing.name}` : "Add Team"}
+        title={editing ? t("mfg.teams.editTitle", { name: editing.name }) : t("mfg.teams.addTitle")}
       >
         <form onSubmit={submit} className="grid grid-cols-1 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">Name *</label>
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputCls} required placeholder="e.g. Production" />
+            <label className="block text-sm font-medium text-gray-500 mb-1">{t("common.name")} *</label>
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputCls} required placeholder={t("mfg.teams.namePlaceholder")} />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">Description</label>
-            <textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Optional" className={inputCls} />
+            <label className="block text-sm font-medium text-gray-500 mb-1">{t("common.description")}</label>
+            <textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder={t("common.optional")} className={inputCls} />
           </div>
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setShowForm(false)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">Cancel</button>
+            <button type="button" onClick={() => setShowForm(false)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">{t("mfg.common.cancel")}</button>
             <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">
-              {editing ? "Save Team" : "Add Team"}
+              {editing ? t("mfg.teams.saveTeam") : t("mfg.teams.addTitle")}
             </button>
           </div>
         </form>

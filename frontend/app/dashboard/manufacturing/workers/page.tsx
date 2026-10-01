@@ -7,6 +7,7 @@ import { statusLabel } from "@/lib/statusLabel";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 const emptyForm = () => ({ name: "", title: "", phone: "", locationId: "" });
 const inputCls = "border p-2 rounded-lg w-full bg-white";
@@ -17,6 +18,7 @@ const inputCls = "border p-2 rounded-lg w-full bg-white";
 export default function ManufacturingWorkersPage() {
   const { hasPermission } = useAuth();
   const toast = useToast();
+  const { t } = useTranslation();
   const [workers, setWorkers] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,7 +35,7 @@ export default function ManufacturingWorkersPage() {
       setWorkers(w.data ?? []);
       setLocations(l.data ?? []);
     } catch {
-      toast.error("Failed to load workers");
+      toast.error(t("mfg.workers.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -49,12 +51,12 @@ export default function ManufacturingWorkersPage() {
         phone: form.phone || null,
         locationId: form.locationId ? Number(form.locationId) : null,
       });
-      toast.success("Worker added");
+      toast.success(t("mfg.workers.added"));
       setShowForm(false);
       setForm(emptyForm());
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to add worker");
+      toast.error(err?.response?.data?.message || t("mfg.workers.addFailed"));
     }
   };
 
@@ -62,10 +64,10 @@ export default function ManufacturingWorkersPage() {
     const next = w.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
     try {
       await api.patch(`/manufacturing/workers/${w.id}/status`, { status: next });
-      toast.success("Updated");
+      toast.success(t("mfg.common.updated"));
       load();
     } catch {
-      toast.error("Failed to update");
+      toast.error(t("mfg.common.updateFailed"));
     }
   };
 
@@ -76,9 +78,9 @@ export default function ManufacturingWorkersPage() {
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Workers</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-800">{t("mfg.workers.title")}</h1>
         {canManage && (
-          <button onClick={() => setShowForm(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">+ Add Worker</button>
+          <button onClick={() => setShowForm(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">{t("mfg.workers.addWorker")}</button>
         )}
       </div>
 
@@ -86,12 +88,12 @@ export default function ManufacturingWorkersPage() {
         <table className="w-full text-left min-w-[720px] text-xs sm:text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="p-3">Name</th>
-              <th className="p-3">Job Title</th>
-              <th className="p-3">Location</th>
-              <th className="p-3">Phone</th>
-              <th className="p-3">Account</th>
-              <th className="p-3">Status</th>
+              <th className="p-3">{t("common.name")}</th>
+              <th className="p-3">{t("mfg.workers.colJobTitle")}</th>
+              <th className="p-3">{t("common.location")}</th>
+              <th className="p-3">{t("common.phone")}</th>
+              <th className="p-3">{t("mfg.workers.colAccount")}</th>
+              <th className="p-3">{t("common.status")}</th>
               {canManage && <th className="p-3" />}
             </tr>
           </thead>
@@ -104,9 +106,9 @@ export default function ManufacturingWorkersPage() {
                 <td className="p-3 text-gray-500">{w.phone ?? "—"}</td>
                 <td className="p-3">
                   {w.userId ? (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Has login</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">{t("mfg.workers.hasLogin")}</span>
                   ) : (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">No login</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">{t("mfg.workers.noLogin")}</span>
                   )}
                 </td>
                 <td className="p-3">
@@ -117,44 +119,44 @@ export default function ManufacturingWorkersPage() {
                 {canManage && (
                   <td className="p-3 text-right">
                     <button onClick={() => toggleStatus(w)} className="text-xs text-blue-600 hover:underline">
-                      {w.status === "ACTIVE" ? "Deactivate" : "Activate"}
+                      {w.status === "ACTIVE" ? t("mfg.common.deactivate") : t("mfg.common.activate")}
                     </button>
                   </td>
                 )}
               </tr>
             ))}
             {workers.length === 0 && (
-              <tr><td colSpan={7} className="p-6 text-center text-gray-400">No workers registered yet.</td></tr>
+              <tr><td colSpan={7} className="p-6 text-center text-gray-400">{t("mfg.workers.noWorkers")}</td></tr>
             )}
           </tbody>
         </table>
       </div>
-      <Modal isOpen={showForm} onClose={() => setShowForm(false)} title="Add Worker">
+      <Modal isOpen={showForm} onClose={() => setShowForm(false)} title={t("mfg.workers.addTitle")}>
         <form onSubmit={submit} className="grid grid-cols-1 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">Full name *</label>
+            <label className="block text-sm font-medium text-gray-500 mb-1">{t("mfg.workers.fullNameLabel")} *</label>
             <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputCls} required />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Job title</label>
-              <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Carpenter" className={inputCls} />
+              <label className="block text-sm font-medium text-gray-500 mb-1">{t("mfg.workers.jobTitleLabel")}</label>
+              <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={t("mfg.workers.jobTitlePlaceholder")} className={inputCls} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Phone</label>
+              <label className="block text-sm font-medium text-gray-500 mb-1">{t("common.phone")}</label>
               <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={inputCls} />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">Location</label>
+            <label className="block text-sm font-medium text-gray-500 mb-1">{t("common.location")}</label>
             <select value={form.locationId} onChange={(e) => setForm({ ...form, locationId: e.target.value })} className={inputCls}>
               <option value="">—</option>
               {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
           </div>
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setShowForm(false)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">Cancel</button>
-            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">Add Worker</button>
+            <button type="button" onClick={() => setShowForm(false)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">{t("mfg.common.cancel")}</button>
+            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">{t("mfg.workers.addTitle")}</button>
           </div>
         </form>
       </Modal>

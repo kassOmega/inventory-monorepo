@@ -6,6 +6,8 @@ import { useToast } from "@/app/components/ToastProvider";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { formatDate } from "@/lib/datetime";
 
 const MSTATUS: Record<string, string> = {
   AVAILABLE: "bg-green-100 text-green-800",
@@ -13,11 +15,12 @@ const MSTATUS: Record<string, string> = {
   UNDER_MAINTENANCE: "bg-amber-100 text-amber-800",
   DECOMMISSIONED: "bg-gray-200 text-gray-600",
 };
-const MSTATUS_LABEL: Record<string, string> = {
-  AVAILABLE: "Available",
-  ISSUED: "With a worker",
-  UNDER_MAINTENANCE: "In maintenance",
-  DECOMMISSIONED: "Decommissioned",
+// Machine status → `mfg.machines.st*` label key (resolved with t() at render).
+const MSTATUS_KEY: Record<string, string> = {
+  AVAILABLE: "mfg.machines.stAvailable",
+  ISSUED: "mfg.machines.stWithWorker",
+  UNDER_MAINTENANCE: "mfg.machines.stInMaintenance",
+  DECOMMISSIONED: "mfg.machines.stDecommissioned",
 };
 const ITEM_STATUS = ["RETURNED", "DAMAGED", "MISSING"];
 const emptyMachine = () => ({ code: "", name: "", type: "", kind: "STATIONARY", hourlyRate: "" });
@@ -26,6 +29,7 @@ const emptyRet = () => ({ status: "RETURNED" as string, cost: "", notes: "" });
 export default function ManufacturingMachinesPage() {
   const { hasPermission } = useAuth();
   const toast = useToast();
+  const { t } = useTranslation();
   const [machines, setMachines] = useState<any[]>([]);
   const [issuances, setIssuances] = useState<any[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
@@ -53,7 +57,7 @@ export default function ManufacturingMachinesPage() {
       setIssuances(i.data ?? []);
       setStaff(Array.isArray(u.data) ? u.data : (u.data?.data ?? []));
     } catch {
-      toast.error("Failed to load machines");
+      toast.error(t("mfg.machines.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -80,17 +84,17 @@ export default function ManufacturingMachinesPage() {
     try {
       if (editFor) {
         await api.patch(`/manufacturing/machines/${editFor.id}`, body);
-        toast.success("Machine updated");
+        toast.success(t("mfg.machines.updated"));
       } else {
         await api.post("/manufacturing/machines", body);
-        toast.success("Machine added");
+        toast.success(t("mfg.machines.added"));
       }
       setShowAdd(false);
       setEditFor(null);
       setForm(emptyMachine());
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to save machine");
+      toast.error(err?.response?.data?.message || t("mfg.machines.saveFailed"));
     }
   };
 
@@ -105,11 +109,11 @@ export default function ManufacturingMachinesPage() {
     if (!issueFor || !issueWorker) return;
     try {
       await api.post("/manufacturing/machine-issuances", { machineId: issueFor.id, workerId: Number(issueWorker) });
-      toast.success("Machine issued to worker");
+      toast.success(t("mfg.machines.issued"));
       setIssueFor(null);
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to issue machine");
+      toast.error(err?.response?.data?.message || t("mfg.machines.issueFailed"));
     }
   };
 
@@ -131,12 +135,12 @@ export default function ManufacturingMachinesPage() {
     try {
       const r = await api.post(`/manufacturing/machine-issuances/${returnFor.id}/return`, { items });
       const nm = (r.data as any)?.nextMachine;
-      if (nm === "UNDER_MAINTENANCE") toast.error("Machine returned — sent to maintenance (damaged/missing parts).");
-      else toast.success("Machine returned");
+      if (nm === "UNDER_MAINTENANCE") toast.error(t("mfg.machines.returnedToMaintenance"));
+      else toast.success(t("mfg.machines.returned"));
       setReturnFor(null);
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to record return");
+      toast.error(err?.response?.data?.message || t("mfg.machines.returnFailed"));
     }
   };
 
@@ -144,21 +148,21 @@ export default function ManufacturingMachinesPage() {
     if (!confirmDel) return;
     try {
       await api.delete(`/manufacturing/machines/${confirmDel.id}`);
-      toast.success("Machine removed");
+      toast.success(t("mfg.machines.removed"));
       setConfirmDel(null);
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to remove machine");
+      toast.error(err?.response?.data?.message || t("mfg.machines.removeFailed"));
     }
   };
 
   const setStatus = async (url: string, value: string) => {
     try {
       await api.patch(url, { status: value });
-      toast.success("Updated");
+      toast.success(t("mfg.common.updated"));
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to update");
+      toast.error(err?.response?.data?.message || t("mfg.common.updateFailed"));
     }
   };
 
@@ -170,25 +174,25 @@ export default function ManufacturingMachinesPage() {
     <div>
       <div className="flex justify-between items-center mb-1 flex-wrap gap-3">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Machines</h1>
-          <p className="text-sm text-gray-500 mt-1">Stationary machines stay on the floor; issuable machines/tools are checked out to workers and must be returned.</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-800">{t("mfg.machines.title")}</h1>
+          <p className="text-sm text-gray-500 mt-1">{t("mfg.machines.subtitle")}</p>
         </div>
-        {canManage && <button onClick={() => { setEditFor(null); setForm(emptyMachine()); setShowAdd(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">+ Add Machine</button>}
+        {canManage && <button onClick={() => { setEditFor(null); setForm(emptyMachine()); setShowAdd(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">{t("mfg.machines.addMachine")}</button>}
       </div>
       <div className="flex gap-2 mt-3 mb-4">
         {["ALL", "STATIONARY", "ISSUABLE"].map((k) => (
           <button key={k} onClick={() => setKindFilter(k)} className={`px-3 py-1 rounded-lg text-sm border ${kindFilter === k ? "bg-gray-800 text-white border-gray-800" : "bg-white text-gray-600 border-gray-300"}`}>
-            {k === "ALL" ? "All" : k === "STATIONARY" ? "Stationary" : "Issuable (tools)"}
+            {k === "ALL" ? t("common.all") : k === "STATIONARY" ? t("mfg.machines.kindStationary") : t("mfg.machines.kindIssuable")}
           </button>
         ))}
       </div>
 
       {issuances.filter((i) => i.status === "OUT" || i.status === "PARTIAL").length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border overflow-x-auto mb-6">
-          <div className="px-4 py-2 border-b border-gray-100 font-semibold text-sm">Open check-outs</div>
+          <div className="px-4 py-2 border-b border-gray-100 font-semibold text-sm">{t("mfg.machines.openCheckouts")}</div>
           <table className="w-full text-left text-xs sm:text-sm">
             <thead className="bg-gray-50 border-b">
-              <tr><th className="p-2">Machine</th><th className="p-2">Worker</th><th className="p-2">Issued</th><th className="p-2">Parts out</th><th className="p-2"></th></tr>
+              <tr><th className="p-2">{t("mfg.machines.colMachine")}</th><th className="p-2">{t("mfg.machines.colWorker")}</th><th className="p-2">{t("mfg.machines.colIssuedOn")}</th><th className="p-2">{t("mfg.machines.colPartsOut")}</th><th className="p-2"></th></tr>
             </thead>
             <tbody>
               {issuances.filter((i) => i.status === "OUT" || i.status === "PARTIAL").map((iss) => {
@@ -197,9 +201,9 @@ export default function ManufacturingMachinesPage() {
                   <tr key={iss.id} className="border-b">
                     <td className="p-2 font-medium">{iss.machine?.name}</td>
                     <td className="p-2">{workerName(iss.workerId)}</td>
-                    <td className="p-2 text-gray-500">{new Date(iss.issuedAt).toLocaleDateString()}</td>
+                    <td className="p-2 text-gray-500">{formatDate(iss.issuedAt)}</td>
                     <td className="p-2">{out.length > 0 ? `${out.map((o: any) => `${o.componentName}×${o.expectedQuantity}`).join(", ")}` : "—"}</td>
-                    <td className="p-2 text-right">{canManage && <button onClick={() => openReturn(iss)} className="text-xs text-green-600 hover:underline">Return</button>}</td>
+                    <td className="p-2 text-right">{canManage && <button onClick={() => openReturn(iss)} className="text-xs text-green-600 hover:underline">{t("mfg.machines.return")}</button>}</td>
                   </tr>
                 );
               })}
@@ -217,29 +221,29 @@ export default function ManufacturingMachinesPage() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold text-gray-800">{m.name} <span className="text-gray-400 font-mono text-xs ml-1">{m.code}</span></p>
-                  <p className="text-xs text-gray-400 mt-0.5">{issuable ? "Issuable tool" : "Stationary machine"}{m.type ? ` · ${m.type}` : ""}{m.hourlyRate != null ? ` · ${m.hourlyRate}/hr` : ""}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{issuable ? t("mfg.machines.issuableTool") : t("mfg.machines.stationaryMachine")}{m.type ? ` · ${m.type}` : ""}{m.hourlyRate != null ? ` · ${m.hourlyRate}${t("mfg.machines.perHour")}` : ""}</p>
                 </div>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${MSTATUS[m.status] ?? "bg-gray-100"}`}>{activeIss ? "With a worker" : MSTATUS_LABEL[m.status]}</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${MSTATUS[m.status] ?? "bg-gray-100"}`}>{activeIss ? t("mfg.machines.stWithWorker") : t(MSTATUS_KEY[m.status] ?? "")}</span>
               </div>
               <div className="mt-3 border-t pt-2 flex items-center justify-between gap-2 flex-wrap">
                 {activeIss ? (
-                  <span className="text-xs text-gray-600">Issued to <span className="font-medium">{workerName(activeIss.workerId)}</span></span>
+                  <span className="text-xs text-gray-600">{t("mfg.machines.issuedTo")} <span className="font-medium">{workerName(activeIss.workerId)}</span></span>
                 ) : issuable && m.status === "AVAILABLE" && canManage ? (
-                  <span className="text-xs text-gray-500">Available to issue</span>
+                  <span className="text-xs text-gray-500">{t("mfg.machines.availableToIssue")}</span>
                 ) : (
-                  <span className="text-xs text-gray-400">Parts: {(m.components ?? []).length}</span>
+                  <span className="text-xs text-gray-400">{t("mfg.machines.partsCount", { count: (m.components ?? []).length })}</span>
                 )}
                 <div className="flex items-center gap-2">
                   {canManage && issuable && !activeIss && m.status === "AVAILABLE" && (
-                    <button onClick={() => openIssue(m)} className="text-xs text-blue-600 hover:underline">Issue to worker</button>
+                    <button onClick={() => openIssue(m)} className="text-xs text-blue-600 hover:underline">{t("mfg.machines.issueToWorker")}</button>
                   )}
-                  {canManage && activeIss && <button onClick={() => openReturn(activeIss)} className="text-xs text-green-600 hover:underline">Return</button>}
+                  {canManage && activeIss && <button onClick={() => openReturn(activeIss)} className="text-xs text-green-600 hover:underline">{t("mfg.machines.return")}</button>}
                   {canManage && !activeIss && (
                     <>
-                      <button onClick={() => startEdit(m)} className="text-xs text-blue-600 hover:underline">Edit</button>
-                      <button onClick={() => setConfirmDel(m)} className="text-xs text-red-500 hover:underline">Remove</button>
-                      <select value={m.status} onChange={(e) => setStatus(`/manufacturing/machines/${m.id}/status`, e.target.value)} className="border rounded p-1 text-xs" title="Change status">
-                        {["AVAILABLE", "UNDER_MAINTENANCE", "DECOMMISSIONED"].map((s) => <option key={s} value={s}>{MSTATUS_LABEL[s]}</option>)}
+                      <button onClick={() => startEdit(m)} className="text-xs text-blue-600 hover:underline">{t("mfg.common.edit")}</button>
+                      <button onClick={() => setConfirmDel(m)} className="text-xs text-red-500 hover:underline">{t("common.remove")}</button>
+                      <select value={m.status} onChange={(e) => setStatus(`/manufacturing/machines/${m.id}/status`, e.target.value)} className="border rounded p-1 text-xs" title={t("mfg.machines.changeStatus")}>
+                        {["AVAILABLE", "UNDER_MAINTENANCE", "DECOMMISSIONED"].map((s) => <option key={s} value={s}>{t(MSTATUS_KEY[s] ?? "")}</option>)}
                       </select>
                     </>
                   )}
@@ -248,64 +252,64 @@ export default function ManufacturingMachinesPage() {
             </div>
           );
         })}
-        {listed.length === 0 && <p className="col-span-full bg-white border rounded-xl p-6 text-center text-gray-400">No machines here yet.</p>}
+        {listed.length === 0 && <p className="col-span-full bg-white border rounded-xl p-6 text-center text-gray-400">{t("mfg.machines.noMachines")}</p>}
       </div>
-      <Modal isOpen={showAdd} onClose={() => { setShowAdd(false); setEditFor(null); }} title={editFor ? "Edit Machine" : "Add Machine"}>
+      <Modal isOpen={showAdd} onClose={() => { setShowAdd(false); setEditFor(null); }} title={editFor ? t("mfg.machines.editTitle") : t("mfg.machines.addTitle")}>
         <form onSubmit={addMachine} className="grid grid-cols-1 gap-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Kind *</label>
+              <label className="block text-sm font-medium text-gray-500 mb-1">{t("mfg.machines.kindLabel")} *</label>
               <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })} className={inputCls}>
-                <option value="STATIONARY">Stationary (stays on floor)</option>
-                <option value="ISSUABLE">Issuable (handed to workers)</option>
+                <option value="STATIONARY">{t("mfg.machines.kindStationaryLong")}</option>
+                <option value="ISSUABLE">{t("mfg.machines.kindIssuableLong")}</option>
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Code *</label>
-              <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="e.g. DRL-01" className={inputCls} required />
+              <label className="block text-sm font-medium text-gray-500 mb-1">{t("mfg.machines.codeLabel")} *</label>
+              <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder={t("mfg.machines.codePlaceholder")} className={inputCls} required />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">Machine name *</label>
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Power Drill" className={inputCls} required />
+            <label className="block text-sm font-medium text-gray-500 mb-1">{t("mfg.machines.nameLabel")} *</label>
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t("mfg.machines.namePlaceholder")} className={inputCls} required />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Used for (optional)</label>
-              <input value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} placeholder="e.g. Drilling" className={inputCls} />
+              <label className="block text-sm font-medium text-gray-500 mb-1">{t("mfg.machines.usedForLabel")}</label>
+              <input value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} placeholder={t("mfg.machines.usedForPlaceholder")} className={inputCls} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Hourly cost (optional)</label>
-              <input type="number" min="0" step="any" value={form.hourlyRate} onChange={(e) => setForm({ ...form, hourlyRate: e.target.value })} placeholder="e.g. 25" className={inputCls} />
+              <label className="block text-sm font-medium text-gray-500 mb-1">{t("mfg.machines.hourlyCostLabel")}</label>
+              <input type="number" min="0" step="any" value={form.hourlyRate} onChange={(e) => setForm({ ...form, hourlyRate: e.target.value })} placeholder={t("mfg.machines.hourlyCostPlaceholder")} className={inputCls} />
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => { setShowAdd(false); setEditFor(null); }} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">Cancel</button>
-            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">{editFor ? "Save Changes" : "Save"}</button>
+            <button type="button" onClick={() => { setShowAdd(false); setEditFor(null); }} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">{t("mfg.common.cancel")}</button>
+            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">{editFor ? t("mfg.machines.saveChanges") : t("mfg.common.save")}</button>
           </div>
         </form>
       </Modal>
 
-      <Modal isOpen={!!issueFor} onClose={() => setIssueFor(null)} title={`Issue ${issueFor?.name ?? ""}`}>
+      <Modal isOpen={!!issueFor} onClose={() => setIssueFor(null)} title={t("mfg.machines.issueTitle", { name: issueFor?.name ?? "" })}>
         <form onSubmit={submitIssue} className="grid grid-cols-1 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">Who is it issued to? *</label>
+            <label className="block text-sm font-medium text-gray-500 mb-1">{t("mfg.machines.issuedToLabel")} *</label>
             <select value={issueWorker} onChange={(e) => setIssueWorker(e.target.value)} className={inputCls} required>
-              <option value="">Choose a worker…</option>
+              <option value="">{t("mfg.machines.chooseWorker")}</option>
               {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
           </div>
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setIssueFor(null)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">Cancel</button>
-            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">Issue Machine</button>
+            <button type="button" onClick={() => setIssueFor(null)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">{t("mfg.common.cancel")}</button>
+            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">{t("mfg.machines.issueMachine")}</button>
           </div>
         </form>
       </Modal>
 
-      <Modal isOpen={!!returnFor} onClose={() => setReturnFor(null)} title={`Return ${returnFor?.machine?.name ?? ""}`}>
+      <Modal isOpen={!!returnFor} onClose={() => setReturnFor(null)} title={t("mfg.machines.returnTitle", { name: returnFor?.machine?.name ?? "" })}>
         <form onSubmit={submitReturn} className="grid grid-cols-1 gap-4">
           <p className="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
-            Issued to <span className="font-medium">{workerName(returnFor?.workerId ?? null)}</span> on {returnFor ? new Date(returnFor.issuedAt).toLocaleDateString() : ""} — mark what came back.
+            {t("mfg.machines.returnIntro", { worker: workerName(returnFor?.workerId ?? null), date: returnFor ? formatDate(returnFor.issuedAt) : "" })}
           </p>
           {(returnFor?.items ?? []).map((it: any) => {
             const s = retState[it.id] ?? emptyRet();
@@ -314,34 +318,34 @@ export default function ManufacturingMachinesPage() {
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <span className="text-sm font-medium text-gray-700">{it.componentName} ×{it.expectedQuantity}</span>
                   <select value={s.status} onChange={(e) => setRetState((prev) => ({ ...prev, [it.id]: { ...(prev[it.id] ?? emptyRet()), status: e.target.value } }))} className="border rounded p-1 text-sm">
-                    {ITEM_STATUS.map((st) => <option key={st} value={st}>{st === "RETURNED" ? "Returned OK" : st === "DAMAGED" ? "Damaged" : "Missing"}</option>)}
+                    {ITEM_STATUS.map((st) => <option key={st} value={st}>{st === "RETURNED" ? t("mfg.machines.itemReturned") : st === "DAMAGED" ? t("mfg.machines.itemDamaged") : t("mfg.machines.itemMissing")}</option>)}
                   </select>
                 </div>
                 {s.status !== "RETURNED" && (
                   <div className="grid grid-cols-2 gap-2 mt-2">
-                    <input type="number" min="0" step="any" placeholder="Replacement cost" value={s.cost}
+                    <input type="number" min="0" step="any" placeholder={t("mfg.machines.replacementCost")} value={s.cost}
                       onChange={(e) => setRetState((prev) => ({ ...prev, [it.id]: { ...(prev[it.id] ?? emptyRet()), cost: e.target.value } }))} className="border p-1.5 rounded text-sm w-full" />
-                    <input placeholder="Notes" value={s.notes}
+                    <input placeholder={t("common.notes")} value={s.notes}
                       onChange={(e) => setRetState((prev) => ({ ...prev, [it.id]: { ...(prev[it.id] ?? emptyRet()), notes: e.target.value } }))} className="border p-1.5 rounded text-sm w-full" />
                   </div>
                 )}
               </div>
             );
           })}
-          {(returnFor?.items ?? []).length === 0 && <p className="text-xs text-gray-400">No parts on this issuance.</p>}
+          {(returnFor?.items ?? []).length === 0 && <p className="text-xs text-gray-400">{t("mfg.machines.noParts")}</p>}
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setReturnFor(null)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">Cancel</button>
-            <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm">Record Return</button>
+            <button type="button" onClick={() => setReturnFor(null)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">{t("mfg.common.cancel")}</button>
+            <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm">{t("mfg.machines.recordReturn")}</button>
           </div>
         </form>
       </Modal>
 
-      <Modal isOpen={!!confirmDel} onClose={() => setConfirmDel(null)} title="Remove machine?">
+      <Modal isOpen={!!confirmDel} onClose={() => setConfirmDel(null)} title={t("mfg.machines.removeConfirmTitle")}>
         <div className="grid grid-cols-1 gap-4">
-          <p className="text-sm text-gray-600">Remove <span className="font-semibold">“{confirmDel?.name ?? ""}”</span> ({confirmDel?.code})? This can't be undone. Machines with an open check-out can't be removed.</p>
+          <p className="text-sm text-gray-600">{t("mfg.machines.removeConfirm", { name: confirmDel?.name ?? "", code: confirmDel?.code ?? "" })}</p>
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setConfirmDel(null)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">Cancel</button>
-            <button type="button" onClick={doDelete} className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm">Remove Machine</button>
+            <button type="button" onClick={() => setConfirmDel(null)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">{t("mfg.common.cancel")}</button>
+            <button type="button" onClick={doDelete} className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm">{t("mfg.machines.removeMachine")}</button>
           </div>
         </div>
       </Modal>
