@@ -12,12 +12,14 @@ import api from "@/lib/api";
 import CheckoutModal from "@/app/components/CheckoutModal";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useAuth } from "@/context/AuthContext";
+import { formatDateTime } from "@/lib/datetime";
 import {
   hospitalityServiceName as serviceName,
   HOSPITALITY_SERVICE_LABELS,
 } from "@/lib/verticals";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 const money = (n: number | undefined | null) =>
   n == null
@@ -27,7 +29,7 @@ const money = (n: number | undefined | null) =>
         maximumFractionDigits: 2,
       });
 
-const fmtDate = (d: string) => (d ? new Date(d).toLocaleString() : "—");
+const fmtDate = (d: string) => formatDateTime(d);
 
 // `sourceService` is a HospitalityServiceType value (or a custom service key).
 const sourceLabel = (s?: string | null) =>
@@ -58,6 +60,7 @@ const stayBalance = (r: any) => {
 };
 
 export default function FoliosPanel() {
+  const { t } = useTranslation();
   const confirm = useConfirm();
   const searchParams = useSearchParams();
   const requestedStay = searchParams.get("reservation");
@@ -117,11 +120,11 @@ export default function FoliosPanel() {
       setStays(Array.isArray(stayRes.data) ? stayRes.data : []);
       setGuests(Array.isArray(guestRes.data) ? guestRes.data : []);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load guest folios");
+      setError(e?.response?.data?.message ?? t("folios.failedLoadGuests"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const loadSettled = useCallback(async () => {
     try {
@@ -151,11 +154,11 @@ export default function FoliosPanel() {
       );
       setLedger(r.data);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load folio");
+      setError(e?.response?.data?.message ?? t("hotel.failedLoadFolio"));
     } finally {
       setLedgerLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const openGuest = useCallback(async (id: string) => {
     setSelection({ type: "GUEST", id });
@@ -166,11 +169,11 @@ export default function FoliosPanel() {
       const r = await api.get(`/hospitality/folios/${id}/itemized-bill`);
       setLedger(r.data);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load folio");
+      setError(e?.response?.data?.message ?? t("hotel.failedLoadFolio"));
     } finally {
       setLedgerLoading(false);
     }
-  }, []);
+  }, [t]);
 
   // Deep link from the hotel page (?reservation=<id>): open that stay directly.
   useEffect(() => {
@@ -196,7 +199,7 @@ export default function FoliosPanel() {
       await openStay(Number(selection.id));
       await load();
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to add folio entry");
+      setError(e?.response?.data?.message ?? t("hotel.failedAddFolioEntry"));
     } finally {
       setSaving(false);
     }
@@ -205,7 +208,7 @@ export default function FoliosPanel() {
   const settleGuest = async (guestId: string) => {
     if (
       !(await confirm(
-        "Settle this folio and check the guest out? This generates the final receipt.",
+        t("folios.settleConfirm"),
       ))
     )
       return;
@@ -219,7 +222,7 @@ export default function FoliosPanel() {
       await load();
       await loadSettled();
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to settle folio");
+      setError(e?.response?.data?.message ?? t("folios.failedSettle"));
     } finally {
       setSaving(false);
     }
@@ -290,11 +293,9 @@ export default function FoliosPanel() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Guest Folios</h1>
+          <h1 className="text-2xl font-bold text-gray-800">{t("folios.title")}</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            One ledger for every in-house stay and package guest — room charges,
-            station orders and add-ons with the staff member who posted each
-            line.
+            {t("folios.subtitle")}
           </p>
         </div>
         <button
@@ -305,7 +306,7 @@ export default function FoliosPanel() {
           }}
           className="text-sm text-blue-600 hover:underline"
         >
-          Refresh
+          {t("common.refresh")}
         </button>
       </div>
 
@@ -326,11 +327,11 @@ export default function FoliosPanel() {
           {/* In-house stays (room + linked package guests on one bill) */}
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="font-semibold text-gray-800">In-house Stays</h2>
+              <h2 className="font-semibold text-gray-800">{t("folios.inHouseStays")}</h2>
               <span className="text-xs text-gray-400">{stays.length}</span>
             </div>
             {loading ? (
-              <p className="text-gray-500 text-sm py-6 text-center">Loading…</p>
+              <p className="text-gray-500 text-sm py-6 text-center">{t("common.loading")}</p>
             ) : (
               <ul className="divide-y divide-gray-100 max-h-[45vh] overflow-y-auto">
                 {stays.map((s) => {
@@ -354,7 +355,7 @@ export default function FoliosPanel() {
                               {s.guestName}
                               {s.room?.number && (
                                 <span className="ml-2 text-xs text-gray-500">
-                                  Room {s.room.number}
+                                  {t("hotel.roomPrefix", { number: s.room.number })}
                                 </span>
                               )}
                             </p>
@@ -362,9 +363,12 @@ export default function FoliosPanel() {
                               {s.checkIn?.slice(0, 10)} →{" "}
                               {s.checkOut?.slice(0, 10)}
                               {linked > 0
-                                ? ` · ${linked} package guest${
-                                    linked === 1 ? "" : "s"
-                                  }`
+                                ? t(
+                                    linked === 1
+                                      ? "folios.linkedGuestOne"
+                                      : "folios.linkedGuestMany",
+                                    { count: linked },
+                                  )
                                 : ""}
                             </p>
                           </div>
@@ -373,7 +377,7 @@ export default function FoliosPanel() {
                               due,
                             )}`}
                           >
-                            {money(due)} ETB
+                            {money(due)} {t("orders.birr")}
                           </span>
                         </div>
                       </button>
@@ -382,7 +386,7 @@ export default function FoliosPanel() {
                 })}
                 {stays.length === 0 && (
                   <li className="px-4 py-8 text-center text-sm text-gray-400">
-                    No in-house stays right now.
+                    {t("folios.noInHouseStays")}
                   </li>
                 )}
               </ul>
@@ -392,11 +396,11 @@ export default function FoliosPanel() {
           {/* Package guests with an open tab */}
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="font-semibold text-gray-800">Package Guests</h2>
+              <h2 className="font-semibold text-gray-800">{t("folios.packageGuests")}</h2>
               <span className="text-xs text-gray-400">{guests.length}</span>
             </div>
             {loading ? (
-              <p className="text-gray-500 text-sm py-6 text-center">Loading…</p>
+              <p className="text-gray-500 text-sm py-6 text-center">{t("common.loading")}</p>
             ) : (
               <ul className="divide-y divide-gray-100 max-h-[45vh] overflow-y-auto">
                 {guests.map((g) => (
@@ -415,7 +419,7 @@ export default function FoliosPanel() {
                             {g.guestName}
                             {g.roomNumber && (
                               <span className="ml-2 text-xs text-gray-500">
-                                Room {g.roomNumber}
+                                {t("hotel.roomPrefix", { number: g.roomNumber })}
                               </span>
                             )}
                           </p>
@@ -424,7 +428,7 @@ export default function FoliosPanel() {
                             {g.package?.name}
                           </p>
                           <p className="text-xs text-gray-400">
-                            Check-in {fmtDate(g.checkInAt)}
+                            {t("folios.checkInAt", { date: fmtDate(g.checkInAt) })}
                           </p>
                         </div>
                         <span
@@ -432,7 +436,7 @@ export default function FoliosPanel() {
                             balanceOf(g),
                           )}`}
                         >
-                          {money(balanceOf(g))} ETB
+                          {money(balanceOf(g))} {t("orders.birr")}
                         </span>
                       </div>
                     </button>
@@ -440,7 +444,7 @@ export default function FoliosPanel() {
                 ))}
                 {guests.length === 0 && (
                   <li className="px-4 py-8 text-center text-sm text-gray-400">
-                    No open guest tabs.
+                    {t("folios.noOpenTabs")}
                   </li>
                 )}
               </ul>
@@ -454,10 +458,10 @@ export default function FoliosPanel() {
               className="w-full px-4 py-3 flex items-center justify-between text-left"
             >
               <span className="font-semibold text-gray-800">
-                Settled Guests
+                {t("folios.settledGuests")}
               </span>
               <span className="text-xs text-gray-400">
-                {showSettled ? "Hide" : `Show (${settled.length})`}
+                {showSettled ? t("folios.hide") : t("folios.show", { count: settled.length })}
               </span>
             </button>
             {showSettled && (
@@ -470,7 +474,7 @@ export default function FoliosPanel() {
                           {g.guestName}
                           {g.roomNumber && (
                             <span className="ml-2 text-xs text-gray-400">
-                              Room {g.roomNumber}
+                              {t("hotel.roomPrefix", { number: g.roomNumber })}
                             </span>
                           )}
                         </p>
@@ -482,14 +486,14 @@ export default function FoliosPanel() {
                         onClick={() => openGuest(g.id)}
                         className="text-xs text-blue-600 hover:underline shrink-0"
                       >
-                        Ledger
+                        {t("folios.ledgerBtn")}
                       </button>
                     </div>
                   </li>
                 ))}
                 {settled.length === 0 && (
                   <li className="px-4 py-6 text-center text-sm text-gray-400">
-                    No settled guests yet.
+                    {t("folios.noSettledGuests")}
                   </li>
                 )}
               </ul>
@@ -503,15 +507,21 @@ export default function FoliosPanel() {
             <h2 className="font-semibold text-gray-800">
               {ledger
                 ? selection?.type === "STAY"
-                  ? `Consolidated Bill — ${ledger.reservation?.guestName}${
+                  ? `${t("folios.consolidatedBill", {
+                      name: ledger.reservation?.guestName,
+                    })}${
                       ledger.reservation?.roomNumber
-                        ? ` (Room ${ledger.reservation.roomNumber})`
+                        ? t("folios.roomInParens", {
+                            number: ledger.reservation.roomNumber,
+                          })
                         : ""
                     }`
-                  : `Ledger — ${ledger.guestName}${
-                      ledger.roomNumber ? ` (Room ${ledger.roomNumber})` : ""
+                  : `${t("folios.ledgerTitle", { name: ledger.guestName })}${
+                      ledger.roomNumber
+                        ? t("folios.roomInParens", { number: ledger.roomNumber })
+                        : ""
                     }`
-                : "Consolidated Ledger"}
+                : t("folios.consolidatedLedger")}
             </h2>
             {selection?.type === "STAY" && ledger && (
               <div className="flex items-center gap-2">
@@ -519,14 +529,14 @@ export default function FoliosPanel() {
                   onClick={() => openStay(Number(selection.id))}
                   className="text-xs text-gray-600 hover:underline"
                 >
-                  Refresh
+                  {t("common.refresh")}
                 </button>
                 {canSettle && (
                   <button
                     onClick={() => setCheckoutFor(Number(selection.id))}
                     className="bg-emerald-600 text-white rounded px-3 py-1.5 text-sm font-medium hover:bg-emerald-700"
                   >
-                    Check out
+                    {t("folios.checkOut")}
                   </button>
                 )}
               </div>
@@ -537,18 +547,18 @@ export default function FoliosPanel() {
                 disabled={saving}
                 className="bg-blue-600 text-white rounded px-3 py-1.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
               >
-                {saving ? "Settling…" : "Settle & check out"}
+                {saving ? t("hotel.settlingGuest") : t("hotel.settleGuest")}
               </button>
             )}
           </div>
 
           {ledgerLoading ? (
             <p className="text-gray-500 text-sm py-8 text-center">
-              Loading ledger…
+              {t("folios.loadingLedger")}
             </p>
           ) : !ledger ? (
             <p className="text-gray-400 text-sm py-8 text-center">
-              Select an in-house stay or a package guest to open its ledger.
+              {t("folios.selectHint")}
             </p>
           ) : (
             <div>
@@ -560,8 +570,12 @@ export default function FoliosPanel() {
                     {ledger.reservation.checkOut?.slice(0, 10)}
                   </span>
                   <span>
-                    {ledger.reservation.nights} night
-                    {ledger.reservation.nights === 1 ? "" : "s"}
+                    {t(
+                      ledger.reservation.nights === 1
+                        ? "folios.nightOne"
+                        : "folios.nightMany",
+                      { count: ledger.reservation.nights },
+                    )}
                   </span>
                   {ledger.guest.phone && <span>📞 {ledger.guest.phone}</span>}
                   {ledger.guest.idTypeName && (
@@ -570,11 +584,13 @@ export default function FoliosPanel() {
                       {ledger.guest.idNumber
                         ? ` · ${ledger.guest.idNumber}`
                         : ""}
-                      {ledger.guest.hasIdDocument ? " · scan on file" : ""}
+                      {ledger.guest.hasIdDocument ? t("folios.scanOnFile") : ""}
                     </span>
                   )}
                   {ledger.guest.checkedInBy && (
-                    <span>Checked in by {ledger.guest.checkedInBy}</span>
+                    <span>
+                      {t("folios.checkedInBy", { name: ledger.guest.checkedInBy })}
+                    </span>
                   )}
                 </div>
               )}
@@ -598,13 +614,13 @@ export default function FoliosPanel() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-left text-xs text-gray-500">
                     <tr>
-                      <th className="px-3 py-2">Date</th>
-                      <th className="px-3 py-2">Service</th>
-                      <th className="px-3 py-2">Item</th>
-                      <th className="px-3 py-2">Billed by</th>
-                      <th className="px-3 py-2 text-right">Qty</th>
-                      <th className="px-3 py-2 text-right">Unit</th>
-                      <th className="px-3 py-2 text-right">Net</th>
+                      <th className="px-3 py-2">{t("common.date")}</th>
+                      <th className="px-3 py-2">{t("folios.colService")}</th>
+                      <th className="px-3 py-2">{t("folios.colItem")}</th>
+                      <th className="px-3 py-2">{t("folios.colBilledBy")}</th>
+                      <th className="px-3 py-2 text-right">{t("common.qty")}</th>
+                      <th className="px-3 py-2 text-right">{t("common.unit")}</th>
+                      <th className="px-3 py-2 text-right">{t("folios.colNet")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -626,7 +642,7 @@ export default function FoliosPanel() {
                           )}
                           {e.type === "PAYMENT" && (
                             <span className="ml-2 text-[11px] text-green-600">
-                              payment
+                              {t("folios.paymentTag")}
                             </span>
                           )}
                         </td>
@@ -657,7 +673,7 @@ export default function FoliosPanel() {
                           colSpan={7}
                           className="px-4 py-6 text-center text-gray-400"
                         >
-                          No charges on this folio yet.
+                          {t("folios.noCharges")}
                         </td>
                       </tr>
                     )}
@@ -667,19 +683,19 @@ export default function FoliosPanel() {
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 px-4 py-3 border-t border-gray-100 bg-gray-50">
                 <div>
-                  <p className="text-xs text-gray-400">Total Charges</p>
+                  <p className="text-xs text-gray-400">{t("folios.totalCharges")}</p>
                   <p className="text-lg font-bold text-gray-800">
                     {money(totals.charges)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-400">Payments</p>
+                  <p className="text-xs text-gray-400">{t("folios.paymentsTotal")}</p>
                   <p className="text-lg font-bold text-gray-800">
                     {money(totals.payments)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-400">Net Balance Due</p>
+                  <p className="text-xs text-gray-400">{t("folios.netBalanceDue")}</p>
                   <p className="text-lg font-bold text-amber-600">
                     {money(totals.balance)}
                   </p>
@@ -693,7 +709,7 @@ export default function FoliosPanel() {
                   className="grid grid-cols-1 sm:grid-cols-4 gap-2 px-4 py-3 border-t border-gray-100"
                 >
                   <input
-                    placeholder="Description"
+                    placeholder={t("common.description")}
                     value={chargeForm.description}
                     onChange={(e) =>
                       setChargeForm({
@@ -708,7 +724,7 @@ export default function FoliosPanel() {
                     type="number"
                     min="0"
                     step="0.01"
-                    placeholder="Amount"
+                    placeholder={t("common.amount")}
                     value={chargeForm.amount}
                     onChange={(e) =>
                       setChargeForm({ ...chargeForm, amount: e.target.value })
@@ -724,15 +740,15 @@ export default function FoliosPanel() {
                       }
                       className="border border-gray-300 rounded p-2 text-sm flex-1 bg-white"
                     >
-                      <option value="CHARGE">Charge</option>
-                      <option value="PAYMENT">Payment</option>
+                      <option value="CHARGE">{t("folios.optCharge")}</option>
+                      <option value="PAYMENT">{t("folios.optPayment")}</option>
                     </select>
                     <button
                       type="submit"
                       disabled={saving}
                       className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium disabled:opacity-60"
                     >
-                      Add
+                      {t("common.add")}
                     </button>
                   </div>
                 </form>
@@ -740,8 +756,7 @@ export default function FoliosPanel() {
               {/* View-only role: explain the missing controls instead of hiding them silently. */}
               {selection?.type === "STAY" && !canCharge && (
                 <p className="px-4 py-3 border-t border-gray-100 text-xs text-gray-500 bg-gray-50">
-                  Read-only — your role can view this ledger but not post charges
-                  or take payment.
+                  {t("folios.readOnlyNote")}
                 </p>
               )}
             </div>
@@ -755,7 +770,7 @@ export default function FoliosPanel() {
           reservationId={checkoutFor}
           onClose={() => setCheckoutFor(null)}
           onDone={async () => {
-            setNotice("Guest checked out. The room is now marked dirty.");
+            setNotice(t("folios.checkedOutNotice"));
             await load();
             await loadSettled();
           }}
@@ -768,44 +783,44 @@ export default function FoliosPanel() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-6 w-full max-w-sm shadow-xl">
             <h2 className="font-semibold text-gray-800 mb-1">
-              Guest Receipt — Settled
+              {t("folios.receiptTitle")}
             </h2>
             <p className="text-sm text-gray-500 mb-4">
               {guestReceipt.guestName}
               {guestReceipt.roomNumber
-                ? ` · Room ${guestReceipt.roomNumber}`
+                ? t("folios.roomInParens", { number: guestReceipt.roomNumber })
                 : ""}{" "}
               · {guestReceipt.packageName}
             </p>
             <div className="space-y-2 text-sm border-t border-gray-100 pt-3">
               <div className="flex justify-between">
-                <span className="text-gray-500">Total Package Value Paid</span>
+                <span className="text-gray-500">{t("folios.totalPackageValuePaid")}</span>
                 <span className="font-medium">
                   {money(guestReceipt.packageValuePaid)}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">
-                  Entitlements Used (discount)
+                  {t("folios.entitlementsUsed")}
                 </span>
                 <span className="font-medium text-green-600">
                   -{money(guestReceipt.totalPackageDiscount)}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Total Add-on Charges</span>
+                <span className="text-gray-500">{t("folios.totalAddOns")}</span>
                 <span className="font-medium">
                   {money(guestReceipt.totalAddOns)}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Collected at POS</span>
+                <span className="text-gray-500">{t("folios.collectedAtPos")}</span>
                 <span className="font-medium">
                   {money(guestReceipt.totalPayments)}
                 </span>
               </div>
               <div className="flex justify-between border-t border-gray-200 pt-2">
-                <span className="font-semibold">Net Balance Due</span>
+                <span className="font-semibold">{t("folios.netBalanceDue")}</span>
                 <span className="font-bold text-amber-600">
                   {money(guestReceipt.netBalanceDue)}
                 </span>
@@ -816,13 +831,13 @@ export default function FoliosPanel() {
                 onClick={() => window.print()}
                 className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium hover:bg-gray-700"
               >
-                Print Receipt
+                {t("folios.printReceipt")}
               </button>
               <button
                 onClick={() => setGuestReceipt(null)}
                 className="bg-gray-100 text-gray-700 rounded px-3 py-2 text-sm font-medium"
               >
-                Close
+                {t("common.close")}
               </button>
             </div>
           </div>

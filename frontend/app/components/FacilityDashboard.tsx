@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import { hospitalityServiceName } from "@/lib/verticals";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 const fmtTime = (d: string) =>
   d ? new Date(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-";
@@ -16,6 +17,7 @@ export default function FacilityDashboard({
   serviceType?: string;
   customKey?: string;
 }) {
+  const { t } = useTranslation();
   const { activeOrganizationId, hasPermission } = useAuth();
   // Check-in / check-out is its own privilege (`facility.check-in`); the legacy
   // `facility.manage` key still grants it. Configuration-only actions stay gated
@@ -62,9 +64,9 @@ export default function FacilityDashboard({
         : list.find((s) => s.serviceType === "CUSTOM" && s.customKey === customKey);
       setService(found ?? null);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load facility");
+      setError(e?.response?.data?.message ?? t("facility.failedLoad"));
     }
-  }, [activeOrganizationId, serviceType, customKey]);
+  }, [activeOrganizationId, serviceType, customKey, t]);
 
   const loadDashboard = useCallback(async (serviceId: string) => {
     setLoading(true);
@@ -77,11 +79,11 @@ export default function FacilityDashboard({
       setData(d.data);
       setPaymentMethods(Array.isArray(pm.data) ? pm.data : []);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load facility dashboard");
+      setError(e?.response?.data?.message ?? t("facility.failedLoadDashboard"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     loadService();
@@ -102,7 +104,7 @@ export default function FacilityDashboard({
       );
       setMembers(Array.isArray(r.data) ? r.data : []);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to search members");
+      setError(e?.response?.data?.message ?? t("facility.failedSearchMembers"));
     } finally {
       setSearching(false);
     }
@@ -121,7 +123,7 @@ export default function FacilityDashboard({
       setMembers([]);
       setSearch("");
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Check-in failed");
+      setError(e?.response?.data?.message ?? t("facility.failedCheckIn"));
     } finally {
       setBusy(false);
     }
@@ -146,7 +148,7 @@ export default function FacilityDashboard({
       setWalkinForm({ guestName: "", guestPhone: "", dayPassTypeId: "", paymentMethodId: "" });
       await loadDashboard(service.id);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to sell day pass");
+      setError(e?.response?.data?.message ?? t("facility.failedSellDayPass"));
     } finally {
       setBusy(false);
     }
@@ -158,7 +160,7 @@ export default function FacilityDashboard({
       await api.post(`/hospitality/facilities/${service.id}/check-out/${visitId}`);
       await loadDashboard(service.id);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Check-out failed");
+      setError(e?.response?.data?.message ?? t("facility.failedCheckOut"));
     }
   };
 
@@ -182,7 +184,7 @@ export default function FacilityDashboard({
   const selectPkgGuest = (g: any) => {
     setPkgGuest(g);
     setPkgResults([]);
-    setPkgQuery(g.roomNumber ? `Room ${g.roomNumber} · ${g.guestName}` : g.guestName);
+    setPkgQuery(g.roomNumber ? `${t("hotel.roomPrefix", { number: g.roomNumber })} · ${g.guestName}` : g.guestName);
   };
 
   const openPackageCheckIn = () => {
@@ -220,17 +222,22 @@ export default function FacilityDashboard({
       const d = res.data ?? {};
       setNotice(
         d.netCharge > 0
-          ? `Checked in ${pkgGuest.guestName} — package covered ${d.packageDiscount}, ${
+          ? t(
               d.settlementMode === "DEFER_TO_FOLIO"
-                ? "deferred to the room folio"
-                : "collected now (PAY_NOW)"
-            }: ${d.netCharge}`
-          : `Checked in ${pkgGuest.guestName} — fully covered by the package ($0).`,
+                ? "facility.checkedInDeferred"
+                : "facility.checkedInPayNow",
+              {
+                name: pkgGuest.guestName,
+                discount: d.packageDiscount,
+                net: d.netCharge,
+              },
+            )
+          : t("facility.checkedInCovered", { name: pkgGuest.guestName }),
       );
       setPkgOpen(false);
       await loadDashboard(service.id);
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Package check-in failed");
+      setError(err?.response?.data?.message ?? t("facility.failedPackageCheckIn"));
     } finally {
       setBusy(false);
     }
@@ -239,12 +246,12 @@ export default function FacilityDashboard({
   const displayName = hospitalityServiceName(service);
 
   if (loading && !data) {
-    return <p className="text-gray-500 text-sm py-6 text-center">Loading {displayName}…</p>;
+    return <p className="text-gray-500 text-sm py-6 text-center">{t("facility.loadingName", { name: displayName })}</p>;
   }
   if (!service) {
     return (
       <div className="bg-red-50 text-red-600 p-3 rounded text-sm">
-        This facility service is not available. Enable it from Business Settings.
+        {t("facility.notAvailable")}
       </div>
     );
   }
@@ -260,7 +267,7 @@ export default function FacilityDashboard({
               disabled={busy}
               className="bg-violet-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-violet-700 disabled:opacity-60"
             >
-              🎫 Package Guest
+              {t("facility.packageGuestBtn")}
             </button>
             <button
               onClick={() => {
@@ -275,7 +282,7 @@ export default function FacilityDashboard({
               disabled={busy}
               className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
             >
-              + Walk-in / Day Pass
+              {t("facility.walkinBtn")}
             </button>
           </div>
         )}
@@ -286,33 +293,33 @@ export default function FacilityDashboard({
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-          <p className="text-xs text-gray-400 uppercase tracking-wide">Occupancy</p>
+          <p className="text-xs text-gray-400 uppercase tracking-wide">{t("facility.occupancy")}</p>
           <p className="text-3xl font-bold text-gray-800 mt-1">{data?.occupancyCount ?? 0}</p>
-          <p className="text-xs text-gray-400 mt-1">Currently checked in</p>
+          <p className="text-xs text-gray-400 mt-1">{t("facility.currentlyCheckedIn")}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-          <p className="text-xs text-gray-400 uppercase tracking-wide">Active Members</p>
+          <p className="text-xs text-gray-400 uppercase tracking-wide">{t("facility.activeMembers")}</p>
           <p className="text-3xl font-bold text-gray-800 mt-1">{data?.activeMembershipCount ?? 0}</p>
-          <p className="text-xs text-gray-400 mt-1">Valid memberships</p>
+          <p className="text-xs text-gray-400 mt-1">{t("facility.validMemberships")}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-          <p className="text-xs text-gray-400 uppercase tracking-wide">Revenue Today</p>
+          <p className="text-xs text-gray-400 uppercase tracking-wide">{t("facility.revenueToday")}</p>
           <p className="text-3xl font-bold text-green-600 mt-1">
             {Number(data?.revenueToday ?? 0).toLocaleString()}
           </p>
-          <p className="text-xs text-gray-400 mt-1">Confirmed day-pass sales</p>
+          <p className="text-xs text-gray-400 mt-1">{t("facility.confirmedDayPassSales")}</p>
         </div>
       </div>
 
       {/* Quick check-in / member search */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-        <h2 className="font-semibold text-gray-800 mb-2">Check-in Member</h2>
+        <h2 className="font-semibold text-gray-800 mb-2">{t("facility.checkInMember")}</h2>
         <div className="flex flex-col sm:flex-row gap-2">
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && searchMembers()}
-            placeholder="Search by name or phone…"
+            placeholder={t("facility.searchMembersPh")}
             className="border border-gray-300 rounded-lg p-2 text-sm flex-1"
           />
           <button
@@ -320,7 +327,7 @@ export default function FacilityDashboard({
             disabled={searching || busy}
             className="bg-gray-800 text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-60"
           >
-            {searching ? "Searching…" : "Search"}
+            {searching ? t("facility.searching") : t("filters.search")}
           </button>
         </div>
         {members.length > 0 && (
@@ -330,7 +337,8 @@ export default function FacilityDashboard({
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-800 truncate">{m.customer?.name}</p>
                   <p className="text-xs text-gray-400">
-                    {m.customer?.phone || m.customer?.email || ""} · {m.membershipType?.name} · ends {fmtDate(m.endDate)}
+                    {m.customer?.phone || m.customer?.email || ""} · {m.membershipType?.name}
+                    {t("facility.endsOn", { date: fmtDate(m.endDate) })}
                   </p>
                 </div>
                 {canCheckIn && (
@@ -339,7 +347,7 @@ export default function FacilityDashboard({
                     disabled={busy}
                     className="bg-green-600 text-white rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-green-700 disabled:opacity-60 shrink-0"
                   >
-                    Check in
+                    {t("facility.checkIn")}
                   </button>
                 )}
               </li>
@@ -347,7 +355,7 @@ export default function FacilityDashboard({
           </ul>
         )}
         {members.length === 0 && search.trim() && !searching && (
-          <p className="text-sm text-gray-400 mt-2">No active members found.</p>
+          <p className="text-sm text-gray-400 mt-2">{t("facility.noActiveMembers")}</p>
         )}
       </div>
 
@@ -355,8 +363,8 @@ export default function FacilityDashboard({
       {/* Live occupancy */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
         <div className="flex items-center justify-between mb-2">
-          <h2 className="font-semibold text-gray-800">Live Occupancy</h2>
-          <span className="text-xs text-gray-400">{data?.occupancyCount ?? 0} checked in</span>
+          <h2 className="font-semibold text-gray-800">{t("facility.liveOccupancy")}</h2>
+          <span className="text-xs text-gray-400">{t("facility.checkedInCount", { count: data?.occupancyCount ?? 0 })}</span>
         </div>
         {data?.occupancy?.length ? (
           <ul className="divide-y divide-gray-100 border border-gray-100 rounded-lg max-h-64 overflow-y-auto">
@@ -364,7 +372,7 @@ export default function FacilityDashboard({
               <li key={v.id} className="flex items-center justify-between gap-2 px-3 py-2">
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-800 truncate">
-                    {v.guestName || v.customer?.name || "Guest"}
+                    {v.guestName || v.customer?.name || t("facility.guest")}
                   </p>
                   <p className="text-xs text-gray-400">
                     <span
@@ -377,12 +385,13 @@ export default function FacilityDashboard({
                       }`}
                     >
                       {v.type === "MEMBER"
-                        ? "Member"
+                        ? t("facility.member")
                         : v.type === "PACKAGE"
-                          ? "Package"
-                          : "Walk-in"}
+                          ? t("facility.packageTag")
+                          : t("facility.walkIn")}
                     </span>
-                    {v.customerMembership?.membershipType?.name ?? v.guestPhone ?? ""} · in {fmtTime(v.checkInAt)}
+                    {v.customerMembership?.membershipType?.name ?? v.guestPhone ?? ""}
+                    {t("facility.sinceTime", { time: fmtTime(v.checkInAt) })}
                   </p>
                 </div>
                 {canCheckIn && (
@@ -390,22 +399,22 @@ export default function FacilityDashboard({
                     onClick={() => checkOut(v.id)}
                     className="bg-gray-100 text-gray-700 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-200 shrink-0"
                   >
-                    Check out
+                    {t("facility.checkOut")}
                   </button>
                 )}
               </li>
             ))}
           </ul>
         ) : (
-          <p className="text-gray-400 text-sm py-4 text-center">No one is checked in right now.</p>
+          <p className="text-gray-400 text-sm py-4 text-center">{t("facility.noOneCheckedIn")}</p>
         )}
       </div>
 
       {/* Active memberships */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
         <div className="flex items-center justify-between mb-2">
-          <h2 className="font-semibold text-gray-800">Active Memberships</h2>
-          <span className="text-xs text-gray-400">{data?.activeMembershipCount ?? 0} active</span>
+          <h2 className="font-semibold text-gray-800">{t("facility.activeMemberships")}</h2>
+          <span className="text-xs text-gray-400">{t("facility.activeCount", { count: data?.activeMembershipCount ?? 0 })}</span>
         </div>
         {data?.activeMemberships?.length ? (
           <ul className="divide-y divide-gray-100 border border-gray-100 rounded-lg max-h-64 overflow-y-auto">
@@ -414,7 +423,8 @@ export default function FacilityDashboard({
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-800 truncate">{m.customer?.name}</p>
                   <p className="text-xs text-gray-400">
-                    {m.customer?.phone || ""} · {m.membershipType?.name} · ends {fmtDate(m.endDate)}
+                    {m.customer?.phone || ""} · {m.membershipType?.name}
+                    {t("facility.endsOn", { date: fmtDate(m.endDate) })}
                   </p>
                 </div>
                 {canCheckIn && (
@@ -423,14 +433,14 @@ export default function FacilityDashboard({
                     disabled={busy}
                     className="bg-green-600 text-white rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-green-700 disabled:opacity-60 shrink-0"
                   >
-                    Check in
+                    {t("facility.checkIn")}
                   </button>
                 )}
               </li>
             ))}
           </ul>
         ) : (
-          <p className="text-gray-400 text-sm py-4 text-center">No active memberships.</p>
+          <p className="text-gray-400 text-sm py-4 text-center">{t("facility.noActiveMemberships")}</p>
         )}
       </div>
 
@@ -439,17 +449,16 @@ export default function FacilityDashboard({
       {pkgOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-5 w-full max-w-md shadow-xl max-h-[92vh] overflow-y-auto">
-            <h2 className="font-semibold text-gray-800 mb-1">Package Guest Check-in</h2>
+            <h2 className="font-semibold text-gray-800 mb-1">{t("facility.pkgCheckInTitle")}</h2>
             <p className="text-xs text-gray-400 mb-3">
-              The guest&apos;s package pass/credit is consumed at $0; any overage is
-              routed by the settlement mode below.
+              {t("facility.pkgCheckInHint")}
             </p>
             <form onSubmit={submitPackageCheckIn} className="space-y-3">
               <div>
                 <input
                   value={pkgQuery}
                   onChange={(e) => searchPackageGuests(e.target.value)}
-                  placeholder="Room # or guest name…"
+                  placeholder={t("common.roomOrGuestPh")}
                   className="border border-gray-300 rounded p-2 text-sm w-full"
                   required={!pkgGuest}
                 />
@@ -463,8 +472,10 @@ export default function FacilityDashboard({
                           className="w-full text-left px-2 py-1.5 hover:bg-gray-50 text-xs text-gray-700"
                         >
                           {g.guestName}
-                          {g.roomNumber ? ` · Room ${g.roomNumber}` : ""} ·{" "}
-                          {g.package?.name}
+                          {g.roomNumber
+                            ? t("facility.roomDot", { number: g.roomNumber })
+                            : ""}{" "}
+                          · {g.package?.name}
                         </button>
                       </li>
                     ))}
@@ -472,30 +483,32 @@ export default function FacilityDashboard({
                 )}
                 {pkgGuest && (
                   <p className="text-[11px] text-violet-600 mt-1">
-                    Selected: {pkgGuest.guestName}
-                    {pkgGuest.roomNumber ? ` · Room ${pkgGuest.roomNumber}` : ""} ·{" "}
-                    {pkgGuest.package?.name}
+                    {t("facility.selected", { name: pkgGuest.guestName })}
+                    {pkgGuest.roomNumber
+                      ? t("facility.roomDot", { number: pkgGuest.roomNumber })
+                      : ""}{" "}
+                    · {pkgGuest.package?.name}
                   </p>
                 )}
               </div>
               <select
                 value={pkgForm.dayPassTypeId}
                 onChange={(e) => {
-                  const t = (data?.dayPassTypes ?? []).find(
+                  const pass = (data?.dayPassTypes ?? []).find(
                     (x: any) => x.id === e.target.value,
                   );
                   setPkgForm({
                     ...pkgForm,
                     dayPassTypeId: e.target.value,
-                    amount: t?.price != null ? String(t.price) : pkgForm.amount,
+                    amount: pass?.price != null ? String(pass.price) : pkgForm.amount,
                   });
                 }}
                 className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
               >
-                <option value="">Charge amount (manual)</option>
-                {(data?.dayPassTypes ?? []).map((t: any) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} — {t.price}
+                <option value="">{t("facility.chargeAmountManual")}</option>
+                {(data?.dayPassTypes ?? []).map((pass: any) => (
+                  <option key={pass.id} value={pass.id}>
+                    {pass.name} — {pass.price}
                   </option>
                 ))}
               </select>
@@ -503,12 +516,12 @@ export default function FacilityDashboard({
                 type="number"
                 value={pkgForm.amount}
                 onChange={(e) => setPkgForm({ ...pkgForm, amount: e.target.value })}
-                placeholder="Visit charge (ETB)"
+                placeholder={t("facility.visitChargePh")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
               />
               <div>
                 <p className="text-xs font-medium text-gray-500 mb-1">
-                  Settlement mode for the overage
+                  {t("facility.settlementMode")}
                 </p>
                 <div className="flex gap-2">
                   <button
@@ -538,8 +551,8 @@ export default function FacilityDashboard({
                 </div>
                 <p className="text-[11px] text-gray-400 mt-1">
                   {pkgForm.settlementMode === "DEFER_TO_FOLIO"
-                    ? "Uncovered amount is posted to the guest's room folio."
-                    : "Uncovered amount is collected at the terminal now."}
+                    ? t("facility.uncoveredFolio")
+                    : t("facility.uncoveredPayNow")}
                 </p>
               </div>
               {pkgForm.settlementMode === "PAY_NOW" && (
@@ -550,7 +563,7 @@ export default function FacilityDashboard({
                   }
                   className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
                 >
-                  <option value="">Payment method…</option>
+                  <option value="">{t("facility.paymentMethodPh")}</option>
                   {paymentMethods.map((pm) => (
                     <option key={pm.id} value={pm.id}>
                       {pm.name}
@@ -564,14 +577,14 @@ export default function FacilityDashboard({
                   onClick={() => setPkgOpen(false)}
                   className="px-3 py-2 text-sm text-gray-600"
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="submit"
                   disabled={busy || !pkgGuest}
                   className="bg-violet-600 text-white rounded px-3 py-2 text-sm font-medium hover:bg-violet-700 disabled:opacity-60"
                 >
-                  {busy ? "Checking in…" : "Check in"}
+                  {busy ? t("facility.checkingIn") : t("facility.checkIn")}
                 </button>
               </div>
             </form>
@@ -583,22 +596,22 @@ export default function FacilityDashboard({
       {walkinOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-5 w-full max-w-sm shadow-xl">
-            <h2 className="font-semibold text-gray-800 mb-1">Sell Day Pass / Walk-in</h2>
+            <h2 className="font-semibold text-gray-800 mb-1">{t("facility.sellDayPassTitle")}</h2>
             <p className="text-xs text-gray-400 mb-3">
-              The payment is queued for the cashier to confirm and posts to the ledger.
+              {t("facility.sellDayPassHint")}
             </p>
             <form onSubmit={sellDayPass} className="space-y-3">
               <input
                 value={walkinForm.guestName}
                 onChange={(e) => setWalkinForm({ ...walkinForm, guestName: e.target.value })}
-                placeholder="Guest name"
+                placeholder={t("hotel.guestName")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
                 required
               />
               <input
                 value={walkinForm.guestPhone}
                 onChange={(e) => setWalkinForm({ ...walkinForm, guestPhone: e.target.value })}
-                placeholder="Phone (optional)"
+                placeholder={t("hotel.phoneOptional")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
               />
               <select
@@ -607,10 +620,10 @@ export default function FacilityDashboard({
                 className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
                 required
               >
-                <option value="">Select day pass…</option>
-                {(data?.dayPassTypes ?? []).map((t: any) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} — {t.price}
+                <option value="">{t("facility.selectDayPass")}</option>
+                {(data?.dayPassTypes ?? []).map((pass: any) => (
+                  <option key={pass.id} value={pass.id}>
+                    {pass.name} — {pass.price}
                   </option>
                 ))}
               </select>
@@ -619,17 +632,17 @@ export default function FacilityDashboard({
                 onChange={(e) => setWalkinForm({ ...walkinForm, paymentMethodId: e.target.value })}
                 className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
               >
-                <option value="">Payment method…</option>
+                <option value="">{t("facility.paymentMethodPh")}</option>
                 {paymentMethods.map((pm) => (
                   <option key={pm.id} value={pm.id}>{pm.name}</option>
                 ))}
               </select>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setWalkinOpen(false)} className="px-3 py-2 text-sm text-gray-600">
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button type="submit" disabled={busy} className="bg-blue-600 text-white rounded px-3 py-2 text-sm font-medium disabled:opacity-60">
-                  Sell &amp; Check in
+                  {t("facility.sellAndCheckIn")}
                 </button>
               </div>
             </form>

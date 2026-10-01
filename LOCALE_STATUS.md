@@ -8,12 +8,28 @@ section 0.
 
 | Gate | Command | Baseline |
 | --- | --- | --- |
-| Catalog | `cd frontend && node scripts/i18n-check.mjs` | **all gates clean** — parity 3120/3120 ✓, no identical-value misses, 0 glossary violations |
-| Frontend UI | `cd frontend && node scripts/i18n-audit.mjs [--list --file X --strict]` | 178 files scanned, 69 dirty, 860 hardcoded strings |
+| Catalog | `cd frontend && node scripts/i18n-check.mjs` | **all gates clean** — parity 3339/3339 ✓, no identical-value misses, 0 glossary violations |
+| Frontend UI | `cd frontend && node scripts/i18n-audit.mjs [--list --file X --strict]` | 178 files scanned, 42 dirty, 614 hardcoded strings |
 | Backend messages | `cd inventory-backend && node scripts/i18n-audit.mjs [--list --strict]` | 667 `throw` sites, 239 localized, 428 remaining (398 static + 30 interpolated) |
 
 - `docs/i18n-glossary.md` is the single source of truth for terminology; `i18n-check.mjs`
   parses its table and fails on an avoided variant.
+- **Placeholder bug fixed (sweep-wide).** 12 catalog keys used single-brace placeholders
+  (`"Room {number}"`, `"{count} orders"`, `"Only {n} left of {variant}"`, `"Export {label} CSV"`,
+  `hotel.idTypesMovedHint`, …). react-i18next only interpolates `{{ }}`, so every call site
+  rendered the token literally. All 12 now use double braces (24 values, en + am); a scanner
+  confirms no single-brace token is left anywhere in either catalog.
+- **Scanner recalibration (`app/components` batch).** `i18n-audit.mjs` no longer reads
+  (a) continuation lines of a multi-line `import { … } from "…"` list, or (b) runs of CSS
+  utility classes (`"px-3 rounded-lg text-sm"`, colour-token arrays) as prose. Verified by
+  diffing the whole-repo hit list before/after: all 40 removed strings are import identifiers
+  or class lists, no real prose lost. Repo total 860 → 804 at that point.
+- **`i18n-check.mjs` gained `ALLOW_IDENTICAL_PREFIX`** — a whole subtree can stay Latin behind
+  one documented reason (`fiscal.receipt.*`: the thermal preview mirrors the MoR / Antica fiscal
+  device template, whose labels live in the printer firmware — translating them would desync the
+  preview from the paper it reproduces and overflow the fixed 300px receipt width). Prefix
+  children are reported as stale the moment one is translated, so Phase 5 cannot silently
+  forget them.
 - Phase 0 corrected 308 catalog values in two passes — terminology (133): Location
   አካባቢ→ቦታ (20), Variant አይነት/ልዩነት/ቫሪያንት→ተለዋጭ (60), Unit ክፍል→አሃድ (13), COGS→የሸቀጦች ወጪ (7),
   Total ድምር→ጠቅላላ (4), Invoice ኢንቮይስ→ደረሰኝ (3), Business ቢዝነስ→ንግድ (1), Take-away→ያዙና ሂዱ (1);
@@ -109,11 +125,26 @@ categories automatically (`tenants.service.ts`, `common/verticals.ts`).
   vertical terminology (`getVerticalTerminology`) is now locale-aware via `terms.hosp.*`/`terms.svc.*`.
 
 **Foundation only (helper exists, sweep still required):**
-- Remaining module pages (see audit output): Manufacturing (13 files still dirty), Businesses/Verification
-  (owner + admin incl. admin Businesses/Owners/Verification), AI Coach/Agent/photo picker
-  drawers. Roles and Users pages converted (`roles.*`/`users.*` catalog groups).
-- Shared component sweep: **complete** — `DualExpenseModal` (1158) converted (new `de.*` catalog
-  group), finishing every shared component.
+- Remaining module pages (see audit output): Businesses/Verification
+  (owner + admin incl. admin Businesses/Owners/Verification), AI Coach/Agent drawer leftovers.
+  Roles and Users pages converted (`roles.*`/`users.*` catalog groups).
+- Shared component sweep: **complete** — **`app/components/**` audits 0 hits across all 60 files.**
+  This batch wired the primitives (`FilterRow`, `SearchableSelect` incl. a localized default
+  placeholder/clear tooltip, `LanguageSwitcher` via `language.switchTo*`, `ActivityAuditReport`,
+  `AiPhotoPicker`), the shared forms/tiles (`CustomerForm`, `ServiceDashboard`), the
+  hospitality/service panels (`FoodServicePanel` billing modes + settlement notes,
+  `DualExpenseModal` category creation), the fiscal print pair (`FiscalPrintButton` +
+  `FiscalPrintPreviewModal` chrome — receipt body deliberately Latin, see `fiscal.receipt.*`),
+  the AI surfaces (`AiSmartFeatures`, `AiCoachDrawer`) and the two big hospitality panels
+  (`FoliosPanel` 49 hits, `FacilityDashboard` 44 hits). New catalog groups: `svc.*`, `fiscal.*`,
+  `folios.*`, `facility.*`, `ai.*`, `coach.*`, plus `common.roomOrGuestPh`/`common.noResults`/
+  `common.saveCustomer`/`common.updateCustomer`, `orders.billing*`/`orders.*Note`/`orders.noPackageGuest`,
+  `de.newCatNamePh`/`de.newCategoryLink`/`de.categoryCreated`, `scan.ai*`. Amounts render through
+  `orders.birr` (ETB → ብር), dates through `formatDateTime()`, and the `FacilityDashboard`/`FoliosPanel`
+  locals that shadowed the translation function were renamed (`const t = …` → `pass`/`row`).
+  Known limitation: AI answers, risk levels and liquidity descriptions are model output
+  (`/ai/cashflow|pricing|churn`) and stay English until the backend prompts are localized;
+  only the deterministic PO-draft status is mapped (`ai.statusDraft|statusSubmitted`).
 - Shared primitives done so far: all report components — `ProfitLossSummary`,
   `ItemizedPerformanceTable`, `FinanceComparison`, `FinancialBreakdown`, `SalesReport`,
   `HospitalityReport`, `HospitalityInventoryReport`, `ActivityAuditReport` — plus `FilterBar`,
@@ -147,7 +178,9 @@ categories automatically (`tenants.service.ts`, `common/verticals.ts`).
   in the catalog now uses the shared `useConfirm` dialog. `app/dashboard/manufacturing/**` audits
   **0 hits across all 21 files**, and `status.purchasingMaterials` was corrected
   (አጭር ቁሳቁሶችን መግዛት → ቁሳቁሶችን መግዛት).
-- Fiscal print preview & PDF exports (Ethiopic font work).
+- Fiscal print preview & PDF exports (Ethiopic font work): the preview/button chrome is localized
+  and the receipt body is pinned Latin in `i18n-check.mjs` (`fiscal.receipt.*`) until the Ethiopic
+  font work lands.
 - Forms gaining **optional Amharic name fields** (write `nameI18n.am`, backend DTO `IsObject`
   + `mergeLocalized`) — DTOs not yet extended for every entity.
 - Backend exception/validation messages: translator + dictionaries exist and `auth`/`tenants`
@@ -182,4 +215,6 @@ Language: use the 🇪🇹/🇬🇧 pill in the top-right of the dashboard (and 
 2. Add Amharic input fields to product/menu/category/unit/location/payment DTOs + forms.
 3. Convert remaining backend throw sites → `tr()` keys; add validation-message localization.
 4. Notification template-key refactor + push/audit localization.
-5. Receipt/PDF: localize `FiscalPrintPreviewModal` labels; embed Noto Sans Ethiopic in pdfkit export.
+5. Receipt/PDF: embed Noto Sans Ethiopic in the pdfkit export, then unpin `fiscal.receipt.*`
+   and the `products.priceList.*`/`products.qrSheet.*` allowlist entries (the gate reports them
+   stale automatically once translated).
