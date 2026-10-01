@@ -2638,6 +2638,13 @@
     "checkedInPayNow": "Checked in {{name}} — package covered {{discount}}, collected now (PAY_NOW): {{net}}",
     "checkedInCovered": "Checked in {{name}} — fully covered by the package ($0)."
   },
+  "adm": {
+    "ownerAccounts": "Owner Accounts",
+    "recentBusinesses": "Recent Businesses",
+    "noBusinesses": "No businesses yet.",
+    "ownerPrefix": " · Owner: {{name}}",
+    "adminOnly": "Admin only."
+  },
   "mfg": {
     "common": {
       "searchPlaceholder": "Search…",

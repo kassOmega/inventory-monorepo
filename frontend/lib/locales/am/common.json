@@ -2638,6 +2638,13 @@
     "checkedInPayNow": "{{name}} ገብቷል — ፓኬጁ {{discount}} ሸፍኗል፣ አሁን ተሰብስቧል (PAY_NOW)፡ {{net}}",
     "checkedInCovered": "{{name}} ገብቷል — በፓኬጁ ሙሉ በሙሉ ተሸፍኗል ($0)።"
   },
+  "adm": {
+    "ownerAccounts": "የባለቤት መለያዎች",
+    "recentBusinesses": "የቅርብ ጊዜ ንግዶች",
+    "noBusinesses": "እስካሁን ንግድ የለም።",
+    "ownerPrefix": " · ባለቤት፡ {{name}}",
+    "adminOnly": "ለአስተዳዳሪ ብቻ።"
+  },
   "mfg": {
     "common": {
       "searchPlaceholder": "ይፈልጉ…",

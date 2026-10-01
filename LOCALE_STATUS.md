@@ -125,9 +125,9 @@ categories automatically (`tenants.service.ts`, `common/verticals.ts`).
   vertical terminology (`getVerticalTerminology`) is now locale-aware via `terms.hosp.*`/`terms.svc.*`.
 
 **Foundation only (helper exists, sweep still required):**
-- Remaining module pages (see audit output): Businesses/Verification
-  (owner + admin incl. admin Businesses/Owners/Verification), AI Coach/Agent drawer leftovers.
-  Roles and Users pages converted (`roles.*`/`users.*` catalog groups).
+- Remaining module pages (see audit output): platform **Admin** (shell + overview done — `adm.*`
+  group; `businesses` 51, `verification` 45, `owners` 29 hits remain), Businesses/Verification
+  (owner side), AI Agent drawers. Roles and Users pages converted (`roles.*`/`users.*` groups).
 - Shared component sweep: **complete** — **`app/components/**` audits 0 hits across all 60 files.**
   This batch wired the primitives (`FilterRow`, `SearchableSelect` incl. a localized default
   placeholder/clear tooltip, `LanguageSwitcher` via `language.switchTo*`, `ActivityAuditReport`,
