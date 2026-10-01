@@ -5,10 +5,12 @@ import Modal from "@/app/components/Modal";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useToast } from "@/app/components/ToastProvider";
 import { fmtCurrency } from "@/lib/currency";
+import { formatDate, formatDateTime } from "@/lib/datetime";
 import { statusLabel } from "@/lib/statusLabel";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 // Stages that still allow editing / cancelling / deleting. Once an order is in
 // PRODUCTION it belongs to the shop floor and can only move forward/complete.
@@ -38,6 +40,7 @@ const inputCls = "border p-2 rounded-lg w-full bg-white";
 const labelCls = "block text-sm font-medium text-gray-500 mb-1";
 
 export default function ManufacturingOrdersPage() {
+  const { t } = useTranslation();
   const { hasPermission } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
@@ -77,11 +80,11 @@ export default function ManufacturingOrdersPage() {
       setAllJobs(j.data ?? []);
       setCatalogItems(d.data ?? []);
     } catch {
-      toast.error("Failed to load orders");
+      toast.error(t("mfg.orders.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, t]);
   useEffect(() => { load(); }, [load]);
 
   const openCreate = () => {
@@ -110,7 +113,7 @@ export default function ManufacturingOrdersPage() {
     e.preventDefault();
     if (!form.title.trim()) return;
     if (!editing && !form.flowId) {
-      toast.error("Choose the production flow / process this order runs through");
+      toast.error(t("mfg.orders.chooseFlow"));
       return;
     }
     const payload = {
@@ -126,15 +129,15 @@ export default function ManufacturingOrdersPage() {
     try {
       if (editing) {
         await api.patch(`/manufacturing/jobs/${editing.id}`, payload);
-        toast.success("Order updated");
+        toast.success(t("mfg.orders.updated"));
       } else {
         await api.post("/manufacturing/jobs", payload);
-        toast.success("Order added to the production flow");
+        toast.success(t("mfg.orders.added"));
       }
       setShowForm(false);
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to save order");
+      toast.error(err?.response?.data?.message || t("mfg.orders.saveFailed"));
     }
   };
 
@@ -144,41 +147,41 @@ export default function ManufacturingOrdersPage() {
         const targetFlowId = activeFlowId ? Number(activeFlowId) : flow?.id;
         if (!targetFlowId) return;
         await api.post(`/manufacturing/orders/${order.id}/assign-flow`, { flowId: targetFlowId });
-        toast.success("Order started on the production flow");
+        toast.success(t("mfg.orders.pipelineStarted"));
       } else if (action === "advance") {
         await api.post(`/manufacturing/orders/${order.id}/advance`, {});
-        toast.success("Order passed to the next team");
+        toast.success(t("mfg.orders.advanced"));
       } else {
         await api.post(`/manufacturing/orders/${order.id}/complete-delivery`, {});
-        toast.success("Order completed");
+        toast.success(t("mfg.orders.completed"));
       }
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Action failed");
+      toast.error(err?.response?.data?.message || t("mfg.orders.actionFailed"));
     }
   };
 
   const cancelOrder = async (order: any) => {
-    const ok = await confirm(`Cancel order ${order.jobNumber}?`);
+    const ok = await confirm(t("mfg.orders.cancelConfirm", { number: order.jobNumber }));
     if (!ok) return;
     try {
       await api.patch(`/manufacturing/jobs/${order.id}/stage`, { stage: "CANCELLED" });
-      toast.success("Order cancelled");
+      toast.success(t("mfg.orders.cancelled"));
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to cancel order");
+      toast.error(err?.response?.data?.message || t("mfg.orders.cancelFailed"));
     }
   };
 
   const removeOrder = async (order: any) => {
-    const ok = await confirm(`Delete order ${order.jobNumber}? This removes it and its pipeline history.`);
+    const ok = await confirm(t("mfg.orders.deleteConfirm", { number: order.jobNumber }));
     if (!ok) return;
     try {
       await api.delete(`/manufacturing/jobs/${order.id}`);
-      toast.success("Order deleted");
+      toast.success(t("mfg.orders.deleted"));
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to delete order");
+      toast.error(err?.response?.data?.message || t("mfg.orders.deleteFailed"));
     }
   };
 
@@ -189,16 +192,16 @@ export default function ManufacturingOrdersPage() {
       const r = await api.get(`/manufacturing/jobs/${order.id}`);
       setDetail(r.data);
     } catch {
-      toast.error("Failed to load order details");
+      toast.error(t("mfg.orders.detailFailed"));
     } finally {
       setDetailLoading(false);
     }
   };
 
   const teamName = (id: number | null | undefined) =>
-    teams.find((t) => t.id === id)?.name ?? (id == null ? "—" : `Team #${id}`);
+    teams.find((row) => row.id === id)?.name ?? (id == null ? "—" : t("mfg.orders.teamHash", { id }));
   const bomName = (id: number | null | undefined) =>
-    boms.find((b) => b.id === id)?.finishedProduct?.baseName ?? (id == null ? "—" : `BOM #${id}`);
+    boms.find((b) => b.id === id)?.finishedProduct?.baseName ?? (id == null ? "—" : t("mfg.orders.bomHash", { id }));
 
   if (loading) return <Loading className="py-24" />;
 
@@ -239,14 +242,14 @@ export default function ManufacturingOrdersPage() {
     <div>
       <div className="flex justify-between items-center mb-1 flex-wrap gap-3">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Orders</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-800">{t("mfg.orders.title")}</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Each order moves through your pipeline — teams update it and pass it to the next team. The final team closes it.
+            {t("mfg.orders.subtitle")}
           </p>
         </div>
         {canManage && (
           <button onClick={openCreate} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm whitespace-nowrap">
-            + New Order
+            {t("mfg.orders.newOrder")}
           </button>
         )}
       </div>
@@ -257,7 +260,7 @@ export default function ManufacturingOrdersPage() {
             onClick={() => { setActiveFlowId(""); setActiveTab("unassigned"); }}
             className={`px-2.5 py-1 rounded-full border ${activeFlowId === "" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 border-gray-200 hover:border-blue-300"}`}
           >
-            All flows
+            {t("mfg.orders.allFlows")}
           </button>
           {flows.map((fl) => (
             <button
@@ -266,7 +269,7 @@ export default function ManufacturingOrdersPage() {
               className={`px-2.5 py-1 rounded-full border ${activeFlowId === String(fl.id) ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 border-gray-200 hover:border-blue-300"}`}
             >
               {fl.name}
-              {fl.isDefault ? " (default)" : ""}
+              {fl.isDefault ? t("mfg.orders.defaultSuffix") : ""}
             </button>
           ))}
         </div>
@@ -285,7 +288,7 @@ export default function ManufacturingOrdersPage() {
             onClick={() => setActiveTab("unassigned")}
             className={`px-3 py-1.5 rounded-t-lg border-b-2 font-medium ${activeTab === "unassigned" ? "border-blue-600 text-blue-700 bg-blue-50" : "border-transparent text-gray-500 hover:text-gray-700"}`}
           >
-            Unassigned <span className="text-xs text-gray-400">({countFor(null)})</span>
+            {t("mfg.orders.unassigned")} <span className="text-xs text-gray-400">({countFor(null)})</span>
           </button>
           {laneTeams.map((lt) => (
             <button
@@ -300,7 +303,7 @@ export default function ManufacturingOrdersPage() {
             onClick={() => setActiveTab("completed")}
             className={`px-3 py-1.5 rounded-t-lg border-b-2 font-medium ${activeTab === "completed" ? "border-blue-600 text-blue-700 bg-blue-50" : "border-transparent text-gray-500 hover:text-gray-700"}`}
           >
-            Completed <span className="text-xs text-gray-400">({completedJobs.length})</span>
+            {t("mfg.orders.completedTab")} <span className="text-xs text-gray-400">({completedJobs.length})</span>
           </button>
         </div>
       </div>
@@ -314,22 +317,22 @@ export default function ManufacturingOrdersPage() {
               <div key={o.id} className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
                 <div className="flex items-start justify-between gap-2">
                   <p className="font-medium text-gray-800">{o.title}</p>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${o.stage === "CANCELLED" ? "bg-red-100 text-red-600" : "bg-green-100 text-green-700"}`}>{o.stage === "CANCELLED" ? "Cancelled" : "Completed"}</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${o.stage === "CANCELLED" ? "bg-red-100 text-red-600" : "bg-green-100 text-green-700"}`}>{statusLabel(o.stage)}</span>
                 </div>
                 <p className="text-xs text-gray-400">{o.jobNumber}{o.customerName ? ` · ${o.customerName}` : ""}</p>
                 <div className="mt-1 space-y-0.5 text-xs text-gray-500">
-                  {o.targetQuantity ? <p>Qty: {o.targetQuantity}</p> : null}
-                  {o.designCatalog?.name && <p>Design: {o.designCatalog.name}</p>}
-                  {produced != null && unitCost > 0 && <p className="text-green-700 font-medium">Produced {produced} · {fmtCurrency(unitCost)}/unit</p>}
-                  {o.completedAt ? <p>Completed: {new Date(o.completedAt).toLocaleString()}</p> : null}
+                  {o.targetQuantity ? <p>{t("mfg.orders.qtyInline", { count: o.targetQuantity })}</p> : null}
+                  {o.designCatalog?.name && <p>{t("mfg.orders.designInline", { name: o.designCatalog.name })}</p>}
+                  {produced != null && unitCost > 0 && <p className="text-green-700 font-medium">{t("mfg.orders.producedInline", { qty: produced, cost: fmtCurrency(unitCost) })}</p>}
+                  {o.completedAt ? <p>{t("mfg.orders.completedAt", { date: formatDateTime(o.completedAt) })}</p> : null}
                 </div>
                 <div className="mt-2 flex gap-2 text-xs">
-                  <button onClick={() => openDetail(o)} className="text-blue-600 hover:underline">View history</button>
+                  <button onClick={() => openDetail(o)} className="text-blue-600 hover:underline">{t("mfg.orders.viewHistory")}</button>
                 </div>
               </div>
             );
           })}
-          {completedJobs.length === 0 && <p className="text-gray-400 text-center py-10 text-sm">No completed orders yet.</p>}
+          {completedJobs.length === 0 && <p className="text-gray-400 text-center py-10 text-sm">{t("mfg.orders.noneCompleted")}</p>}
         </div>
       ) : (
         <>
@@ -353,8 +356,8 @@ export default function ManufacturingOrdersPage() {
           const passAction = !isFinal && nextStep ? (
             <button onClick={() => act(o, "advance")} className="text-blue-600 hover:underline">
               {ops.length
-                ? `Pass to ${teamName(nextStep.teamId ?? null)}`
-                : `Pass to ${teamName(nextStep.teamId ?? null)}`}
+                ? t("mfg.orders.passTo", { team: teamName(nextStep.teamId ?? null) })
+                : t("mfg.orders.passTo", { team: teamName(nextStep.teamId ?? null) })}
             </button>
           ) : null;
           return (
@@ -365,48 +368,48 @@ export default function ManufacturingOrdersPage() {
               </div>
               <p className="text-xs text-gray-400">{o.jobNumber}{o.customerName ? ` · ${o.customerName}` : ""}</p>
               <div className="mt-1 space-y-0.5 text-xs text-gray-500">
-                {curStep?.operations?.length ? <p className="text-[11px] text-purple-700">Ops: {ops.map((x: any) => x.name).join(" → ")}{curOp ? ` · at ${curOp.name}` : ""}</p> : null}
-                {o.bomId != null && <p>Product: {bomName(o.bomId)}</p>}
+                {curStep?.operations?.length ? <p className="text-[11px] text-purple-700">{t("mfg.orders.opsInline", { list: ops.map((x: any) => x.name).join(" → ") })}{curOp ? t("mfg.orders.currentOpInline", { name: curOp.name }) : ""}</p> : null}
+                {o.bomId != null && <p>{t("mfg.orders.productInline", { name: bomName(o.bomId) })}</p>}
                 {o.designCatalog?.name && (
                   <p>
-                    Design:{" "}
+                    {t("mfg.orders.designInline", { name: "" })}
                     <a href="/dashboard/manufacturing/catalog" className="text-blue-600 hover:underline">
                       {o.designCatalog.name}
                     </a>
                   </p>
                 )}
-                {o.targetQuantity ? <p>Qty: {o.targetQuantity}</p> : null}
-                {o.dueDate ? <p>Due: {new Date(o.dueDate).toLocaleDateString()}</p> : null}
+                {o.targetQuantity ? <p>{t("mfg.orders.qtyInline", { count: o.targetQuantity })}</p> : null}
+                {o.dueDate ? <p>{t("mfg.orders.dueInline", { date: formatDate(o.dueDate) })}</p> : null}
                 {produced != null && unitCost > 0 && (
-                  <p className="text-green-700 font-medium">Produced {produced} · {fmtCurrency(unitCost)}/unit</p>
+                  <p className="text-green-700 font-medium">{t("mfg.orders.producedInline", { qty: produced, cost: fmtCurrency(unitCost) })}</p>
                 )}
               </div>
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
-                <button onClick={() => openDetail(o)} className="text-gray-600 hover:underline">Details</button>
+                <button onClick={() => openDetail(o)} className="text-gray-600 hover:underline">{t("mfg.orders.details")}</button>
                 {canManage && unassigned && flow && (
-                  <button onClick={() => act(o, "assign")} className="text-blue-600 hover:underline">Start pipeline</button>
+                  <button onClick={() => act(o, "assign")} className="text-blue-600 hover:underline">{t("mfg.orders.startPipeline")}</button>
                 )}
                 {canManage && !unassigned && ops.length && (
                   o.currentOperationId == null ? (
-                    <button onClick={() => act(o, "advance")} className="text-blue-600 hover:underline">Start: {ops[0].name}</button>
+                    <button onClick={() => act(o, "advance")} className="text-blue-600 hover:underline">{t("mfg.orders.startOp", { name: ops[0].name })}</button>
                   ) : nextOp ? (
-                    <button onClick={() => act(o, "advance")} className="text-blue-600 hover:underline">Next: {nextOp.name}</button>
+                    <button onClick={() => act(o, "advance")} className="text-blue-600 hover:underline">{t("mfg.orders.nextOpLabel", { name: nextOp.name })}</button>
                   ) : isFinal ? (
-                    <button onClick={() => act(o, "complete")} className="text-green-600 hover:underline">Complete & settle</button>
+                    <button onClick={() => act(o, "complete")} className="text-green-600 hover:underline">{t("mfg.orders.completeSettle")}</button>
                   ) : null
                 )}
                 {canManage && !unassigned && !ops.length && passAction}
                 {canManage && !unassigned && !ops.length && isFinal && (
-                  <button onClick={() => act(o, "complete")} className="text-green-600 hover:underline">Complete & settle</button>
+                  <button onClick={() => act(o, "complete")} className="text-green-600 hover:underline">{t("mfg.orders.completeSettle")}</button>
                 )}
-                {showEdit && <button onClick={() => openEdit(o)} className="text-gray-700 hover:underline">Edit</button>}
-                {showCancel && <button onClick={() => cancelOrder(o)} className="text-orange-600 hover:underline">Cancel</button>}
-                {showDelete && <button onClick={() => removeOrder(o)} className="text-red-600 hover:underline">Delete</button>}
+                {showEdit && <button onClick={() => openEdit(o)} className="text-gray-700 hover:underline">{t("mfg.common.edit")}</button>}
+                {showCancel && <button onClick={() => cancelOrder(o)} className="text-orange-600 hover:underline">{t("mfg.common.cancel")}</button>}
+                {showDelete && <button onClick={() => removeOrder(o)} className="text-red-600 hover:underline">{t("mfg.common.delete")}</button>}
               </div>
             </div>
           );
         })}
-        {here.length === 0 && <p className="text-gray-400 text-center py-10 text-sm">No orders in this step.</p>}
+        {here.length === 0 && <p className="text-gray-400 text-center py-10 text-sm">{t("mfg.orders.noneInStep")}</p>}
       </div>
         </>
       )}
@@ -414,32 +417,32 @@ export default function ManufacturingOrdersPage() {
       <Modal
         isOpen={showForm}
         onClose={() => { setShowForm(false); setEditing(null); }}
-        title={editing ? `Edit Order — ${editing.jobNumber ?? ""}` : "New Order"}
+        title={editing ? t("mfg.orders.editTitle", { number: editing.jobNumber ?? "" }) : t("mfg.orders.newTitle")}
       >
         <form onSubmit={submit} className="space-y-4">
           <div>
-            <label className={labelCls}>Title *</label>
-            <input className={inputCls} required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Custom wardrobe order" />
+            <label className={labelCls}>{t("mfg.orders.titleLabel")}</label>
+            <input className={inputCls} required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={t("mfg.orders.titlePlaceholder")} />
           </div>
           {!editing && (
             <div>
-              <label className={labelCls}>Production flow / process *</label>
+              <label className={labelCls}>{t("mfg.orders.flowLabel")}</label>
               <select required className={inputCls} value={form.flowId} onChange={(e) => setForm({ ...form, flowId: e.target.value })}>
-                <option value="">Select a flow…</option>
+                <option value="">{t("mfg.orders.selectFlow")}</option>
                 {flows.filter((fl: any) => fl.active).map((fl: any) => (
-                  <option key={fl.id} value={fl.id}>{fl.name}{fl.isDefault ? " (default)" : ""}</option>
+                  <option key={fl.id} value={fl.id}>{fl.name}{fl.isDefault ? t("mfg.orders.defaultSuffix") : ""}</option>
                 ))}
               </select>
-              <p className="text-[11px] text-gray-400 mt-1">The order follows only the steps of the flow you pick — it never goes to teams outside that flow.</p>
+              <p className="text-[11px] text-gray-400 mt-1">{t("mfg.orders.flowHint")}</p>
             </div>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className={labelCls}>Customer</label>
-              <input className={inputCls} value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} placeholder="Optional" />
+              <label className={labelCls}>{t("mfg.orders.customerLabel")}</label>
+              <input className={inputCls} value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} placeholder={t("mfg.common.optional")} />
             </div>
             <div>
-              <label className={labelCls}>Design (catalog)</label>
+              <label className={labelCls}>{t("mfg.orders.designCatalogLabel")}</label>
               <select
                 className={inputCls}
                 value={form.designCatalogId}
@@ -453,7 +456,7 @@ export default function ManufacturingOrdersPage() {
                   setForm(next);
                 }}
               >
-                <option value="">None</option>
+                <option value="">{t("mfg.orders.noneOption")}</option>
                 {catalogItems.map((it) => (
                   <option key={it.id} value={it.id}>
                     {it.sku ? `${it.sku} · ` : ""}
@@ -464,13 +467,13 @@ export default function ManufacturingOrdersPage() {
               {form.designCatalogId && !form.bomId && (
                 <p className="text-[11px] text-gray-400 mt-1">
                   {catalogItems.find((x) => String(x.id) === form.designCatalogId)?.defaultBomId
-                    ? "Default BOM will be applied automatically."
-                    : "No default BOM for this design — production will need a BOM."}
+                    ? t("mfg.orders.defaultBomApplied")
+                    : t("mfg.orders.noDefaultBom")}
                 </p>
               )}
             </div>
             <div>
-              <label className={labelCls}>Bill of materials</label>
+              <label className={labelCls}>{t("mfg.orders.bomLabel")}</label>
               <select className={inputCls} value={form.bomId} onChange={(e) => setForm({ ...form, bomId: e.target.value })}>
                 <option value="">—</option>
                 {boms.map((b) => (
@@ -481,22 +484,22 @@ export default function ManufacturingOrdersPage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className={labelCls}>Target quantity</label>
-              <input type="number" min="0.0001" step="any" className={inputCls} value={form.targetQuantity} onChange={(e) => setForm({ ...form, targetQuantity: e.target.value })} placeholder="Optional" />
+              <label className={labelCls}>{t("mfg.orders.targetQtyLabel")}</label>
+              <input type="number" min="0.0001" step="any" className={inputCls} value={form.targetQuantity} onChange={(e) => setForm({ ...form, targetQuantity: e.target.value })} placeholder={t("mfg.common.optional")} />
             </div>
             <div>
-              <label className={labelCls}>Due date</label>
+              <label className={labelCls}>{t("mfg.orders.dueDateLabel")}</label>
               <input type="date" className={inputCls} value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} />
             </div>
           </div>
           <div>
-            <label className={labelCls}>Notes</label>
-            <textarea rows={2} className={inputCls} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Optional" />
+            <label className={labelCls}>{t("mfg.orders.notesLabel")}</label>
+            <textarea rows={2} className={inputCls} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder={t("mfg.common.optional")} />
           </div>
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setShowForm(false)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">Cancel</button>
+            <button type="button" onClick={() => setShowForm(false)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">{t("mfg.common.cancel")}</button>
             <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">
-              {editing ? "Save Order" : "Add Order"}
+              {editing ? t("mfg.orders.saveOrder") : t("mfg.orders.addOrder")}
             </button>
           </div>
         </form>
@@ -505,9 +508,9 @@ export default function ManufacturingOrdersPage() {
       <Modal
         isOpen={!!detail || detailLoading}
         onClose={() => setDetail(null)}
-        title="Order details"
+        title={t("mfg.orders.detailTitle")}
       >
-        {detailLoading && <p className="text-sm text-gray-500 py-6 text-center">Loading…</p>}
+        {detailLoading && <p className="text-sm text-gray-500 py-6 text-center">{t("common.loading")}</p>}
         {detail && (
           <div className="space-y-4 text-sm">
             <div className="flex items-start justify-between gap-2">
@@ -533,8 +536,7 @@ export default function ManufacturingOrdersPage() {
                 ) : null}
                 <div className="text-xs text-gray-600">
                   <p className="font-medium text-gray-800">
-                    Design: {detail.designCatalog.name}
-                    {detail.designCatalog.sku ? ` · ${detail.designCatalog.sku}` : ""}
+                    {t("mfg.orders.designInline", { name: `${detail.designCatalog.name}${detail.designCatalog.sku ? ` · ${detail.designCatalog.sku}` : ""}` })}
                   </p>
                   {(detail.designCatalog.specifications?.dimensions ||
                     detail.designCatalog.specifications?.materials ||
@@ -550,7 +552,7 @@ export default function ManufacturingOrdersPage() {
                     </p>
                   )}
                   <a href="/dashboard/manufacturing/catalog" className="text-blue-600 hover:underline mt-0.5 inline-block">
-                    View in catalog →
+                    {t("mfg.orders.viewInCatalog")}
                   </a>
                 </div>
               </div>
@@ -558,36 +560,36 @@ export default function ManufacturingOrdersPage() {
 
             <div className="grid grid-cols-2 gap-x-4 gap-y-2 bg-gray-50 rounded-lg p-3">
               <div>
-                <span className="block text-xs text-gray-400">Product</span>
+                <span className="block text-xs text-gray-400">{t("mfg.orders.productLabel")}</span>
                 <span className="font-medium">{detail.bom?.finishedProduct?.baseName ?? "—"}</span>
               </div>
               <div>
-                <span className="block text-xs text-gray-400">Current team</span>
-                <span className="font-medium">{detail.currentTeamId ? teamName(detail.currentTeamId) : "Unassigned"}</span>
+                <span className="block text-xs text-gray-400">{t("mfg.orders.currentTeam")}</span>
+                <span className="font-medium">{detail.currentTeamId ? teamName(detail.currentTeamId) : t("mfg.orders.unassigned")}</span>
               </div>
               <div>
-                <span className="block text-xs text-gray-400">Target quantity</span>
+                <span className="block text-xs text-gray-400">{t("mfg.orders.targetQtyLabel")}</span>
                 <span className="font-medium">{detail.targetQuantity ?? "—"}</span>
               </div>
               <div>
-                <span className="block text-xs text-gray-400">Due date</span>
-                <span className="font-medium">{detail.dueDate ? new Date(detail.dueDate).toLocaleDateString() : "—"}</span>
+                <span className="block text-xs text-gray-400">{t("mfg.orders.dueDateLabel")}</span>
+                <span className="font-medium">{detail.dueDate ? formatDate(detail.dueDate) : "—"}</span>
               </div>
               {producedOf(detail) != null && (
                 <>
                   <div>
-                    <span className="block text-xs text-gray-400">Produced</span>
+                    <span className="block text-xs text-gray-400">{t("mfg.orders.producedLabel")}</span>
                     <span className="font-medium text-green-700">{producedOf(detail)}</span>
                   </div>
                   <div>
-                    <span className="block text-xs text-gray-400">COGM / unit</span>
+                    <span className="block text-xs text-gray-400">{t("mfg.orders.cogmUnit")}</span>
                     <span className="font-medium">{fmtCurrency(unitCostOf(detail))}</span>
                   </div>
                 </>
               )}
               <div>
-                <span className="block text-xs text-gray-400">Pipeline</span>
-                <span className="font-medium">{detail.flow?.name ?? "Not on a flow"}</span>
+                <span className="block text-xs text-gray-400">{t("mfg.orders.pipelineLabel")}</span>
+                <span className="font-medium">{detail.flow?.name ?? t("mfg.orders.notOnFlow")}</span>
               </div>
               {detail.notes && <p className="col-span-2 text-gray-600">{detail.notes}</p>}
             </div>
@@ -598,7 +600,7 @@ export default function ManufacturingOrdersPage() {
                   <span key={s.id ?? i} className="inline-flex items-center gap-1">
                     {i > 0 && <span className="text-gray-400">→</span>}
                     <span className={`px-2 py-0.5 rounded-md ${s.teamId === detail.currentTeamId ? "bg-blue-100 text-blue-800 font-semibold" : "bg-gray-100 text-gray-600"}`}>
-                      {s.team?.name ?? s.name ?? `Step ${i + 1}`}
+                      {s.team?.name ?? s.name ?? t("mfg.orders.stepN", { n: i + 1 })}
                     </span>
                   </span>
                 ))}
@@ -606,30 +608,30 @@ export default function ManufacturingOrdersPage() {
             )}
 
             <div className="border-t pt-3">
-              <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Stage history</p>
+              <p className="text-xs font-semibold text-gray-400 uppercase mb-2">{t("mfg.orders.stageHistory")}</p>
               {detail.history?.length ? (
                 <ul className="space-y-1.5">
                   {detail.history.map((h: any) => (
                     <li key={h.id} className="text-xs text-gray-600">
                       {h.fromStage ? statusLabel(h.fromStage) : "—"} → {statusLabel(h.toStage)}
-                      <span className="text-gray-400"> · {new Date(h.createdAt).toLocaleString()}{h.actorName ? ` · ${h.actorName}` : ""}</span>
+                      <span className="text-gray-400"> · {formatDateTime(h.createdAt)}{h.actorName ? ` · ${h.actorName}` : ""}</span>
                       {h.note && <p className="text-gray-400 pl-2">{h.note}</p>}
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-xs text-gray-400">No stage history yet.</p>
+                <p className="text-xs text-gray-400">{t("mfg.orders.noStageHistory")}</p>
               )}
             </div>
 
             {detail.handovers?.length ? (
               <div className="border-t pt-3">
-                <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Pipeline handovers</p>
+                <p className="text-xs font-semibold text-gray-400 uppercase mb-2">{t("mfg.orders.handovers")}</p>
                 <ul className="space-y-1.5">
                   {detail.handovers.map((hv: any) => (
                     <li key={hv.id} className="text-xs text-gray-600">
-                      {hv.fromTeamId ? teamName(hv.fromTeamId) : "Unassigned"} → {hv.toTeamId ? teamName(hv.toTeamId) : "Delivered"}
-                      <span className="text-gray-400"> · {new Date(hv.createdAt).toLocaleString()}{hv.actorName ? ` · ${hv.actorName}` : ""}</span>
+                      {hv.fromTeamId ? teamName(hv.fromTeamId) : t("mfg.orders.unassigned")} → {hv.toTeamId ? teamName(hv.toTeamId) : t("mfg.orders.delivered")}
+                      <span className="text-gray-400"> · {formatDateTime(hv.createdAt)}{hv.actorName ? ` · ${hv.actorName}` : ""}</span>
                       {hv.note && <p className="text-gray-400 pl-2">{hv.note}</p>}
                     </li>
                   ))}
