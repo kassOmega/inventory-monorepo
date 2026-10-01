@@ -2,7 +2,9 @@
 import Modal from "@/app/components/Modal";
 import api from "@/lib/api";
 import { fmtCurrency } from "@/lib/currency";
+import { formatDate } from "@/lib/datetime";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 const money = (n: any) => fmtCurrency(Number(n || 0));
 type Line = {
@@ -15,6 +17,7 @@ type Line = {
 const emptyLine = (): Line => ({ productId: "", quantity: "", unitCost: "", batchNumber: "", expiryDate: "" });
 
 export default function DirectBuyPanel({ vendors, materials, canManage }: any) {
+  const { t } = useTranslation();
   const [locations, setLocations] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
@@ -61,9 +64,9 @@ export default function DirectBuyPanel({ vendors, materials, canManage }: any) {
     0,
   );
   const submit = async () => {
-    if (!locationId) return setError("Choose a receiving location");
+    if (!locationId) return setError(t("mfg.directBuy.locationRequired"));
     const clean = lines.filter((l) => l.productId && (Number(l.quantity) || 0) > 0);
-    if (!clean.length) return setError("Add at least one product");
+    if (!clean.length) return setError(t("mfg.directBuy.productRequired"));
     setSaving(true);
     setError("");
     try {
@@ -85,7 +88,7 @@ export default function DirectBuyPanel({ vendors, materials, canManage }: any) {
       setLocationId("");
       setNotes("");
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to save direct receipt");
+      setError(e?.response?.data?.message ?? t("mfg.directBuy.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -93,71 +96,71 @@ export default function DirectBuyPanel({ vendors, materials, canManage }: any) {
   return (
     <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-        <h3 className="font-semibold text-gray-800">Direct buy / quick receipt</h3>
+        <h3 className="font-semibold text-gray-800">{t("mfg.directBuy.title")}</h3>
         {canManage && (
-          <button onClick={() => setOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-3 py-1.5 text-xs font-medium">New direct buy</button>
+          <button onClick={() => setOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-3 py-1.5 text-xs font-medium">{t("mfg.directBuy.newDirectBuy")}</button>
         )}
       </div>
       {history.length > 0 && (
         <div className="px-4 py-2 border-b border-gray-100">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Recent direct receipts</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{t("mfg.directBuy.recentReceipts")}</p>
           <div className="flex flex-wrap gap-2">
             {history.slice(0, 8).map((g: any) => (
               <span key={g.id} className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded px-2 py-1">
-                {g.grnNumber} · {new Date(g.receivedAt).toLocaleDateString()} · {money(g.totalAmount ?? 0)}
+                {g.grnNumber} · {formatDate(g.receivedAt)} · {money(g.totalAmount ?? 0)}
               </span>
             ))}
           </div>
         </div>
       )}
-      {!canManage && <p className="text-gray-400 text-xs px-4 py-2">Requires manufacturing.manage.</p>}
-      <Modal isOpen={open} onClose={() => setOpen(false)} title="Direct buy (quick receipt)">
+      {!canManage && <p className="text-gray-400 text-xs px-4 py-2">{t("mfg.directBuy.requiresManage")}</p>}
+      <Modal isOpen={open} onClose={() => setOpen(false)} title={t("mfg.directBuy.modalTitle")}>
         <div className="space-y-3">
           {error && <p className="bg-red-50 text-red-600 p-2 rounded text-sm">{error}</p>}
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Vendor (optional)</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">{t("mfg.directBuy.vendorOptional")}</label>
               <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className="border border-gray-300 rounded p-2 text-sm w-full">
-                <option value="">— no vendor —</option>
+                <option value="">{t("mfg.directBuy.noVendorOption")}</option>
                 {vendors.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Receiving location *</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">{t("mfg.directBuy.locationLabel")}</label>
               <select value={locationId} onChange={(e) => setLocationId(e.target.value)} className="border border-gray-300 rounded p-2 text-sm w-full">
-                <option value="">Select…</option>
+                <option value="">{t("mfg.directBuy.selectPlaceholder")}</option>
                 {locations.map((l: any) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
             </div>
           </div>
-          <p className="text-xs font-medium text-gray-500">Lines</p>
+          <p className="text-xs font-medium text-gray-500">{t("mfg.directBuy.linesLabel")}</p>
           {lines.map((l: any, i: number) => (
             <div key={i} className="border border-gray-200 rounded p-2 space-y-2">
               <div className="flex items-center gap-2">
                 <select value={l.productId} onChange={(e) => pickProduct(i, e.target.value)} className="border border-gray-300 rounded p-2 text-sm flex-1">
-                  <option value="">Select material…</option>
+                  <option value="">{t("mfg.directBuy.selectMaterial")}</option>
                   {materials.map((m: any) => <option key={m.id} value={m.id}>{m.brand ? `${m.brand} ` : ""}{m.baseName}</option>)}
                 </select>
                 <button type="button" onClick={() => setLines((ls) => ls.filter((_, x) => x !== i))} className="text-red-500 hover:text-red-700 text-lg leading-none">×</button>
               </div>
               <div className="grid grid-cols-3 gap-2">
-                <input type="number" min="0" step="any" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} placeholder="Qty" className="border border-gray-300 rounded p-2 text-sm w-full" />
-                <input type="number" min="0" step="any" value={l.unitCost} onChange={(e) => setLine(i, { unitCost: e.target.value })} placeholder="Unit cost" className="border border-gray-300 rounded p-2 text-sm w-full" />
-                <input value={l.batchNumber} onChange={(e) => setLine(i, { batchNumber: e.target.value })} placeholder="Batch / lot" className="border border-gray-300 rounded p-2 text-sm w-full" />
+                <input type="number" min="0" step="any" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} placeholder={t("mfg.directBuy.qtyPlaceholder")} className="border border-gray-300 rounded p-2 text-sm w-full" />
+                <input type="number" min="0" step="any" value={l.unitCost} onChange={(e) => setLine(i, { unitCost: e.target.value })} placeholder={t("mfg.directBuy.unitCostPlaceholder")} className="border border-gray-300 rounded p-2 text-sm w-full" />
+                <input value={l.batchNumber} onChange={(e) => setLine(i, { batchNumber: e.target.value })} placeholder={t("mfg.directBuy.batchPlaceholder")} className="border border-gray-300 rounded p-2 text-sm w-full" />
               </div>
-              <input type="date" value={l.expiryDate} onChange={(e) => setLine(i, { expiryDate: e.target.value })} className="border border-gray-300 rounded p-2 text-sm w-full" title="Expiry" />
+              <input type="date" value={l.expiryDate} onChange={(e) => setLine(i, { expiryDate: e.target.value })} className="border border-gray-300 rounded p-2 text-sm w-full" title={t("mfg.directBuy.expiryTitle")} />
             </div>
           ))}
-          <button type="button" onClick={() => setLines((ls) => [...ls, emptyLine()])} className="text-sm text-blue-600 hover:underline">+ Add line</button>
+          <button type="button" onClick={() => setLines((ls) => [...ls, emptyLine()])} className="text-sm text-blue-600 hover:underline">{t("mfg.directBuy.addLine")}</button>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t("mfg.directBuy.notesLabel")}</label>
             <input value={notes} onChange={(e) => setNotes(e.target.value)} className="border border-gray-300 rounded p-2 text-sm w-full" />
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-700">Total {money(total)}</span>
+            <span className="text-sm font-medium text-gray-700">{t("mfg.directBuy.totalLabel", { total: money(total) })}</span>
             <div className="flex gap-2">
-              <button onClick={() => setOpen(false)} className="px-3 py-2 text-sm text-gray-600">Cancel</button>
-              <button onClick={submit} disabled={saving} className="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2 text-sm font-medium">{saving ? "Saving…" : "Stock in & post"}</button>
+              <button onClick={() => setOpen(false)} className="px-3 py-2 text-sm text-gray-600">{t("mfg.common.cancel")}</button>
+              <button onClick={submit} disabled={saving} className="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2 text-sm font-medium">{saving ? t("mfg.directBuy.saving") : t("mfg.directBuy.stockIn")}</button>
             </div>
           </div>
         </div>
