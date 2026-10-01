@@ -8,9 +8,10 @@ section 0.
 
 | Gate | Command | Baseline |
 | --- | --- | --- |
-| Catalog | `cd frontend && node scripts/i18n-check.mjs` | **all gates clean** — parity 3339/3339 ✓, no identical-value misses, 0 glossary violations |
-| Frontend UI | `cd frontend && node scripts/i18n-audit.mjs [--list --file X --strict]` | 178 files scanned, 42 dirty, 614 hardcoded strings |
-| Backend messages | `cd inventory-backend && node scripts/i18n-audit.mjs [--list --strict]` | 667 `throw` sites, 239 localized, 428 remaining (398 static + 30 interpolated) |
+| Catalog (frontend) | `cd frontend && node scripts/i18n-check.mjs` | **all gates clean** — parity 3778/3778 ✓, no identical-value misses, 0 glossary violations |
+| Catalog (backend) | `cd inventory-backend && node scripts/i18n-check.mjs` | **all gates clean** — parity 218/218 ✓, no identical-value misses, 0 glossary violations |
+| Frontend UI | `cd frontend && node scripts/i18n-audit.mjs [--list --file X --strict]` | **178 files scanned, 0 dirty, 0 hits** |
+| Backend messages | `cd inventory-backend && node scripts/i18n-audit.mjs [--list --strict]` | 667 `throw` sites, 269 localized, 398 remaining (398 static + **0 interpolated**) |
 
 - `docs/i18n-glossary.md` is the single source of truth for terminology; `i18n-check.mjs`
   parses its table and fails on an avoided variant.
@@ -240,6 +241,32 @@ categories automatically (`tenants.service.ts`, `common/verticals.ts`).
   Remaining cataloging by module (~205 HTTP-exception sites; sales 18, verification 18,
   hotel 17, fiscal 17, admin 17, restock 15, service 13, manufacturing 11, finance 10,
   purchases 8, users 8, controllers/guards ~12, plus ai/agent/taxes/inventory/cash/etc.).
+- **Long tail + first backend batch (latest)**: the frontend sweep is **complete** —
+  `node scripts/i18n-audit.mjs` reports **178 files scanned, 0 dirty, 0 hits**. This batch
+  covered the remaining pooled pages: `app/dashboard/agent` (29 → 0, new `agent.*` keys incl.
+  `agent.action.*`/`agent.status.*` enum maps resolved through `actionLabel()`/`statusText()`
+  with a de-underscored raw fallback), `app/dashboard/verification` (20 → 0, new `verification.*`
+  group; `DOC_LABELS` now holds catalog keys and `StatusBadge` renders `statusLabel(status)`
+  instead of the raw enum), `app/dashboard/forecast` (19 → 0, new `forecast.*` group with the
+  report-language endonyms allowlisted in the audit script), `app/dashboard/page.tsx` (14 → 0,
+  new `home.*` group), `app/dashboard/payment-methods` (17 → 0, new `paymentMethods.*` group —
+  the page had no i18n at all), `food/menu`, `cashier`, `roles`, `users`, `taxes` and the
+  restaurant redirect (new `common.redirecting`). Long-lived correctness fixes found on the way:
+  `app/layout.tsx` + `app/manifest.ts` keep the product name/description in the default language
+  (the `<head>`/manifest resolve before the client locale exists; documented with `i18n-ignore`),
+  the service-worker push fallback became bilingual, and the two remaining raw
+  `VERTICAL_LABELS[...]` renders (`admin/page.tsx`, `verification/page.tsx`) were switched to
+  `verticalLabel()` — the map holds catalog keys now, so those printed `verticals.retail`.
+  The `verticalName()` helpers in `admin/businesses` + `admin/verification` no longer fall back
+  to a catalog key either (`defaultValue: type`). Backend (first batch): all **30 interpolated
+  throw sites** converted to `tr('errors.*', {...})` — the `LocalizedExceptionFilter` can only
+  reverse-map exact English text, so dynamic messages had to move to keys — covering ai-usage,
+  credit-payments, customers, finance, fiscal, hotel (checkout/overpayment/booking clash),
+  inventory, manufacturing, packages, payment-methods, products, restock, sales and service.
+  `inventory-backend/scripts/i18n-check.mjs` is new: it mirrors the frontend gate (parity,
+  identical-value, glossary — same `docs/i18n-glossary.md`) and its first run caught three
+  `Location` values still using the avoided `አካባቢ` (now `ቦታ`). Backend audit after the batch:
+  **667 throw sites, 269 localized, 398 remaining (0 interpolated)**.
 - Notifications/push/audit: content still created in English at write time. Recommended next
   step: store `templateKey`+`params` and hydrate per viewer language; until then the FE shows
   the stored text.
@@ -257,9 +284,15 @@ cd frontend && npm install && npm run dev   # http://localhost:3001
 Language: use the 🇪🇹/🇬🇧 pill in the top-right of the dashboard (and on login/signup).
 
 ## 4. Immediate next steps (recommended order)
-1. Convert remaining FE pages module-by-module using `useTranslation` + the audit script as gate.
-2. Add Amharic input fields to product/menu/category/unit/location/payment DTOs + forms.
-3. Convert remaining backend throw sites → `tr()` keys; add validation-message localization.
+1. ~~Convert remaining FE pages module-by-module~~ — **done**: `scripts/i18n-audit.mjs` is clean
+   across all 178 frontend files. Keep it green (`--strict` in CI) and re-run `i18n-check.mjs`
+   after every catalog edit.
+2. Catalog + convert the remaining **398 static** backend throws, module by module (manufacturing
+   46, hotel 36, verification 28, admin 24, ai 24, restock 21, finance 18, products 18, fiscal 17,
+   sales 17, …). Static text is localized at the HTTP edge the moment its exact English value is
+   in `backend.en.ts`/`backend.am.ts` (the `LocalizedExceptionFilter` reverse-maps it), so catalog
+   first and convert the throw to `tr()` in the same pass to keep the audit count moving.
+3. Add Amharic input fields to product/menu/category/unit/location/payment DTOs + forms.
 4. Notification template-key refactor + push/audit localization.
 5. Receipt/PDF: embed Noto Sans Ethiopic in the pdfkit export, then unpin `fiscal.receipt.*`
    and the `products.priceList.*`/`products.qrSheet.*` allowlist entries (the gate reports them
