@@ -2,13 +2,11 @@
 // Expandable/collapsible group menu for the dashboard sidebar.
 // Groups that contain the active route auto-expand; users can also toggle any
 // group manually. Links not assigned to a group yet render flat underneath.
-import Link from "next/link";
-import { useEffect, useState } from "react";
-import {
-  isNavItemActive,
-  type DashboardNav,
-  type DashboardNavItem,
-} from "@/lib/dashboardNavigation";
+// The open-group state machine, the active-route check and the leaf link are
+// shared with the mobile quick nav (lib/useNavGroups.ts, NavItemLink.tsx).
+import NavItemLink from "./NavItemLink";
+import { type DashboardNav } from "@/lib/dashboardNavigation";
+import useNavGroups from "@/lib/useNavGroups";
 
 interface Props {
   nav: DashboardNav;
@@ -16,41 +14,19 @@ interface Props {
   onNavigate: () => void;
 }
 
-const isActive = isNavItemActive;
+/** Sidebar link styling; the item's active state is decided by NavItemLink. */
+const linkClass = (active: boolean) =>
+  "block py-2 px-3 rounded text-sm font-medium transition " +
+  (active
+    ? "bg-blue-600 text-white"
+    : "text-gray-300 hover:bg-gray-800 hover:text-white");
 
 export default function SidebarMenu({ nav, pathname, onNavigate }: Props) {
-  const [open, setOpen] = useState<Set<string>>(() => {
-    const initial = new Set<string>();
-    for (const g of nav.groups) {
-      if (g.items.some((i) => isActive(i, pathname))) initial.add(g.key);
-    }
-    return initial;
+  // Several groups may stay open at once, and the active one opens itself.
+  const { isOpen, toggle } = useNavGroups(nav, pathname, {
+    multiple: true,
+    autoOpenActive: true,
   });
-
-  // Keep the group containing the active page open across navigation.
-  useEffect(() => {
-    setOpen((prev) => {
-      const next = new Set(prev);
-      for (const g of nav.groups) {
-        if (g.items.some((i) => isActive(i, pathname))) next.add(g.key);
-      }
-      return next;
-    });
-  }, [pathname, nav]);
-
-  const toggle = (key: string) =>
-    setOpen((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-
-  const linkClass = (item: DashboardNavItem) =>
-    "block py-2 px-3 rounded text-sm font-medium transition " +
-    (isActive(item, pathname)
-      ? "bg-blue-600 text-white"
-      : "text-gray-300 hover:bg-gray-800 hover:text-white");
 
   return (
     <>
@@ -60,19 +36,18 @@ export default function SidebarMenu({ nav, pathname, onNavigate }: Props) {
           return (
             <div key={group.key} className="space-y-0.5 pt-0.5">
               {group.items.map((item) => (
-                <Link
+                <NavItemLink
                   key={item.href}
-                  href={item.href}
-                  onClick={onNavigate}
-                  className={linkClass(item)}
-                >
-                  {item.label}
-                </Link>
+                  item={item}
+                  pathname={pathname}
+                  onNavigate={onNavigate}
+                  className={linkClass}
+                />
               ))}
             </div>
           );
         }
-        const expanded = open.has(group.key);
+        const expanded = isOpen(group.key);
         return (
           <div key={group.key}>
             <button
@@ -103,14 +78,13 @@ export default function SidebarMenu({ nav, pathname, onNavigate }: Props) {
             {expanded && (
               <div className="ml-3 mt-0.5 mb-1 border-l border-gray-700 pl-2 space-y-0.5">
                 {group.items.map((item) => (
-                  <Link
+                  <NavItemLink
                     key={item.href}
-                    href={item.href}
-                    onClick={onNavigate}
-                    className={linkClass(item)}
-                  >
-                    {item.label}
-                  </Link>
+                    item={item}
+                    pathname={pathname}
+                    onNavigate={onNavigate}
+                    className={linkClass}
+                  />
                 ))}
               </div>
             )}
@@ -119,14 +93,13 @@ export default function SidebarMenu({ nav, pathname, onNavigate }: Props) {
       })}
 
       {nav.loose.map((item) => (
-        <Link
+        <NavItemLink
           key={item.href}
-          href={item.href}
-          onClick={onNavigate}
-          className={linkClass(item)}
-        >
-          {item.label}
-        </Link>
+          item={item}
+          pathname={pathname}
+          onNavigate={onNavigate}
+          className={linkClass}
+        />
       ))}
     </>
   );
