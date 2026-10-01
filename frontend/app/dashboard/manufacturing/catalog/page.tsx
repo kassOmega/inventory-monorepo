@@ -1,8 +1,10 @@
 "use client";
 import api from "@/lib/api";
 import Modal from "@/app/components/Modal";
+import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useAuth } from "@/context/AuthContext";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 /**
  * Manufacturing Design Catalog — customer-facing designs/products with specs,
@@ -11,6 +13,8 @@ import { useCallback, useEffect, useState } from "react";
  */
 export default function DesignCatalogPage() {
   const { hasPermission } = useAuth();
+  const confirm = useConfirm();
+  const { t } = useTranslation();
   const canManage = hasPermission("manufacturing.manage");
 
   const [cats, setCats] = useState<any[]>([]);
@@ -52,11 +56,11 @@ export default function DesignCatalogPage() {
       setBoms(bRes.data ?? []);
       setError("");
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load design catalog");
+      setError(e?.response?.data?.message ?? t("mfg.catalog.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -99,19 +103,20 @@ export default function DesignCatalogPage() {
       setForm(null);
       await load();
     } catch (ex: any) {
-      setError(ex?.response?.data?.message ?? "Failed to save catalog item");
+      setError(ex?.response?.data?.message ?? t("mfg.catalog.saveItemFailed"));
     } finally {
       setSaving(false);
     }
   };
 
   const deleteItem = async (item: any) => {
-    if (!window.confirm(`Delete design "${item.name}"?`)) return;
+    const ok = await confirm(t("mfg.catalog.deleteDesignConfirm", { name: item.name }));
+    if (!ok) return;
     try {
       await api.delete(`/manufacturing/catalog/items/${item.id}`);
       await load();
     } catch (ex: any) {
-      setError(ex?.response?.data?.message ?? "Failed to delete design");
+      setError(ex?.response?.data?.message ?? t("mfg.catalog.deleteItemFailed"));
     }
   };
 
@@ -137,18 +142,19 @@ export default function DesignCatalogPage() {
       setCatForm(null);
       await load();
     } catch (ex: any) {
-      setError(ex?.response?.data?.message ?? "Failed to save category");
+      setError(ex?.response?.data?.message ?? t("mfg.catalog.saveCategoryFailed"));
     } finally {
       setSaving(false);
     }
   };
   const deleteCat = async (c: any) => {
-    if (!window.confirm(`Delete category "${c.name}"?`)) return;
+    const ok = await confirm(t("mfg.catalog.deleteCategoryConfirm", { name: c.name }));
+    if (!ok) return;
     try {
       await api.delete(`/manufacturing/catalog/categories/${c.id}`);
       await load();
     } catch (ex: any) {
-      setError(ex?.response?.data?.message ?? "Failed to delete category");
+      setError(ex?.response?.data?.message ?? t("mfg.catalog.deleteCategoryFailed"));
     }
   };
 
@@ -199,7 +205,7 @@ export default function DesignCatalogPage() {
     return f;
   };
 
-  if (loading) return <p className="text-gray-500 p-6">Loading design catalog…</p>;
+  if (loading) return <p className="text-gray-500 p-6">{t("mfg.catalog.loading")}</p>;
   const shown = items.filter(
     (i) =>
       (!filterCat || String(i.categoryId) === String(filterCat)) &&
@@ -213,10 +219,9 @@ export default function DesignCatalogPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Design Catalog</h1>
+          <h1 className="text-2xl font-bold text-gray-800">{t("mfg.catalog.title")}</h1>
           <p className="text-sm text-gray-400">
-            Product &amp; design registry with specs, blueprints and default
-            production BOMs — linked from job orders and work orders.
+            {t("mfg.catalog.subtitle")}
           </p>
         </div>
         {canManage && (
@@ -224,7 +229,7 @@ export default function DesignCatalogPage() {
             onClick={openNew}
             className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-3 py-2 text-sm font-medium"
           >
-            + New Design
+            {t("mfg.catalog.newDesign")}
           </button>
         )}
       </div>
@@ -237,14 +242,14 @@ export default function DesignCatalogPage() {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 space-y-1">
           <div className="flex items-center justify-between mb-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-              Categories
+              {t("mfg.catalog.categories")}
             </p>
             {canManage && (
               <button
                 onClick={() => openNewCat()}
                 className="text-xs text-blue-600 hover:underline"
               >
-                + Add
+                {t("mfg.catalog.addShort")}
               </button>
             )}
           </div>
@@ -256,7 +261,7 @@ export default function DesignCatalogPage() {
                 : "hover:bg-gray-50 text-gray-600"
             }`}
           >
-            All designs
+            {t("mfg.catalog.allDesigns")}
           </button>
           {cats.map((c) => (
             <CatRow
@@ -287,16 +292,16 @@ export default function DesignCatalogPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search designs, SKUs, descriptions…"
+              placeholder={t("mfg.catalog.searchPlaceholder")}
               className="border border-gray-300 rounded p-2 text-sm flex-1 min-w-[180px]"
             />
             <span className="text-xs text-gray-400 self-center">
-              {shown.length} designs
+              {t("mfg.catalog.designsCount", { count: shown.length })}
             </span>
           </div>
           {shown.length === 0 ? (
             <p className="text-gray-400 text-sm py-8 text-center">
-              No designs yet{filterCat ? " in this category" : ""}.
+              {filterCat ? t("mfg.catalog.noneInCategory") : t("mfg.catalog.none")}
             </p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -325,7 +330,7 @@ export default function DesignCatalogPage() {
                       {item.sku ? `${item.sku} · ` : ""}
                       {item.category
                         ? catPath(item.category.id) || catName(item.category.id)
-                        : "Uncategorized"}
+                        : t("mfg.catalog.uncategorized")}
                     </p>
                     {(item.specifications?.dimensions ||
                       item.specifications?.materials ||
@@ -341,7 +346,7 @@ export default function DesignCatalogPage() {
                       </p>
                     )}
                     <p className="text-[11px] text-gray-400">
-                      Default BOM: {bomLabel(item.defaultBomId)}
+                      {t("mfg.catalog.defaultBomInline", { name: bomLabel(item.defaultBomId) })}
                     </p>
                   </div>
                   {canManage && (
@@ -350,13 +355,13 @@ export default function DesignCatalogPage() {
                         onClick={() => openEdit(item)}
                         className="text-xs text-blue-600 hover:underline"
                       >
-                        Edit
+                        {t("mfg.common.edit")}
                       </button>
                       <button
                         onClick={() => deleteItem(item)}
                         className="text-xs text-red-600 hover:underline"
                       >
-                        Delete
+                        {t("mfg.common.delete")}
                       </button>
                     </div>
                   )}
@@ -373,23 +378,23 @@ export default function DesignCatalogPage() {
         <Modal
           isOpen
           onClose={() => setForm(null)}
-          title={form.id ? "Edit Design" : "New Design"}
+          title={form.id ? t("mfg.catalog.editTitle") : t("mfg.catalog.newDesignTitle")}
         >
           <form onSubmit={saveItem} className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Name *</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t("mfg.catalog.nameLabel")}</label>
                 <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="border border-gray-300 rounded p-2 text-sm w-full" required />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">SKU</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t("mfg.catalog.skuLabel")}</label>
                 <input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} className="border border-gray-300 rounded p-2 text-sm w-full" />
               </div>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Category</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">{t("mfg.catalog.categoryLabel")}</label>
               <select value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })} className="border border-gray-300 rounded p-2 text-sm w-full">
-                <option value="">Uncategorized</option>
+                <option value="">{t("mfg.catalog.uncategorized")}</option>
                 {flatten(cats).map((c) => (
                   <option key={c.id} value={c.id}>
                     {catPath(c.id)}
@@ -398,14 +403,14 @@ export default function DesignCatalogPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">{t("mfg.catalog.descriptionLabel")}</label>
               <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} className="border border-gray-300 rounded p-2 text-sm w-full" />
             </div>
             <div className="grid grid-cols-3 gap-3">
               {[
-                ["dims", "Dimensions"],
-                ["materials", "Materials"],
-                ["finish", "Finish options"],
+                ["dims", t("mfg.catalog.dimensionsLabel")],
+                ["materials", t("mfg.catalog.materialsLabel")],
+                ["finish", t("mfg.catalog.finishLabel")],
               ].map(([k, label]) => (
                 <div key={k}>
                   <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
@@ -414,20 +419,20 @@ export default function DesignCatalogPage() {
               ))}
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Additional spec notes</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">{t("mfg.catalog.specNotesLabel")}</label>
               <textarea value={form.details} onChange={(e) => setForm({ ...form, details: e.target.value })} rows={2} className="border border-gray-300 rounded p-2 text-sm w-full" />
             </div>
 
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">
-                Media URLs (one per line — blueprints / renders)
+                {t("mfg.catalog.mediaLabel")}
               </label>
               <textarea
                 value={form.mediaInput}
                 onChange={(e) => setForm({ ...form, mediaInput: e.target.value })}
                 rows={3}
                 className="border border-gray-300 rounded p-2 text-sm w-full font-mono"
-                placeholder="https://…/blueprint.png"
+                placeholder={t("mfg.catalog.mediaPlaceholder")}
               />
               {form.mediaInput
                 .split("\n")
@@ -446,14 +451,14 @@ export default function DesignCatalogPage() {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">
-                Default BOM (auto-applied to job orders)
+                {t("mfg.catalog.defaultBomLabel")}
               </label>
               <select
                 value={form.defaultBomId}
                 onChange={(e) => setForm({ ...form, defaultBomId: e.target.value })}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
               >
-                <option value="">None</option>
+                <option value="">{t("mfg.catalog.noneOption")}</option>
                 {boms.map((b) => (
                   <option key={b.id} value={b.id}>
                     {bomLabel(b.id)}
@@ -463,14 +468,14 @@ export default function DesignCatalogPage() {
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setForm(null)} disabled={saving} className="px-3 py-2 text-sm text-gray-600">
-                Cancel
+                {t("mfg.common.cancel")}
               </button>
               <button
                 type="submit"
                 disabled={saving}
                 className="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2 text-sm font-medium"
               >
-                {saving ? "Saving…" : "Save Design"}
+                {saving ? t("mfg.catalog.saving") : t("mfg.catalog.saveDesign")}
               </button>
             </div>
           </form>
@@ -483,17 +488,17 @@ export default function DesignCatalogPage() {
         <Modal
           isOpen
           onClose={() => setCatForm(null)}
-          title={catForm.id ? "Edit Category" : "New Category"}
+          title={catForm.id ? t("mfg.catalog.editCategoryTitle") : t("mfg.catalog.newCategoryTitle")}
         >
           <form onSubmit={saveCat} className="space-y-3">
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Parent</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">{t("mfg.catalog.parentLabel")}</label>
               <select
                 value={catForm.parentId}
                 onChange={(e) => setCatForm({ ...catForm, parentId: e.target.value })}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
               >
-                <option value="">Top level</option>
+                <option value="">{t("mfg.catalog.topLevel")}</option>
                 {flatten(cats)
                   .filter((c) => c.id !== catForm.id)
                   .map((c) => (
@@ -504,7 +509,7 @@ export default function DesignCatalogPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Name *</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">{t("mfg.catalog.nameLabel")}</label>
               <input
                 value={catForm.name}
                 onChange={(e) => setCatForm({ ...catForm, name: e.target.value })}
@@ -513,7 +518,7 @@ export default function DesignCatalogPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">{t("mfg.catalog.descriptionLabel")}</label>
               <textarea
                 value={catForm.description}
                 onChange={(e) => setCatForm({ ...catForm, description: e.target.value })}
@@ -528,14 +533,14 @@ export default function DesignCatalogPage() {
                 disabled={saving}
                 className="px-3 py-2 text-sm text-gray-600"
               >
-                Cancel
+                {t("mfg.common.cancel")}
               </button>
               <button
                 type="submit"
                 disabled={saving}
                 className="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2 text-sm font-medium"
               >
-                {saving ? "Saving…" : "Save Category"}
+                {saving ? t("mfg.catalog.saving") : t("mfg.catalog.saveCategory")}
               </button>
             </div>
           </form>
@@ -555,6 +560,7 @@ function CatRow({
   onEdit,
   onDelete,
 }: any) {
+  const { t } = useTranslation();
   return (
     <div>
       <div className="group flex items-center gap-1">
@@ -573,7 +579,7 @@ function CatRow({
           <div className="hidden group-hover:flex items-center gap-1 pr-1">
             <button
               onClick={() => onNewChild(node.id)}
-              title="Add sub-category"
+              title={t("mfg.catalog.addSubCategory")}
               className="text-[11px] text-blue-600 hover:underline"
             >
               +

@@ -42,6 +42,8 @@ const ALLOW_IDENTICAL = {
   "products.qrSheet.docTitle": "PDF string, Phase 5",
   "products.qrSheet.barcodeLabel": "PDF string, Phase 5",
   "pdm.colSku": "SKU",
+  "mfg.catalog.skuLabel": "SKU",
+  "mfg.catalog.mediaPlaceholder": "a placeholder URL",
 };
 
 function flatten(obj, prefix = "", out = new Map()) {
