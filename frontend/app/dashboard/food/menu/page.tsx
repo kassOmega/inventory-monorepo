@@ -67,7 +67,7 @@ export default function FoodMenuPage() {
     quantity: string;
     unitId: string;
     categoryId: string;
-  }>({ brand: "Ingredient", baseName: "", buyPrice: "", quantity: "0", unitId: "", categoryId: "" });
+  }>({ brand: t("menu.ingredientBrand"), baseName: "", buyPrice: "", quantity: "0", unitId: "", categoryId: "" });
   const [newUnitOpen, setNewUnitOpen] = useState(false);
   const [newUnitName, setNewUnitName] = useState("");
 
@@ -439,7 +439,7 @@ export default function FoodMenuPage() {
   const openNewIngredient = () => {
     setIngError("");
     setIngForm({
-      brand: "Ingredient",
+      brand: t("menu.ingredientBrand"),
       baseName: "",
       buyPrice: "",
       quantity: "0",
@@ -490,7 +490,7 @@ export default function FoodMenuPage() {
     setIngSaving(true);
     try {
       const res = await api.post("/products", {
-        brand: ingForm.brand.trim() || "Ingredient",
+        brand: ingForm.brand.trim() || t("menu.ingredientBrand"),
         baseName: ingForm.baseName.trim(),
         currentBuyPrice: buyPrice,
         currentSellPrice: buyPrice, // ingredients are consumed, not sold
@@ -936,7 +936,7 @@ export default function FoodMenuPage() {
                   ))}
                 </select>
                 <button type="button" onClick={() => setCatOpen(true)} className="text-xs text-blue-600 hover:underline shrink-0 pb-2">
-                  + New
+                  {t("menu.newCategoryShort")}
                 </button>
               </div>
               <input
@@ -998,7 +998,7 @@ export default function FoodMenuPage() {
                 min="0"
                 value={itemForm.durationMins}
                 onChange={(e) => setItemForm({ ...itemForm, durationMins: e.target.value })}
-                placeholder="Duration in minutes (spa/wellness, optional)"
+                placeholder={t("menu.durationPh")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
               />
 

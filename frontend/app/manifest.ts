@@ -1,10 +1,18 @@
 import { MetadataRoute } from "next";
 
+// The manifest is fetched once, at install time, and the OS then pins name /
+// short_name — there is no per-locale variant — so it stays in the default
+// language. (`lang` is set from the document instead; see app/layout.tsx.)
+const APP_NAME = "Kass Inv. Platform"; // i18n-ignore — product name
+const APP_SHORT_NAME = "Kass Inv."; // i18n-ignore — product name
+const APP_DESCRIPTION = // i18n-ignore — default-language description
+  "Inventory, sales & stock management platform";
+
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Kass Inv. Platform",
-    short_name: "Kass Inv.",
-    description: "Inventory, sales & stock management platform",
+    name: APP_NAME,
+    short_name: APP_SHORT_NAME,
+    description: APP_DESCRIPTION,
     start_url: "/",
     display: "standalone",
     background_color: "#f3f4f6",

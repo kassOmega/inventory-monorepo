@@ -333,7 +333,7 @@ export default function TaxesPage() {
                         onClick={() => setFiscal({ ...fiscal, morCertificate: "" })}
                         className="text-xs text-red-500 hover:underline"
                       >
-                        Clear
+                        {t("common.clear")}
                       </button>
                     )}
                   </div>

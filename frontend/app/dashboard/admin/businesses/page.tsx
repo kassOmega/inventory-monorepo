@@ -103,12 +103,10 @@ export default function AdminBusinessesPage() {
   const confirm = useConfirm();
   const { t } = useTranslation();
   // Business-type display name from the shared `verticals.*` catalog, with the
-  // static English label as the fallback for an unknown type.
+  // raw enum as the fallback for a type the catalog does not know yet.
   const verticalName = (type?: string | null) =>
     type
-      ? t(`verticals.${type.toLowerCase()}`, {
-          defaultValue: VERTICAL_LABELS[type] ?? type,
-        })
+      ? t(`verticals.${type.toLowerCase()}`, { defaultValue: type })
       : "";
   const [orgs, setOrgs] = useState<any[]>([]);
   const [owners, setOwners] = useState<any[]>([]);

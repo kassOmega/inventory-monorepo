@@ -228,11 +228,11 @@ export default function CashierPage() {
                   <li key={`${p.kind}-${p.id}`} className="py-2 flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-800">
-                        {p.facilityVisit?.customer?.name ?? "Guest"} — {p.notes ?? "Facility day pass"} · {money(p.amount)}
+                        {p.facilityVisit?.customer?.name ?? t("facility.guest")} — {p.notes ?? t("facility.dayPassLabel")} · {money(p.amount)}
                       </p>
                       <p className="text-xs text-gray-400">
                         <span className="bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded text-[10px] font-medium mr-1">
-                          Facility
+                          {t("hospitalityServices.facility")}
                         </span>
                         {p.paymentMethod?.name ?? "—"}
                         {p.collectedByName ? ` · Collected: ${p.collectedByName}` : ""}

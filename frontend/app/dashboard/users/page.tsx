@@ -331,7 +331,7 @@ export default function UsersPage() {
               <th className="p-2 sm:p-3 md:p-4">{t("users.email")}</th>
               <th className="p-2 sm:p-3 md:p-4">{t("users.role")}</th>
               <th className="p-2 sm:p-3 md:p-4">{t("users.location")}</th>
-              <th className="p-2 sm:p-3 md:p-4">AI / Day</th>
+              <th className="p-2 sm:p-3 md:p-4">{t("users.aiDay")}</th>
               <th className="p-2 sm:p-3 md:p-4">{t("users.status")}</th>
               <th className="p-2 sm:p-3 md:p-4">{t("users.actions")}</th>
             </tr>

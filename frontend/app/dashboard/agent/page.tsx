@@ -4,6 +4,7 @@
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface AgentConfig {
   organizationId: number;
@@ -50,8 +51,25 @@ const STATUS_BADGE: Record<string, string> = {
   FAILED: "bg-gray-200 text-gray-700",
 };
 
+// Backend enums (AgentAction.actionType / .status) → `agent.*` catalog keys.
+// Unknown values fall back to the de-underscored raw enum.
+const ACTION_KEYS: Record<string, string> = {
+  APPROVE_RESTOCK: "agent.action.approveRestock",
+  FLAG_DISCREPANCY: "agent.action.flagDiscrepancy",
+  STAGE_HIGH_RISK: "agent.action.stageHighRisk",
+  AGENT_SUMMARY: "agent.action.agentSummary",
+};
+
+const STATUS_KEYS: Record<string, string> = {
+  EXECUTED: "agent.status.executed",
+  PENDING_APPROVAL: "agent.status.pendingApproval",
+  REJECTED: "agent.status.rejected",
+  FAILED: "agent.status.failed",
+};
+
 export default function AgentPage() {
   const { hasPermission, user } = useAuth();
+  const { t } = useTranslation();
   const [config, setConfig] = useState<AgentConfig | null>(null);
   const [briefing, setBriefing] = useState<Briefing | null>(null);
   const [actions, setActions] = useState<AgentAction[]>([]);
@@ -65,6 +83,13 @@ export default function AgentPage() {
   const canManage = user?.isSuperuser || hasPermission("agent.manage");
   const canView = user?.isSuperuser || hasPermission("agent.view");
 
+  // Enum → localized label, falling back to the raw value ("PENDING_APPROVAL" →
+  // "PENDING APPROVAL") so an enum the catalog has not caught up with still reads.
+  const actionLabel = (v: string) =>
+    ACTION_KEYS[v] ? t(ACTION_KEYS[v]) : v.replace(/_/g, " ");
+  const statusText = (v: string) =>
+    STATUS_KEYS[v] ? t(STATUS_KEYS[v]) : v.replace(/_/g, " ");
+
   const load = useCallback(async () => {
     setError("");
     try {
@@ -76,11 +101,11 @@ export default function AgentPage() {
       setMaxSpend(String(c.data.maxAutoSpend ?? 0));
       setBriefing(b.data);
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to load the agent dashboard");
+      setError(err?.response?.data?.message ?? t("agent.loadFail"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (canView) load();
@@ -106,7 +131,7 @@ export default function AgentPage() {
       await api.patch("/agent/config", { mode });
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to update agent mode");
+      setError(err?.response?.data?.message ?? t("agent.modeFail"));
     } finally {
       setBusy("");
     }
@@ -117,11 +142,14 @@ export default function AgentPage() {
     setError("");
     try {
       const value = Number(maxSpend);
-      if (Number.isNaN(value) || value < 0) throw new Error("Invalid budget");
+      if (Number.isNaN(value) || value < 0) throw new Error(t("agent.budgetInvalid"));
       await api.patch("/agent/config", { maxAutoSpend: value });
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to update budget");
+      // A locally thrown Error (invalid budget) carries the message we want.
+      setError(
+        err?.response?.data?.message ?? err?.message ?? t("agent.budgetFail"),
+      );
     } finally {
       setBusy("");
     }
@@ -134,7 +162,7 @@ export default function AgentPage() {
       await api.post("/agent/run");
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Agent run failed");
+      setError(err?.response?.data?.message ?? t("agent.runFail"));
     } finally {
       setBusy("");
     }
@@ -147,7 +175,7 @@ export default function AgentPage() {
       await api.post(`/agent/actions/${id}/${action}`);
       await Promise.all([load(), loadActions(statusFilter)]);
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Action failed");
+      setError(err?.response?.data?.message ?? t("agent.actionFail"));
     } finally {
       setBusy("");
     }
@@ -156,16 +184,13 @@ export default function AgentPage() {
   if (!canView) {
     return (
       <div className="max-w-lg mx-auto mt-10 bg-white border rounded-xl p-8 text-center">
-        <p className="text-gray-600">
-          You don&apos;t have access to the AI Operations Agent. Ask the owner
-          to grant you the &quot;View Agent Dashboard&quot; permission.
-        </p>
+        <p className="text-gray-600">{t("agent.noAccess")}</p>
       </div>
     );
   }
 
   if (loading) {
-    return <div className="p-8 text-gray-400">Loading…</div>;
+    return <div className="p-8 text-gray-400">{t("common.loading")}</div>;
   }
 
   const pending = briefing?.pendingReviews ?? [];
@@ -175,11 +200,12 @@ export default function AgentPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">
-            🤖 AI Operations Agent
+            {t("agent.title")}
           </h1>
           <p className="text-gray-500 text-xs sm:text-sm mt-1">
-            Runs the business on demand in <b>Autonomous</b> mode. High-risk
-            actions always wait for your approval.
+            {t("agent.subtitlePre")}
+            <b>{t("agent.autonomous")}</b>
+            {t("agent.subtitlePost")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -187,7 +213,7 @@ export default function AgentPage() {
             onClick={() => setShowBriefing(true)}
             className="bg-gray-800 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-700"
           >
-            📊 Daily Briefing
+            {t("agent.briefingBtn")}
           </button>
           {canManage && (
             <button
@@ -195,7 +221,7 @@ export default function AgentPage() {
               disabled={busy === "run"}
               className="bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
             >
-              {busy === "run" ? "Running…" : "▶ Run agent now"}
+              {busy === "run" ? t("agent.running") : t("agent.runNow")}
             </button>
           )}
         </div>
@@ -209,7 +235,7 @@ export default function AgentPage() {
 
       {/* Mode + budget */}
       <div className="bg-white rounded-xl border shadow-sm p-4 sm:p-5">
-        <h2 className="text-sm font-semibold text-gray-800 mb-3">Agent mode</h2>
+        <h2 className="text-sm font-semibold text-gray-800 mb-3">{t("agent.modeTitle")}</h2>
         <div className="flex flex-col md:flex-row md:items-center gap-4">
           <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden w-fit">
             <button
@@ -221,7 +247,7 @@ export default function AgentPage() {
                   : "bg-white text-gray-600 hover:bg-gray-50"
               }`}
             >
-              💬 Advisory (advice only)
+              {t("agent.modeAdvisory")}
             </button>
             <button
               onClick={() => canManage && setMode("AUTONOMOUS")}
@@ -232,13 +258,13 @@ export default function AgentPage() {
                   : "bg-white text-gray-600 hover:bg-gray-50"
               }`}
             >
-              ⚡ Autonomous (on demand)
+              {t("agent.modeAutonomous")}
             </button>
           </div>
           <div className="flex items-end gap-2">
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">
-                Max auto-spend (ETB)
+                {t("agent.maxSpendLabel")}
               </label>
               <input
                 type="number"
@@ -256,26 +282,26 @@ export default function AgentPage() {
                 disabled={busy === "budget"}
                 className="bg-gray-800 text-white rounded-lg px-3 py-2 text-sm disabled:opacity-50"
               >
-                Save
+                {t("common.save")}
               </button>
             )}
           </div>
         </div>
         <p className="text-[11px] text-gray-400 mt-2">
           {config?.maxAutoSpend === 0
-            ? "Budget is 0 — the agent never spends automatically; every financial action is staged for your approval."
-            : `The agent may auto-approve restocks costing up to ${config?.maxAutoSpend} ETB; anything above is staged for your approval.`}
+            ? t("agent.budgetZero")
+            : t("agent.budgetPositive", { amount: config?.maxAutoSpend })}
         </p>
       </div>
 
       {/* Pending approvals */}
       <div className="bg-white rounded-xl border shadow-sm p-4 sm:p-5">
         <h2 className="text-sm font-semibold text-gray-800 mb-3">
-          🛑 Pending approvals ({pending.length})
+          {t("agent.pendingTitle", { count: pending.length })}
         </h2>
         {pending.length === 0 ? (
           <p className="text-sm text-gray-400">
-            Nothing waiting for your review. 🎉
+            {t("agent.pendingEmpty")}
           </p>
         ) : (
           <ul className="space-y-3">
@@ -286,7 +312,7 @@ export default function AgentPage() {
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
-                    {p.actionType.replace(/_/g, " ")}
+                    {actionLabel(p.actionType)}
                   </span>
                   <span className="text-[11px] text-gray-400">
                     {new Date(p.createdAt).toLocaleString()}
@@ -300,14 +326,14 @@ export default function AgentPage() {
                       disabled={busy === `approve-${p.id}`}
                       className="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-emerald-700 disabled:opacity-50"
                     >
-                      Approve
+                      {t("agent.approve")}
                     </button>
                     <button
                       onClick={() => decide(p.id, "reject")}
                       disabled={busy === `reject-${p.id}`}
                       className="bg-red-600 text-white rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-red-700 disabled:opacity-50"
                     >
-                      Reject
+                      {t("agent.reject")}
                     </button>
                   </div>
                 )}
@@ -322,34 +348,34 @@ export default function AgentPage() {
       <div className="bg-white rounded-xl border shadow-sm p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <h2 className="text-sm font-semibold text-gray-800">
-            🧾 Agent action log
+            {t("agent.logTitle")}
           </h2>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs"
           >
-            <option value="">All statuses</option>
-            <option value="EXECUTED">Executed</option>
-            <option value="PENDING_APPROVAL">Pending approval</option>
-            <option value="REJECTED">Rejected</option>
-            <option value="FAILED">Failed</option>
+            <option value="">{t("agent.filterAll")}</option>
+            <option value="EXECUTED">{t("agent.status.executed")}</option>
+            <option value="PENDING_APPROVAL">{t("agent.status.pendingApproval")}</option>
+            <option value="REJECTED">{t("agent.status.rejected")}</option>
+            <option value="FAILED">{t("agent.status.failed")}</option>
           </select>
         </div>
         {actions.length === 0 ? (
-          <p className="text-sm text-gray-400">No agent actions yet.</p>
+          <p className="text-sm text-gray-400">{t("agent.logEmpty")}</p>
         ) : (
           <ul className="divide-y divide-gray-100">
             {actions.slice(0, 30).map((a) => (
               <li key={a.id} className="py-2.5">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                    {a.actionType.replace(/_/g, " ")}
+                    {actionLabel(a.actionType)}
                   </span>
                   <span
                     className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_BADGE[a.status] ?? "bg-gray-100 text-gray-700"}`}
                   >
-                    {a.status.replace(/_/g, " ")}
+                    {statusText(a.status)}
                   </span>
                   <span className="text-[11px] text-gray-400">
                     {new Date(a.createdAt).toLocaleString()}
@@ -369,12 +395,12 @@ export default function AgentPage() {
           <div className="bg-white rounded-xl w-full max-w-lg max-h-[85vh] overflow-y-auto shadow-xl">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <h2 className="font-semibold text-gray-800">
-                📊 Daily Executive Briefing — {briefing.date}
+                {t("agent.briefingTitle", { date: briefing.date })}
               </h2>
               <button
                 onClick={() => setShowBriefing(false)}
                 className="text-gray-400 hover:text-gray-700"
-                aria-label="Close"
+                aria-label={t("common.close")}
               >
                 ✕
               </button>
@@ -382,25 +408,27 @@ export default function AgentPage() {
             <div className="p-5 space-y-4">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-[11px] text-gray-500">Mode</p>
+                  <p className="text-[11px] text-gray-500">{t("agent.kpiMode")}</p>
                   <p className="text-sm font-bold text-gray-800">
-                    {briefing.mode === "AUTONOMOUS" ? "⚡ Autonomous" : "💬 Advisory"}
+                    {briefing.mode === "AUTONOMOUS"
+                      ? t("agent.badgeAutonomous")
+                      : t("agent.badgeAdvisory")}
                   </p>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-[11px] text-gray-500">Actions today</p>
+                  <p className="text-[11px] text-gray-500">{t("agent.kpiActionsToday")}</p>
                   <p className="text-sm font-bold text-gray-800">
                     {briefing.actionsToday.total}
                   </p>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-[11px] text-gray-500">Auto-spend</p>
+                  <p className="text-[11px] text-gray-500">{t("agent.kpiAutoSpend")}</p>
                   <p className="text-sm font-bold text-gray-800">
                     {briefing.maxAutoSpend} ETB
                   </p>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-[11px] text-gray-500">Expenses today</p>
+                  <p className="text-[11px] text-gray-500">{t("agent.kpiExpensesToday")}</p>
                   <p className="text-sm font-bold text-gray-800">
                     {briefing.financial.expensesToday} ETB
                   </p>
@@ -409,11 +437,11 @@ export default function AgentPage() {
 
               <div>
                 <p className="text-xs font-semibold text-gray-500 mb-1">
-                  ✅ Actions taken automatically today
+                  {t("agent.actionsTaken")}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {Object.entries(briefing.actionsToday.byStatus).length === 0 ? (
-                    <p className="text-sm text-gray-400">None yet.</p>
+                    <p className="text-sm text-gray-400">{t("agent.noneYet")}</p>
                   ) : (
                     Object.entries(briefing.actionsToday.byStatus).map(
                       ([status, count]) => (
@@ -421,7 +449,7 @@ export default function AgentPage() {
                           key={status}
                           className="text-[11px] px-2 py-1 rounded-full bg-gray-100 text-gray-700"
                         >
-                          {status.replace(/_/g, " ")}: {count}
+                          {statusText(status)}: {count}
                         </span>
                       ),
                     )
@@ -431,10 +459,10 @@ export default function AgentPage() {
 
               <div>
                 <p className="text-xs font-semibold text-gray-500 mb-1">
-                  💰 Financial — flagged discrepancies
+                  {t("agent.flaggedTitle")}
                 </p>
                 {briefing.financial.flaggedDiscrepancies.length === 0 ? (
-                  <p className="text-sm text-gray-400">No discrepancies.</p>
+                  <p className="text-sm text-gray-400">{t("agent.noDiscrepancies")}</p>
                 ) : (
                   <ul className="space-y-1">
                     {briefing.financial.flaggedDiscrepancies.map((d, i) => (
@@ -448,10 +476,12 @@ export default function AgentPage() {
 
               <div>
                 <p className="text-xs font-semibold text-gray-500 mb-1">
-                  ⚠️ Decisions requiring your review ({briefing.pendingReviews.length})
+                  {t("agent.decisionsTitle", {
+                    count: briefing.pendingReviews.length,
+                  })}
                 </p>
                 {briefing.pendingReviews.length === 0 ? (
-                  <p className="text-sm text-gray-400">Nothing pending.</p>
+                  <p className="text-sm text-gray-400">{t("agent.nothingPending")}</p>
                 ) : (
                   <ul className="space-y-1.5">
                     {briefing.pendingReviews.map((p) => (
@@ -471,7 +501,7 @@ export default function AgentPage() {
                 onClick={() => setShowBriefing(false)}
                 className="bg-gray-800 text-white rounded-lg px-4 py-2 text-sm"
               >
-                Close
+                {t("common.close")}
               </button>
             </div>
           </div>

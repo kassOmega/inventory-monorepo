@@ -25,9 +25,12 @@ const AREAS = ["app", "lib", "context", "worker"];
 const SKIP_DIRS = new Set(["node_modules", ".next", "public", "dist", "locales"]);
 
 // Names, units and acronyms that stay as they are (docs/i18n-glossary.md).
+// "Amharic"/"English"/"Afaan Oromoo" are language endonyms: a language is always
+// named in its own script, so they are literals rather than catalog keys.
 const ALLOW = new Set([
   "SKU", "ETB", "PDF", "CSV", "QR", "AI", "ID", "URL", "POS", "OTP", "PIN",
-  "COGS", "App", "Amharic", "English", "Noto Sans Ethiopic", "Kass Inv.",
+  "COGS", "App", "Amharic", "English", "Afaan Oromoo", "Noto Sans Ethiopic",
+  "Kass Inv.",
 ]);
 
 const KINDS = {

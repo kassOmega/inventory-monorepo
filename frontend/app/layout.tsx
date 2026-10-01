@@ -4,9 +4,17 @@ import LoadingBar from "./components/LoadingBar";
 import PwaRegistry from "./components/PwaRegistry";
 import "./globals.css";
 
+// Document metadata is resolved by the server, before the client-side locale
+// exists (see lib/locale.ts — the language lives in localStorage) and is what
+// crawlers, link previews and the install prompt read. It therefore stays in the
+// default language; the product name is never transliterated.
+const APP_NAME = "Kass Inv. Platform"; // i18n-ignore — product name
+const APP_DESCRIPTION = // i18n-ignore — default-language meta description
+  "Kass Inv. — inventory, sales & stock management platform";
+
 export const metadata = {
-  title: "Kass Inv. Platform",
-  description: "Kass Inv. — inventory, sales & stock management platform",
+  title: APP_NAME,
+  description: APP_DESCRIPTION,
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [
@@ -16,7 +24,7 @@ export const metadata = {
     apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
   },
   appleWebApp: {
-    title: "Kass Inv. Platform",
+    title: APP_NAME,
     statusBarStyle: "default",
   },
 };

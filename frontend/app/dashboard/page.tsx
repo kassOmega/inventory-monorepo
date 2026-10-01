@@ -12,6 +12,7 @@ import { variantLabel } from "@/lib/variantLabel";
 import api from "@/lib/api";
 import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Bar,
   BarChart,
@@ -39,6 +40,7 @@ type DatePreset = "today" | "week" | "month" | "year";
 export default function DashboardPage() {
   const { user, activeMembership, hasPermission } = useAuth();
   const router = useRouter();
+  const { t } = useTranslation();
 
   // Every business type lands on the Dashboard home. Only the platform admin
   // is sent to the Admin screen.
@@ -158,7 +160,7 @@ export default function DashboardPage() {
   if (loading) return <Loading className="py-24" />;
 
   if (user?.isPlatformAdmin) {
-    return <div className="p-8 text-gray-400">Redirecting…</div>;
+    return <div className="p-8 text-gray-400">{t("common.redirecting")}</div>;
   }
 
   // --- HOSPITALITY DASHBOARD (owner + staff) ---
@@ -167,10 +169,12 @@ export default function DashboardPage() {
       <div>
         <div className="mb-6">
           <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">
-            Dashboard
+            {t("nav.dashboard")}
           </h1>
           <p className="text-gray-500 text-xs sm:text-sm mt-1">
-            Welcome back, {isOwner ? "Owner" : user?.roleName}.
+            {t("home.welcomeBack", {
+              name: isOwner ? t("common.owner") : user?.roleName,
+            })}
           </p>
         </div>
         <HospitalityDashboard />
@@ -184,10 +188,12 @@ export default function DashboardPage() {
       <div>
         <div className="mb-6">
           <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">
-            Dashboard
+            {t("nav.dashboard")}
           </h1>
           <p className="text-gray-500 text-xs sm:text-sm mt-1">
-            Welcome back, {isOwner ? "Owner" : user?.roleName}.
+            {t("home.welcomeBack", {
+              name: isOwner ? t("common.owner") : user?.roleName,
+            })}
           </p>
         </div>
         <ManufacturingDashboard />
@@ -204,10 +210,10 @@ export default function DashboardPage() {
       <div>
         <div className="mb-6">
           <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">
-            Dashboard
+            {t("nav.dashboard")}
           </h1>
           <p className="text-gray-500 text-xs sm:text-sm mt-1">
-            Welcome back, {user?.roleName}.
+            {t("home.welcomeBack", { name: user?.roleName })}
           </p>
         </div>
         <ServiceDashboard />
@@ -222,10 +228,10 @@ export default function DashboardPage() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
           <div>
             <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">
-              Dashboard
+              {t("nav.dashboard")}
             </h1>
             <p className="text-gray-500 text-xs sm:text-sm mt-1">
-              Welcome back, <span className="font-semibold">{user?.roleName}</span>.
+              {t("home.welcomeBack", { name: user?.roleName })}
             </p>
           </div>
         </div>
@@ -245,16 +251,16 @@ export default function DashboardPage() {
             <div className="px-4 sm:px-6 py-3 sm:py-4 border-b flex-shrink-0">
               <h3 className="text-gray-700 text-base sm:text-lg font-semibold">
                 {user?.locationType === "SHOP"
-                  ? "Your Shop Inventory"
-                  : "Your Store Inventory"}
+                  ? t("home.yourShopInventory")
+                  : t("home.yourStoreInventory")}
               </h3>
             </div>
             <div className="overflow-auto flex-1">
               <table className="w-full text-left text-xs sm:text-sm">
                 <thead className="bg-gray-50 border-b sticky top-0">
                   <tr>
-                    <th className="p-2 sm:p-3 pl-4 sm:pl-6">Product</th>
-                    <th className="p-2 sm:p-3 text-center w-20 sm:w-24">Stock</th>
+                    <th className="p-2 sm:p-3 pl-4 sm:pl-6">{t("common.product")}</th>
+                    <th className="p-2 sm:p-3 text-center w-20 sm:w-24">{t("reports.stock")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -290,10 +296,10 @@ export default function DashboardPage() {
                                 <thead>
                                   <tr className="text-gray-400">
                                     <th className="text-left p-1 font-medium">
-                                      Variant
+                                      {t("reports.variant")}
                                     </th>
                                     <th className="text-right p-1 font-medium">
-                                      Stock
+                                      {t("reports.stock")}
                                     </th>
                                   </tr>
                                 </thead>
@@ -304,7 +310,7 @@ export default function DashboardPage() {
                                         {variantLabel({
                                           attributes: v.variantAttributes,
                                           sku: v.variantSku,
-                                        }) || "Standard"}
+                                        }) || t("reports.standard")}
                                       </td>
                                       <td className="p-1 text-right">
                                         {v.quantity}
@@ -322,8 +328,7 @@ export default function DashboardPage() {
                   {groupedInventory.length === 0 && (
                     <tr>
                       <td colSpan={2} className="p-4 sm:p-6 text-center text-gray-400">
-                        No inventory yet. Request stock from your store to get
-                        started.
+                        {t("home.noInventory")}
                       </td>
                     </tr>
                   )}
@@ -339,7 +344,7 @@ export default function DashboardPage() {
           >
             <div className="px-4 sm:px-6 py-3 sm:py-4 border-b flex-shrink-0">
               <h3 className="text-gray-700 text-base sm:text-lg font-semibold">
-                Stock Overview
+                {t("home.stockOverview")}
               </h3>
             </div>
             <div className="p-3 sm:p-4 overflow-auto flex-1 flex items-center justify-center">
@@ -401,9 +406,11 @@ export default function DashboardPage() {
     <div>
       <div className="mb-6">
         <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">
-          Dashboard
+          {t("nav.dashboard")}
         </h1>
-        <p className="text-gray-500 text-xs sm:text-sm mt-1">Welcome back, Owner.</p>
+        <p className="text-gray-500 text-xs sm:text-sm mt-1">
+          {t("home.welcomeBack", { name: t("common.owner") })}
+        </p>
       </div>
       <FilterPanel
         showDateFilter

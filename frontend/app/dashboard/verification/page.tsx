@@ -1,9 +1,11 @@
 "use client";
 
 import { useAuth } from "@/context/AuthContext";
-import { VERTICAL_LABELS, verticalLabel } from "@/lib/verticals";
+import { verticalLabel } from "@/lib/verticals";
 import api from "@/lib/api";
+import { statusLabel } from "@/lib/statusLabel";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface VerificationDocument {
   id: string;
@@ -52,10 +54,11 @@ const STATUS_STYLES: Record<string, string> = {
   BLOCKED: "bg-red-200 text-red-900 border-red-300",
 };
 
+// Values are catalog keys under `verification.*` — resolve them with `t()`.
 const DOC_LABELS: Record<string, string> = {
-  NATIONAL_ID: "Renewed National ID (required)",
-  TRADE_LICENSE: "Renewed Trade License (required)",
-  TIN_CERTIFICATE: "TIN Registration Certificate (optional)",
+  NATIONAL_ID: "verification.docNationalId",
+  TRADE_LICENSE: "verification.docTradeLicense",
+  TIN_CERTIFICATE: "verification.docTin",
 };
 
 // A document can only be (re-)submitted when nothing is pending review.
@@ -64,6 +67,7 @@ const REVIEWING_STATES = ["SUBMITTED", "FLAGGED"];
 
 export default function VerificationPage() {
   const { refreshUser } = useAuth();
+  const { t } = useTranslation();
   const [data, setData] = useState<VerificationState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -76,11 +80,11 @@ export default function VerificationPage() {
       const res = await api.get("/verification/me");
       setData(res.data);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load verification status");
+      setError(e?.response?.data?.message ?? t("verification.loadFail"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -122,11 +126,11 @@ export default function VerificationPage() {
       await api.post(opts.url, form, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      flash("Document uploaded. Reviewing…");
+      flash(t("verification.uploaded"));
       await load();
       await refreshUser();
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Upload failed. Please try again.");
+      setError(e?.response?.data?.message ?? t("verification.uploadFail"));
     } finally {
       setUploading(null);
     }
@@ -134,15 +138,14 @@ export default function VerificationPage() {
 
   const blocked = data?.user.verificationStatus === "BLOCKED";
 
-  if (loading) return <p className="text-gray-500">Loading…</p>;
+  if (loading) return <p className="text-gray-500">{t("common.loading")}</p>;
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-800">Account Verification</h1>
+        <h1 className="text-2xl font-bold text-gray-800">{t("verification.title")}</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Complete verification to start operating. The AI reviewer and the platform
-          admin will check your documents. You will be notified of every status change.
+          {t("verification.subtitle")}
         </p>
       </div>
 
@@ -151,11 +154,11 @@ export default function VerificationPage() {
 
       {blocked && (
         <div className="bg-red-100 border border-red-300 rounded-lg p-4 text-red-800">
-          <p className="font-semibold">Your account has been permanently blocked.</p>
+          <p className="font-semibold">{t("verification.blockedTitle")}</p>
           <p className="text-sm mt-1">
             {data?.user.verificationNote ??
-              "Repeated fraudulent verification attempts."}{" "}
-            Please contact the platform admin.
+              t("verification.blockedDefaultNote")}{" "}
+            {t("verification.contactAdmin")}
           </p>
         </div>
       )}
@@ -165,7 +168,7 @@ export default function VerificationPage() {
         <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
-              <h2 className="font-semibold text-gray-800">Your Account</h2>
+              <h2 className="font-semibold text-gray-800">{t("verification.yourAccount")}</h2>
               <p className="text-xs text-gray-400">{data.user.email}</p>
             </div>
             <StatusBadge status={data.user.verificationStatus} />
@@ -182,7 +185,7 @@ export default function VerificationPage() {
             UPLOADABLE_STATES.includes(data.user.verificationStatus) && (
               <div className="mt-4">
                 <UploadForm
-                  label={DOC_LABELS.NATIONAL_ID}
+                  label={t(DOC_LABELS.NATIONAL_ID)}
                   uploading={uploading === "user-national-id"}
                   onSubmit={(file) =>
                     upload({
@@ -199,8 +202,7 @@ export default function VerificationPage() {
           {data.user.isOwnerAccount &&
             REVIEWING_STATES.includes(data.user.verificationStatus) && (
               <p className="text-xs text-blue-600 bg-blue-50 rounded p-2 mt-3">
-                Your document is under review. You will be notified of the decision —
-                you can upload a new document once the review is completed.
+                {t("verification.userUnderReview")}
               </p>
             )}
 
@@ -224,8 +226,8 @@ export default function VerificationPage() {
       {data && data.businesses.length === 0 && (
         <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 text-center text-gray-400 text-sm">
           {data.user.isOwnerAccount
-            ? "No businesses yet. Once you create a business you will need to verify it with a renewed trade license."
-            : "No owned businesses to verify. Your access depends on your business being verified by its owner."}
+            ? t("verification.emptyOwner")
+            : t("verification.emptyStaff")}
         </section>
       )}
     </div>
@@ -237,7 +239,7 @@ function StatusBadge({ status }: { status: string }) {
   const style = STATUS_STYLES[status] ?? STATUS_STYLES.PENDING;
   return (
     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${style}`}>
-      {status}
+      {statusLabel(status)}
     </span>
   );
 }
@@ -251,6 +253,7 @@ function UploadForm({
   uploading: boolean;
   onSubmit: (file: File) => void;
 }) {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   return (
     <div className="border border-dashed border-gray-300 rounded-lg p-3 bg-gray-50">
@@ -271,10 +274,10 @@ function UploadForm({
         disabled={uploading}
         className="text-sm bg-blue-600 text-white rounded px-3 py-2 hover:bg-blue-700 disabled:opacity-60"
       >
-        {uploading ? "Uploading…" : "Upload / Re-upload document"}
+        {uploading ? t("verification.uploading") : t("verification.uploadBtn")}
       </button>
       <p className="text-[11px] text-gray-400 mt-2">
-        JPG, PNG, WEBP or PDF · max 10 MB · a clear photo/scan of the physical document
+        {t("verification.uploadHint")}
       </p>
     </div>
   );
@@ -289,6 +292,7 @@ function DocList({
   previews: Record<string, string>;
   onPreview: (doc: VerificationDocument) => void;
 }) {
+  const { t } = useTranslation();
   if (!docs.length) return null;
   return (
     <div className="mt-4 space-y-2">
@@ -298,16 +302,20 @@ function DocList({
           className="flex items-center gap-3 text-sm border border-gray-100 rounded p-2"
         >
           <StatusBadge status={d.status} />
-          <span className="text-gray-600 text-xs">{DOC_LABELS[d.documentType]}</span>
+          <span className="text-gray-600 text-xs">
+            {DOC_LABELS[d.documentType]
+              ? t(DOC_LABELS[d.documentType])
+              : d.documentType}
+          </span>
           <button
             onClick={() => onPreview(d)}
             className="text-blue-600 hover:underline text-xs ml-auto"
           >
-            {previews[d.id] ? "View" : "Preview"}
+            {previews[d.id] ? t("common.view") : t("common.preview")}
           </button>
           {previews[d.id] && (
             <a href={previews[d.id]} target="_blank" rel="noreferrer">
-              Open
+              {t("verification.open")}
             </a>
           )}
         </div>
@@ -337,6 +345,7 @@ function BusinessCard({
     key: string;
   }) => void;
 }) {
+  const { t } = useTranslation();
   const canEdit =
     !blocked && UPLOADABLE_STATES.includes(business.verificationStatus);
   const reviewing = REVIEWING_STATES.includes(business.verificationStatus);
@@ -347,7 +356,8 @@ function BusinessCard({
         <div>
           <h2 className="font-semibold text-gray-800">{business.name}</h2>
           <p className="text-xs text-gray-400">
-            {VERTICAL_LABELS[business.businessType] ?? business.businessType} · Business verification
+            {verticalLabel(business.businessType)} ·{" "}
+            {t("verification.businessLabel")}
           </p>
         </div>
         <StatusBadge status={business.verificationStatus} />
@@ -361,21 +371,20 @@ function BusinessCard({
 
       {business.verificationStatus === "BLOCKED" && (
         <div className="bg-red-100 border border-red-300 rounded p-3 mt-3 text-red-800 text-sm">
-          This business has been permanently blocked. Contact the platform admin.
+          {t("verification.businessBlocked")}
         </div>
       )}
 
       {reviewing && !blocked && (
         <p className="text-xs text-blue-600 bg-blue-50 rounded p-2 mt-3">
-          Documents are under review. You will be notified of the decision — you can
-          upload new documents once the review is completed.
+          {t("verification.businessUnderReview")}
         </p>
       )}
 
       <div className="mt-4 space-y-3">
         {canEdit && (
           <UploadForm
-            label={DOC_LABELS.TRADE_LICENSE}
+            label={t(DOC_LABELS.TRADE_LICENSE)}
             uploading={uploading === `biz-${business.id}-trade`}
             onSubmit={(file) =>
               onUpload({
@@ -389,7 +398,7 @@ function BusinessCard({
         )}
         {canEdit && (
           <UploadForm
-            label={DOC_LABELS.TIN_CERTIFICATE}
+            label={t(DOC_LABELS.TIN_CERTIFICATE)}
             uploading={uploading === `biz-${business.id}-tin`}
             onSubmit={(file) =>
               onUpload({

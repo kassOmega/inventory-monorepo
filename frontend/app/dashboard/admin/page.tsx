@@ -1,6 +1,6 @@
 "use client";
 
-import { VERTICAL_LABELS } from "@/lib/verticals";
+import { verticalLabel } from "@/lib/verticals";
 import api from "@/lib/api";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -62,7 +62,7 @@ export default function AdminOverview() {
                 <div>
                   <p className="font-medium text-gray-800">{o.name}</p>
                   <p className="text-xs text-gray-400">
-                    {VERTICAL_LABELS[o.businessType] ?? o.businessType}
+                    {verticalLabel(o.businessType)}
                     {t("adm.ownerPrefix", { name: owner?.name ?? "—" })}
                   </p>
                 </div>

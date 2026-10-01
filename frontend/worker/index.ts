@@ -4,9 +4,12 @@ declare const self: ServiceWorkerGlobalScope;
 
 // 1. Listen for incoming push events from NestJS
 self.addEventListener("push", (event) => {
+  // Fallback only: the backend renders every push payload in the recipient's
+  // locale (notifications.templateKey + params). This worker has no i18n runtime,
+  // so the bare default that shows when a push arrives without data is bilingual.
   let data = {
-    title: "New Notification",
-    body: "You have a new update.",
+    title: "New Notification / አዲስ ማሳወቂያ", // i18n-ignore — bilingual SW fallback
+    body: "You have a new update. / አዲስ መረጃ አለዎት።", // i18n-ignore — bilingual SW fallback
     url: "/dashboard",
   };
 

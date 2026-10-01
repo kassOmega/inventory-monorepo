@@ -197,11 +197,11 @@ export default function RolesPage() {
         <table className="w-full text-left text-xs sm:text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="p-2 sm:p-3 md:p-4">Role</th>
+              <th className="p-2 sm:p-3 md:p-4">{t("roles.colRole")}</th>
               <th className="p-2 sm:p-3 md:p-4">{t("roles.desc")}</th>
               <th className="p-2 sm:p-3 md:p-4">{t("roles.users")}</th>
               <th className="p-2 sm:p-3 md:p-4">{t("roles.permissions")}</th>
-              <th className="p-2 sm:p-3 md:p-4">Actions</th>
+              <th className="p-2 sm:p-3 md:p-4">{t("roles.colActions")}</th>
             </tr>
           </thead>
           <tbody>
