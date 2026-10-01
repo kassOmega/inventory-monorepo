@@ -2,9 +2,12 @@
 
 import api from "@/lib/api";
 import { newClientRef } from "@/lib/clientRef";
+import { statusLabel } from "@/lib/statusLabel";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 export default function ServiceTicketsPage() {
+  const { t } = useTranslation();
   const [tickets, setTickets] = useState<any[]>([]);
   const [items, setItems] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
@@ -27,9 +30,9 @@ export default function ServiceTicketsPage() {
       setItems(i.data);
       setClients(c.data);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load tickets");
+      setError(e?.response?.data?.message ?? t("svc.tk.failedLoad"));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -46,7 +49,7 @@ export default function ServiceTicketsPage() {
       setForm({ clientId: "", serviceItemId: "", quantity: "1" });
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to create ticket");
+      setError(err?.response?.data?.message ?? t("svc.tk.failedCreate"));
     }
   };
 
@@ -63,7 +66,7 @@ export default function ServiceTicketsPage() {
       setAddItemId("");
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to add item");
+      setError(err?.response?.data?.message ?? t("svc.tk.failedAddItem"));
     }
   };
 
@@ -79,7 +82,7 @@ export default function ServiceTicketsPage() {
       });
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to pay");
+      setError(err?.response?.data?.message ?? t("svc.tk.failedPay"));
     }
   };
 
@@ -88,28 +91,28 @@ export default function ServiceTicketsPage() {
       await api.patch(`/service/tickets/${ticketId}/status`, { status });
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to update ticket");
+      setError(err?.response?.data?.message ?? t("svc.tk.failedUpdate"));
     }
   };
 
-  const paid = (t: any) => t.payments?.reduce((s: number, p: any) => s + p.amount, 0) ?? 0;
+  const paid = (ticket: any) => ticket.payments?.reduce((s: number, p: any) => s + p.amount, 0) ?? 0;
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800">Tickets</h1>
+      <h1 className="text-2xl font-bold text-gray-800">{t("terms.svc.orders")}</h1>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
 
       <form onSubmit={create} className="bg-white p-4 rounded-lg border border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-3">
         <select value={form.serviceItemId} onChange={(e) => setForm({ ...form, serviceItemId: e.target.value })} className="border border-gray-300 rounded p-2 text-sm" required>
-          <option value="">Service…</option>
+          <option value="">{t("hospitality.pkg.servicePh")}</option>
           {items.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
         </select>
         <input value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} type="number" min="1" className="border border-gray-300 rounded p-2 text-sm" />
         <select value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })} className="border border-gray-300 rounded p-2 text-sm">
-          <option value="">No client</option>
+          <option value="">{t("svc.noClient")}</option>
           {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <button type="submit" className="bg-blue-600 text-white rounded p-2 text-sm font-medium">Open Ticket</button>
+        <button type="submit" className="bg-blue-600 text-white rounded p-2 text-sm font-medium">{t("svc.tk.open")}</button>
       </form>
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -117,46 +120,46 @@ export default function ServiceTicketsPage() {
           <thead className="bg-gray-50 text-left text-xs text-gray-500">
             <tr>
               <th className="px-4 py-2">#</th>
-              <th className="px-4 py-2">Client</th>
-              <th className="px-4 py-2">Items</th>
-              <th className="px-4 py-2">Total</th>
-              <th className="px-4 py-2">Paid</th>
-              <th className="px-4 py-2">Status</th>
+              <th className="px-4 py-2">{t("terms.svc.customer")}</th>
+              <th className="px-4 py-2">{t("act.colItems")}</th>
+              <th className="px-4 py-2">{t("common.total")}</th>
+              <th className="px-4 py-2">{t("status.paid")}</th>
+              <th className="px-4 py-2">{t("common.status")}</th>
               <th className="px-4 py-2"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {tickets.map((t) => (
-              <tr key={t.id}>
-                <td className="px-4 py-2 text-gray-400">#{t.id}</td>
-                <td className="px-4 py-2">{t.client?.name ?? "—"}</td>
-                <td className="px-4 py-2 text-xs text-gray-500">{t.items?.map((i: any) => i.serviceItem?.name).join(", ") || "—"}</td>
-                <td className="px-4 py-2">{t.totalAmount}</td>
-                <td className="px-4 py-2">{paid(t)}</td>
+            {tickets.map((ticket) => (
+              <tr key={ticket.id}>
+                <td className="px-4 py-2 text-gray-400">#{ticket.id}</td>
+                <td className="px-4 py-2">{ticket.client?.name ?? "—"}</td>
+                <td className="px-4 py-2 text-xs text-gray-500">{ticket.items?.map((i: any) => i.serviceItem?.name).join(", ") || "—"}</td>
+                <td className="px-4 py-2">{ticket.totalAmount}</td>
+                <td className="px-4 py-2">{paid(ticket)}</td>
                 <td className="px-4 py-2">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${t.status === "PAID" ? "bg-green-100 text-green-700" : t.status === "CANCELLED" ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"}`}>{t.status}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${ticket.status === "PAID" ? "bg-green-100 text-green-700" : ticket.status === "CANCELLED" ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"}`}>{statusLabel(ticket.status)}</span>
                 </td>
                 <td className="px-4 py-2 text-right space-x-2">
-                  {t.status !== "PAID" && t.status !== "CANCELLED" && (
+                  {ticket.status !== "PAID" && ticket.status !== "CANCELLED" && (
                     <>
                       <button
                         onClick={() => {
                           setAddItemId("");
-                          setAddItemFor(t.id);
+                          setAddItemFor(ticket.id);
                         }}
                         className="text-xs text-blue-600 hover:underline"
                       >
-                        +Item
+                        +{t("svc.tk.itemBtn")}
                       </button>
-                      <button onClick={() => pay(t.id)} className="text-xs text-green-600 hover:underline">Pay</button>
-                      <button onClick={() => setStatus(t.id, "CANCELLED")} className="text-xs text-red-600 hover:underline">Cancel</button>
+                      <button onClick={() => pay(ticket.id)} className="text-xs text-green-600 hover:underline">{t("svc.tk.pay")}</button>
+                      <button onClick={() => setStatus(ticket.id, "CANCELLED")} className="text-xs text-red-600 hover:underline">{t("common.cancel")}</button>
                     </>
                   )}
-                  {t.status === "OPEN" && <button onClick={() => setStatus(t.id, "IN_PROGRESS")} className="text-xs text-amber-600 hover:underline">Start</button>}
+                  {ticket.status === "OPEN" && <button onClick={() => setStatus(ticket.id, "IN_PROGRESS")} className="text-xs text-amber-600 hover:underline">{t("svc.tk.start")}</button>}
                 </td>
               </tr>
             ))}
-            {tickets.length === 0 && <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-400">No tickets.</td></tr>}
+            {tickets.length === 0 && <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-400">{t("svc.tk.empty")}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -164,9 +167,9 @@ export default function ServiceTicketsPage() {
       {addItemFor != null && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-5 w-full max-w-sm shadow-xl">
-            <h2 className="font-semibold text-gray-800 mb-1">Add Item</h2>
+            <h2 className="font-semibold text-gray-800 mb-1">{t("svc.tk.addItemTitle")}</h2>
             <p className="text-xs text-gray-400 mb-3">
-              Pick a service to add to ticket #{addItemFor}.
+              {t("svc.tk.addItemHint", { id: addItemFor })}
             </p>
             <form onSubmit={submitAddItem} className="space-y-3">
               <select
@@ -176,7 +179,7 @@ export default function ServiceTicketsPage() {
                 className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
                 required
               >
-                <option value="">Select service…</option>
+                <option value="">{t("svc.tk.selectService")}</option>
                 {items
                   .filter((i: any) => i.active !== false)
                   .map((i: any) => (
@@ -187,10 +190,10 @@ export default function ServiceTicketsPage() {
               </select>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setAddItemFor(null)} className="px-3 py-2 text-sm text-gray-600">
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">
-                  Add
+                  {t("common.add")}
                 </button>
               </div>
             </form>

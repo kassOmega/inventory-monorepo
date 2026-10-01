@@ -2,8 +2,10 @@
 
 import api from "@/lib/api";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 export default function ServiceCatalogPage() {
+  const { t } = useTranslation();
   const [items, setItems] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [form, setForm] = useState({ name: "", price: "", durationMins: "30", categoryId: "" });
@@ -17,9 +19,9 @@ export default function ServiceCatalogPage() {
       setItems(i.data);
       setCategories(c.data);
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? "Failed to load catalog");
+      setError(e?.response?.data?.message ?? t("svc.cat.failedLoad"));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -38,7 +40,7 @@ export default function ServiceCatalogPage() {
       setForm({ name: "", price: "", durationMins: "30", categoryId: "" });
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to create item");
+      setError(err?.response?.data?.message ?? t("svc.cat.failedCreateItem"));
     }
   };
 
@@ -52,7 +54,7 @@ export default function ServiceCatalogPage() {
       setCatModal(false);
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to create category");
+      setError(err?.response?.data?.message ?? t("svc.cat.failedCreateCategory"));
     }
   };
 
@@ -63,14 +65,14 @@ export default function ServiceCatalogPage() {
       await api.patch(`/service/items/${id}`, { ...item, active: !active });
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "Failed to update item");
+      setError(err?.response?.data?.message ?? t("svc.cat.failedUpdateItem"));
     }
   };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-800">Service Catalog</h1>
+        <h1 className="text-2xl font-bold text-gray-800">{t("svc.cat.title")}</h1>
         <button
           onClick={() => {
             setCatName("");
@@ -78,31 +80,31 @@ export default function ServiceCatalogPage() {
           }}
           className="text-sm border border-gray-300 rounded px-3 py-2 text-gray-700"
         >
-          + Category
+          + {t("filters.category")}
         </button>
       </div>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
 
       <form onSubmit={create} className="bg-white p-4 rounded-lg border border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-3">
-        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Service name" className="border border-gray-300 rounded p-2 text-sm" required />
-        <input value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="Price (ETB)" type="number" min="0" className="border border-gray-300 rounded p-2 text-sm" />
-        <input value={form.durationMins} onChange={(e) => setForm({ ...form, durationMins: e.target.value })} placeholder="Duration (min)" type="number" min="5" className="border border-gray-300 rounded p-2 text-sm" />
+        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t("svc.cat.namePh")} className="border border-gray-300 rounded p-2 text-sm" required />
+        <input value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder={t("svc.cat.pricePh")} type="number" min="0" className="border border-gray-300 rounded p-2 text-sm" />
+        <input value={form.durationMins} onChange={(e) => setForm({ ...form, durationMins: e.target.value })} placeholder={t("svc.cat.durationPh")} type="number" min="5" className="border border-gray-300 rounded p-2 text-sm" />
         <select value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })} className="border border-gray-300 rounded p-2 text-sm">
-          <option value="">No category</option>
+          <option value="">{t("pdm.noCategory")}</option>
           {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <button type="submit" className="md:col-span-4 bg-blue-600 text-white rounded p-2 text-sm font-medium">Add Service</button>
+        <button type="submit" className="md:col-span-4 bg-blue-600 text-white rounded p-2 text-sm font-medium">{t("svc.cat.addService")}</button>
       </form>
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-left text-xs text-gray-500">
             <tr>
-              <th className="px-4 py-2">Name</th>
-              <th className="px-4 py-2">Category</th>
-              <th className="px-4 py-2">Price</th>
-              <th className="px-4 py-2">Duration</th>
-              <th className="px-4 py-2">Status</th>
+              <th className="px-4 py-2">{t("common.name")}</th>
+              <th className="px-4 py-2">{t("filters.category")}</th>
+              <th className="px-4 py-2">{t("common.price")}</th>
+              <th className="px-4 py-2">{t("hospitality.duration")}</th>
+              <th className="px-4 py-2">{t("common.status")}</th>
               <th className="px-4 py-2"></th>
             </tr>
           </thead>
@@ -112,19 +114,19 @@ export default function ServiceCatalogPage() {
                 <td className="px-4 py-2 font-medium">{i.name}</td>
                 <td className="px-4 py-2 text-gray-500">{i.category?.name ?? "—"}</td>
                 <td className="px-4 py-2">{i.price}</td>
-                <td className="px-4 py-2">{i.durationMins} min</td>
+                <td className="px-4 py-2">{t("svc.cat.mins", { value: i.durationMins })}</td>
                 <td className="px-4 py-2">
                   <button onClick={() => toggleActive(i.id, i.active)} className={`text-xs px-2 py-0.5 rounded-full ${i.active ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-500"}`}>
-                    {i.active ? "Active" : "Inactive"}
+                    {i.active ? t("status.active") : t("status.inactive")}
                   </button>
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <button onClick={() => toggleActive(i.id, i.active)} className="text-xs text-blue-600 hover:underline">{i.active ? "Deactivate" : "Activate"}</button>
+                  <button onClick={() => toggleActive(i.id, i.active)} className="text-xs text-blue-600 hover:underline">{i.active ? t("mfg.common.deactivate") : t("mfg.common.activate")}</button>
                 </td>
               </tr>
             ))}
             {items.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-400">No services yet.</td></tr>
+              <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-400">{t("mfg.services.noServices")}</td></tr>
             )}
           </tbody>
         </table>
@@ -133,22 +135,22 @@ export default function ServiceCatalogPage() {
       {catModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-5 w-full max-w-sm shadow-xl">
-            <h2 className="font-semibold text-gray-800 mb-3">New Category</h2>
+            <h2 className="font-semibold text-gray-800 mb-3">{t("menu.newCategory")}</h2>
             <form onSubmit={submitCategory} className="space-y-3">
               <input
                 autoFocus
                 value={catName}
                 onChange={(e) => setCatName(e.target.value)}
-                placeholder="Category name"
+                placeholder={t("menu.categoryName")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
                 required
               />
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setCatModal(false)} className="px-3 py-2 text-sm text-gray-600">
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">
-                  Add
+                  {t("common.add")}
                 </button>
               </div>
             </form>

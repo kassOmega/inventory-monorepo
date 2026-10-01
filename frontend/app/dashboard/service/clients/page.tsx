@@ -2,8 +2,10 @@
 
 import api from "@/lib/api";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 export default function ServiceClientsPage() {
+  const { t } = useTranslation();
   const [clients, setClients] = useState<any[]>([]);
   const [search, setSearch] = useState("");
 
@@ -16,11 +18,11 @@ export default function ServiceClientsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800">Clients</h1>
+      <h1 className="text-2xl font-bold text-gray-800">{t("nav.serviceClients")}</h1>
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search by name or phone…"
+        placeholder={t("facility.searchMembersPh")}
         className="border border-gray-300 rounded p-2 text-sm w-full max-w-sm"
       />
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -31,7 +33,7 @@ export default function ServiceClientsPage() {
               <span className="text-xs text-gray-400">{c.phone ?? "—"}</span>
             </li>
           ))}
-          {clients.length === 0 && <li className="px-4 py-6 text-center text-gray-400">No clients found.</li>}
+          {clients.length === 0 && <li className="px-4 py-6 text-center text-gray-400">{t("svc.cl.empty")}</li>}
         </ul>
       </div>
     </div>

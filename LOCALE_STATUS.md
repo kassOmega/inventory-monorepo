@@ -117,6 +117,7 @@ categories automatically (`tenants.service.ts`, `common/verticals.ts`).
   **Taxes** (company tax settings + VAT/TIN, MoR E-Invoicing + fiscal printer/agent registration incl.
   certificate upload, tax-rate CRUD w/ direction/default/enabled badges and modal),
   **Hospitality** (all 9 files under `app/dashboard/hospitality/**` — see the batch note below),
+  **Service vertical** (overview, catalog, tickets, bookings, clients, settings — see below),
   **Accounts** (chart-of-accounts list, type filter, CRUD modal; previously missing
   `common.all`/`common.delete` + two placeholder keys added),
   **Reports page** (retail + hospitality tab sets, date/location filters, inventory-breakdown table w/
@@ -128,8 +129,8 @@ categories automatically (`tenants.service.ts`, `common/verticals.ts`).
 **Foundation only (helper exists, sweep still required):**
 - Remaining module pages (see audit output): platform **Admin** (shell + overview done — `adm.*`
   group; `businesses` 51, `verification` 45, `owners` 29 hits remain), Businesses/Verification
-  (owner side), AI Agent drawers, **Service** vertical (`app/dashboard/service` 70 hits / 6 files)
-  and the platform **Settings** pages. Roles and Users pages converted (`roles.*`/`users.*` groups).
+  (owner side), AI Agent drawers and the platform **Settings** pages. Roles and Users pages
+  converted (`roles.*`/`users.*` groups).
 - Shared component sweep: **complete** — **`app/components/**` audits 0 hits across all 60 files.**
   This batch wired the primitives (`FilterRow`, `SearchableSelect` incl. a localized default
   placeholder/clear tooltip, `LanguageSwitcher` via `language.switchTo*`, `ActivityAuditReport`,
@@ -204,6 +205,25 @@ categories automatically (`tenants.service.ts`, `common/verticals.ts`).
   with `i18nKey === serviceType`, so making that helper `t`-aware localizes every call site at once.
   Repo totals after this batch: **476 hits / 37 dirty files** (from 614 / 42 at the Phase-0
   measurement), catalog **3434 en / 3434 am keys, all gates clean**.
+- **Service vertical** (done): `app/dashboard/service/**` audits **0 hits across all 6 files**
+  (70 hits at the start of the batch). The already-existing `svc.*` group (dashboard tiles from the
+  `app/components` sweep) grew four subtrees — `svc.cat.*` (service catalog + category modal),
+  `svc.tk.*` (tickets), `svc.bk.*` (bookings/appointments) and `svc.set.*` (settings) — plus
+  `svc.title`/`svc.noClient`. Both list pages now render statuses through the shared
+  `statusLabel()` helper (`lib/statusLabel.ts`, `status.open|inProgress|paid|cancelled|confirmed|
+  completed`, with a generic `status.noShow` added to the `status` group for the booking
+  no-show action) instead of printing raw enums, booking times go through `formatDateTime()`
+  (locale-aware) instead of `toLocaleString()`, durations through `svc.cat.mins`
+  (`{{value}} min` / `{{value}} ደቂቃ`). Vertical terminology keys were used for column headers
+  that change per business type (`terms.svc.customer` → Client, `terms.svc.service`,
+  `terms.svc.orders` → Tickets), and shared keys cover the rest (`common.*` verbs,
+  `filters.category`, `menu.newCategory|categoryName`, `pdm.noCategory`,
+  `mfg.settings.save`, `mfg.common.activate|deactivate`, `mfg.services.noServices`,
+  `act.colItems`, `hotel.guestName`, `nav.serviceClients`,
+  `hospitality.duration|servicePh`, `facility.searchMembersPh`). The `tickets` page map param
+  that shadowed `t` was renamed to `ticket`, and `t` was added to the `load` `useCallback` deps.
+  Repo totals after this batch: **406 hits / 31 dirty files**, catalog
+  **3476 en / 3476 am keys, all gates clean** (`tsc --noEmit` green).
 - Fiscal print preview & PDF exports (Ethiopic font work): the preview/button chrome is localized
   and the receipt body is pinned Latin in `i18n-check.mjs` (`fiscal.receipt.*`) until the Ethiopic
   font work lands.

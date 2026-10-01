@@ -824,6 +824,7 @@
     "cancelled": "ተሰርዟል",
     "expired": "ጊዜ ያለፈበት",
     "suspended": "ታግዷል",
+    "noShow": "አልመጣም",
     "awaitingConfirmation": "ማረጋገጫ በመጠባበቅ ላይ",
     "partiallyDispatched": "በከፊል ተልኳል",
     "partiallyReceived": "በከፊል ተቀብሏል",
@@ -2498,7 +2499,58 @@
     "quickActions": "ፈጣን እርምጃዎች",
     "newBooking": "አዲስ ቦታ ማስያዝ",
     "newTicket": "አዲስ ትኬት",
-    "manageCatalog": "ካታሎግ ያስተዳድሩ"
+    "manageCatalog": "ካታሎግ ያስተዳድሩ",
+    "title": "አገልግሎቶች እና ምክር",
+    "noClient": "ደንበኛ የለም",
+    "cat": {
+      "title": "የአገልግሎት ካታሎግ",
+      "failedLoad": "ካታሎጉን መጫን አልተሳካም",
+      "failedCreateItem": "አገልግሎት መፍጠር አልተሳካም",
+      "failedCreateCategory": "ምድብ መፍጠር አልተሳካም",
+      "failedUpdateItem": "አገልግሎት ማዘመን አልተሳካም",
+      "addService": "አገልግሎት ያክሉ",
+      "namePh": "የአገልግሎት ስም",
+      "pricePh": "ዋጋ (ብር)",
+      "durationPh": "ቆይታ (ደቂቃ)",
+      "mins": "{{value}} ደቂቃ"
+    },
+    "tk": {
+      "failedLoad": "ትኬቶችን መጫን አልተሳካም",
+      "failedCreate": "ትኬት መክፈት አልተሳካም",
+      "failedAddItem": "ዕቃ ማከል አልተሳካም",
+      "failedPay": "ክፍያውን ማከናወን አልተሳካም",
+      "failedUpdate": "ትኬት ማዘመን አልተሳካም",
+      "open": "ትኬት ይክፈቱ",
+      "selectService": "አገልግሎት ይምረጡ…",
+      "itemBtn": "ዕቃ",
+      "pay": "ይክፈሉ",
+      "start": "ይጀምሩ",
+      "empty": "ትኬት የለም።",
+      "addItemTitle": "ዕቃ ማከል",
+      "addItemHint": "ለትኬት #{{id}} የሚጨመር አገልግሎት ይምረጡ።"
+    },
+    "bk": {
+      "title": "ቦታ ማስያዣዎች / ቀጠሮዎች",
+      "failedLoad": "ቦታ ማስያዣዎችን መጫን አልተሳካም",
+      "failedCreate": "ቦታ ማስያዝ አልተሳካም",
+      "failedUpdate": "ቦታ ማስያዣ ማዘመን አልተሳካም",
+      "serviceAny": "አገልግሎት (ማንኛውም)",
+      "add": "ቦታ ማስያዝ ያክሉ",
+      "colTime": "ሰዓት",
+      "confirm": "ያረጋግጡ",
+      "complete": "ያጠናቅቁ",
+      "empty": "ቦታ ማስያዣ የለም።"
+    },
+    "cl": {
+      "empty": "ደንበኛ አልተገኘም።"
+    },
+    "set": {
+      "title": "የአገልግሎት ቅንብሮች",
+      "failedSave": "ቅንብሮቹን ማስቀመጥ አልተሳካም",
+      "saved": "ቅንብሮቹ ተቀምጠዋል",
+      "hourly": "በሰዓት ይክፈሉ",
+      "slotLabel": "የቀጠሮ ክፍተት (ደቂቃ)"
+    }
   },
   "fiscal": {
     "printButton": "ፊስካል ደረሰኝ አትም",

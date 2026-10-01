@@ -824,6 +824,7 @@
     "cancelled": "Cancelled",
     "expired": "Expired",
     "suspended": "Suspended",
+    "noShow": "No-show",
     "awaitingConfirmation": "Awaiting Confirmation",
     "partiallyDispatched": "Partially Dispatched",
     "partiallyReceived": "Partially Received",
@@ -2498,7 +2499,58 @@
     "quickActions": "Quick Actions",
     "newBooking": "New Booking",
     "newTicket": "New Ticket",
-    "manageCatalog": "Manage Catalog"
+    "manageCatalog": "Manage Catalog",
+    "title": "Services & Consulting",
+    "noClient": "No client",
+    "cat": {
+      "title": "Service Catalog",
+      "failedLoad": "Failed to load catalog",
+      "failedCreateItem": "Failed to create item",
+      "failedCreateCategory": "Failed to create category",
+      "failedUpdateItem": "Failed to update item",
+      "addService": "Add Service",
+      "namePh": "Service name",
+      "pricePh": "Price (ETB)",
+      "durationPh": "Duration (min)",
+      "mins": "{{value}} min"
+    },
+    "tk": {
+      "failedLoad": "Failed to load tickets",
+      "failedCreate": "Failed to create ticket",
+      "failedAddItem": "Failed to add item",
+      "failedPay": "Failed to pay",
+      "failedUpdate": "Failed to update ticket",
+      "open": "Open Ticket",
+      "selectService": "Select service…",
+      "itemBtn": "Item",
+      "pay": "Pay",
+      "start": "Start",
+      "empty": "No tickets.",
+      "addItemTitle": "Add Item",
+      "addItemHint": "Pick a service to add to ticket #{{id}}."
+    },
+    "bk": {
+      "title": "Bookings / Appointments",
+      "failedLoad": "Failed to load bookings",
+      "failedCreate": "Failed to create booking",
+      "failedUpdate": "Failed to update booking",
+      "serviceAny": "Service (any)",
+      "add": "Add Booking",
+      "colTime": "Time",
+      "confirm": "Confirm",
+      "complete": "Complete",
+      "empty": "No bookings."
+    },
+    "cl": {
+      "empty": "No clients found."
+    },
+    "set": {
+      "title": "Service Settings",
+      "failedSave": "Failed to save settings",
+      "saved": "Settings saved",
+      "hourly": "Bill by the hour",
+      "slotLabel": "Appointment slot (minutes)"
+    }
   },
   "fiscal": {
     "printButton": "Print Fiscal Invoice",
