@@ -1,26 +1,112 @@
 #!/usr/bin/env node
-// Frontend i18n coverage heuristic audit.
+// Frontend i18n coverage audit — the gate for the Amharic sweep.
 //
-// Scans app/**/*.{tsx,ts} (client surfaces) for lines that look like
-// hardcoded user-facing English text still embedded in JSX:
-//   - text nodes:     >Some words</  or >Some words{  (not {vars})
-//   - attributes:     placeholder="...", title="...", aria-label="..."
-//   - string returns: return "Some phrase";  (non-comment)
+// Scans the client surfaces (app, lib, context, worker) for user-facing English
+// that is still hardcoded: JSX text, the attributes a user or a screen reader
+// reads (placeholder/title/aria-label/alt/label), object-literal labels, string
+// returns and strings passed to a toast/alert/error path.
 //
-// It is intentionally heuristic (filters out className/keys/urls/emojis);
-// run it after each module sweep. Lower numbers = more coverage.
+// Usage
+//   node scripts/i18n-audit.mjs                   summary per module
+//   node scripts/i18n-audit.mjs --all             list every dirty file
+//   node scripts/i18n-audit.mjs --list            every match: file:line: [kind] text
+//   node scripts/i18n-audit.mjs --file app/dashboard/sales/page.tsx
+//   node scripts/i18n-audit.mjs --dir app/dashboard/manufacturing
+//   node scripts/i18n-audit.mjs --strict          exit 1 if anything is left
+//
+// Deliberately biased to over-report: a false positive costs one glance, a
+// false negative ships English. Silence a good line with `// i18n-ignore`
+// (on the line itself or on the line above it).
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname;
-const APP = join(ROOT, "app");
+const AREAS = ["app", "lib", "context", "worker"];
+const SKIP_DIRS = new Set(["node_modules", ".next", "public", "dist", "locales"]);
 
-const SKIP_DIRS = new Set(["node_modules", ".next", "public"]);
-const TEXT_NODE = /(>|\n)\s*([A-Za-z][A-Za-z ,'’&.?!:;()%+-]{2,})[<{]?/;
-const ATTR_STRING =
-  /\b(placeholder|title|aria-label|alt|label)="([A-Za-z][A-Za-z ,'’&.?!:;()%+*#-]{3,})"/;
-const RETURN_STRING =
-  /return\s+"([A-Za-z][A-Za-z ,'’&.?!:;()%+*#-]{3,})";/;
+// Names, units and acronyms that stay as they are (docs/i18n-glossary.md).
+const ALLOW = new Set([
+  "SKU", "ETB", "PDF", "CSV", "QR", "AI", "ID", "URL", "POS", "OTP", "PIN",
+  "COGS", "App", "Amharic", "English", "Noto Sans Ethiopic", "Kass Inv.",
+]);
+
+const KINDS = {
+  attr: /\b(placeholder|title|aria-label|alt|label|summary)=["']([^"'{}]{3,})["']/g,
+  prop: /\b(title|label|name|text|description|message|placeholder|tooltip|heading|subtitle|ariaLabel)\s*:\s*["'`]([^"'`{}]{3,})["'`]/g,
+  call: /\b(toast|alert|confirm|setError|setMessage|notify|showToast)\(\s*["']([^"'{}]{3,})["']/g,
+  err: /throw new Error\(\s*["'`]([^"'`{}]{3,})["'`]/g,
+  ret: /return\s+["']([^"']{3,})["']\s*;/g,
+  jsx: /(?<!=)>\s*([A-Za-z][^<>{}]{2,}?)\s*</g,
+  // Standalone JSX text line. Deliberately excludes ( ) = ; : so that code
+  // lines such as `Array.isArray(body) ? rows.length : …` are not read as prose.
+  bare: /^\s*([A-Z][A-Za-z0-9 ,'’&.!%+*#/-]{2,})\s*$/g,
+  str: /^\s*["']([A-Za-z][^"']{2,})["'],?\s*$/g,
+};
+
+// Every pattern must be global: exec() ignores lastIndex otherwise and the
+// scan loop below spins on the same match forever.
+for (const [kind, re] of Object.entries(KINDS)) {
+  if (!re.global) throw new Error(`KINDS.${kind} must use the /g flag`);
+}
+
+// Catalog keys referenced from code (segment names, key arrays) are not UI text.
+function catalogKeys(node, prefix = "", out = new Set()) {
+  for (const [k, v] of Object.entries(node)) {
+    const key = prefix ? `${prefix}.${k}` : k;
+    if (v && typeof v === "object" && !Array.isArray(v)) catalogKeys(v, key, out);
+    else out.add(key);
+  }
+  return out;
+}
+const EN_KEYS = catalogKeys(
+  JSON.parse(readFileSync(new URL("../lib/locales/en/common.json", import.meta.url), "utf8")),
+);
+
+function keep(text) {
+  const s = text.trim().replace(/\s+/g, " ");
+  if (s.length < 3 || !/[A-Za-z]/.test(s)) return false;
+  if (ALLOW.has(s)) return false;
+  if (EN_KEYS.has(s)) return false; // an i18n key, not a literal
+  if (/^[a-z][A-Za-z0-9]*(\.[A-Za-z0-9_]+)+$/.test(s)) return false; // key shape
+  if (/^[A-Z0-9_ /-]+$/.test(s)) return false; // enum values, acronyms
+  if (s.includes("://") || s.startsWith("/") || s.startsWith(".")) return false;
+  if (/^[^@\s]+@[^@\s]+$/.test(s)) return false; // email / handle
+  if (/#[0-9a-fA-F]{3,8}\b/.test(s)) return false; // colours
+  if (/^(https?|mailto|tel):/.test(s)) return false;
+  if (/^[a-z][A-Za-z0-9_.-]*$/.test(s)) return false; // identifiers, css tokens
+  if (/^[a-z]+(?:-[a-z]+)+$/.test(s)) return false; // kebab tokens
+  if (/=>|\?\?|\?\.|&&|\|\|/.test(s)) return false; // JS operators, never prose
+  return true;
+}
+
+// Trim a line at its comment marker, respecting quotes so `https://` survives.
+function stripComment(line) {
+  let q = null;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (q) {
+      if (c === q && line[i - 1] !== "\\") q = null;
+    } else if (c === '"' || c === "'" || c === "`") q = c;
+    else if (c === "/" && line[i + 1] === "/") return line.slice(0, i);
+  }
+  return line;
+}
+
+function scanLine(line) {
+  const found = new Map();
+  for (const [kind, re] of Object.entries(KINDS)) {
+    re.lastIndex = 0;
+    let m;
+    let guard = 0;
+    while ((m = re.exec(line)) !== null) {
+      const text = (m[2] ?? m[1] ?? "").trim();
+      if (keep(text)) found.set(`${kind}:${text}`, { kind, text });
+      if (m.index === re.lastIndex) re.lastIndex++;
+      if (++guard > 500) break; // belt and braces
+    }
+  }
+  return [...found.values()];
+}
 
 function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
@@ -34,34 +120,96 @@ function walk(dir, out = []) {
   return out;
 }
 
-function hitCount(src) {
-  // strip comments & pure-code zones roughly
-  const lines = src.split("\n");
-  let count = 0;
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line) continue;
-    if (line.startsWith("//") || line.startsWith("*") || line.startsWith("/*")) continue;
-    // ignore obvious non-translatable lines
-    if (/className=|\.map\(|\.filter\(|=>|href=|key=|type=|<svg|<path|<option value/.test(line)) {
-      // attributes can still appear on same line as text; keep scanning for text-node only when line also contains tag with text. Simplify: skip pure className/import/const lines.
-      if (/^import |^const |className=|return \(|\)$/.test(line)) continue;
+function scanFile(abs) {
+  const lines = readFileSync(abs, "utf8").split("\n");
+  const hits = [];
+  let inBlock = false;
+  lines.forEach((raw, i) => {
+    const trimmed = raw.trim();
+    if (inBlock) {
+      if (trimmed.includes("*/")) inBlock = false;
+      return;
     }
-    if (TEXT_NODE.test(line)) count++;
-    if (ATTR_STRING.test(line)) count++;
-    if (RETURN_STRING.test(line)) count++;
-  }
-  return count;
+    if (/^\/\*/.test(trimmed)) {
+      if (!trimmed.includes("*/")) inBlock = true;
+      return;
+    }
+    if (!trimmed || /^\/\//.test(trimmed) || trimmed.startsWith("{/*")) return;
+    if (/i18n-ignore/.test(raw) || /i18n-ignore/.test(lines[i - 1] ?? "")) return;
+    const code = stripComment(raw);
+    // Already localized, or pure plumbing.
+    if (/\B(t|i18n\.t|statusLabel|fmtCurrency|fmtNumber|formatDate|formatDateTime|timeAgo)\(/.test(code)) return;
+    if (/^\s*(import|export|interface|type|enum|declare)\b/.test(code)) return;
+    for (const hit of scanLine(code)) hits.push({ line: i + 1, ...hit });
+  });
+  return hits;
 }
 
-const files = walk(APP).map((p) => ({
-  file: p.replace(ROOT, ""),
-  hits: hitCount(readFileSync(p, "utf8")),
-}));
-files.sort((a, b) => b.hits - a.hits);
-const total = files.reduce((s, f) => s + f.hits, 0);
-console.log(`Files: ${files.length}   total heuristic hits: ${total}`);
-console.log("---- top 40 ----");
-for (const f of files.slice(0, 40)) {
-  if (f.hits > 0) console.log(String(f.hits).padStart(4), f.file);
+function moduleOf(rel) {
+  const p = rel.split("/");
+  if (p[0] !== "app") return p[0];
+  if (p[1] === "components") return p.length > 3 ? `app/components/${p[2]}` : "app/components";
+  if (p[1] === "dashboard") return p.length > 3 ? `app/dashboard/${p[2]}` : "app/dashboard";
+  return `app/${p[1] ?? ""}`;
 }
+
+const argv = process.argv.slice(2);
+const flag = (n) => argv.includes(n);
+const value = (n) => {
+  const i = argv.indexOf(n);
+  return i === -1 ? null : argv[i + 1];
+};
+
+const files = [];
+for (const area of AREAS) {
+  const dir = join(ROOT, area);
+  try {
+    statSync(dir);
+  } catch {
+    continue; // area not present in this checkout
+  }
+  files.push(...walk(dir));
+}
+
+const only = value("--file") ?? value("--dir");
+const results = [];
+for (const abs of files) {
+  const rel = relative(ROOT, abs);
+  if (only && !rel.startsWith(only)) continue;
+  results.push({ rel, hits: scanFile(abs) });
+}
+results.sort((a, b) => b.hits.length - a.hits.length);
+
+const dirty = results.filter((r) => r.hits.length > 0);
+const total = dirty.reduce((s, r) => s + r.hits.length, 0);
+const scope = only ? ` (scope: ${only})` : "";
+
+if (flag("--list")) {
+  for (const r of dirty) {
+    for (const h of r.hits) console.log(`${r.rel}:${h.line}: [${h.kind}] ${h.text}`);
+  }
+  console.log(`\n${dirty.length} dirty / ${results.length} scanned — ${total} hits${scope}`);
+} else {
+  const byModule = new Map();
+  for (const r of dirty) {
+    const key = moduleOf(r.rel);
+    const cur = byModule.get(key) ?? { hits: 0, files: 0 };
+    cur.hits += r.hits.length;
+    cur.files += 1;
+    byModule.set(key, cur);
+  }
+  console.log(
+    `Frontend i18n audit — ${results.length} files scanned, ${dirty.length} dirty, ${total} hits${scope}`,
+  );
+  console.log("---- per module (hits, files) ----");
+  for (const [mod, v] of [...byModule].sort((a, b) => b[1].hits - a[1].hits)) {
+    console.log(String(v.hits).padStart(5), String(v.files).padStart(4), mod);
+  }
+  console.log("---- files ----");
+  for (const r of flag("--all") ? dirty : dirty.slice(0, 40)) {
+    console.log(String(r.hits.length).padStart(5), r.rel);
+  }
+  if (!flag("--all") && dirty.length > 40) console.log(`      … ${dirty.length - 40} more (--all)`);
+}
+if (flag("--strict") && total > 0) process.exit(1);
+

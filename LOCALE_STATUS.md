@@ -1,8 +1,28 @@
 # Multi-Tenant Amharic (አማርኛ) Localization — Status Ledger
 
 Cross-cutting i18n foundation + partial module coverage. Everything below type-checks
-(`npx tsc --noEmit` green in both apps). Run `cd frontend && node scripts/i18n-audit.mjs`
-to re-measure remaining hardcoded strings per module (heuristic, ~1017 hits at time of writing).
+(`npx tsc --noEmit` green in both apps). Three gate scripts measure what is left — see
+section 0.
+
+## 0. Amharic sweep baseline (Phase 0, measured)
+
+| Gate | Command | Baseline |
+| --- | --- | --- |
+| Catalog | `cd frontend && node scripts/i18n-check.mjs` | **all gates clean** — parity 2403/2403 ✓, no identical-value misses, 0 glossary violations |
+| Frontend UI | `cd frontend && node scripts/i18n-audit.mjs [--list --file X --strict]` | 178 files scanned, 89 dirty, 1091 hardcoded strings |
+| Backend messages | `cd inventory-backend && node scripts/i18n-audit.mjs [--list --strict]` | 667 `throw` sites, 239 localized, 428 remaining (398 static + 30 interpolated) |
+
+- `docs/i18n-glossary.md` is the single source of truth for terminology; `i18n-check.mjs`
+  parses its table and fails on an avoided variant.
+- Phase 0 corrected 308 catalog values in two passes — terminology (133): Location
+  አካባቢ→ቦታ (20), Variant አይነት/ልዩነት/ቫሪያንት→ተለዋጭ (60), Unit ክፍል→አሃድ (13), COGS→የሸቀጦች ወጪ (7),
+  Total ድምር→ጠቅላላ (4), Invoice ኢንቮይስ→ደረሰኝ (3), Business ቢዝነስ→ንግድ (1), Take-away→ያዙና ሂዱ (1);
+  register + destructive wording (175), per the decision recorded in the glossary — polite
+  plural imperative everywhere, and Delete (ያጥፉ) separated from Cancel (ይሰርዙ).
+- Audit counts are heuristic and deliberately over-report; `// i18n-ignore` silences a
+  known-good line. The previous ledger figure (~1017 hits) came from a wider-net matcher
+  that counted arrow functions and JSX tags, so it is not comparable.
+- Open: imperative register (77 values) and Delete-vs-Cancel wording — see the glossary.
 
 ## 1. Architecture (working)
 
