@@ -6,6 +6,8 @@ import { useToast } from "@/app/components/ToastProvider";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { statusLabel } from "@/lib/statusLabel";
 
 const STATUS_COLOR: Record<string, string> = {
   OPEN: "bg-amber-100 text-amber-800",
@@ -18,6 +20,7 @@ const emptyIssue = () => ({ productId: "", quantity: "1", locationId: "", workOr
 export default function ManufacturingMaterialsPage() {
   const { hasPermission } = useAuth();
   const toast = useToast();
+  const { t } = useTranslation();
   const [issues, setIssues] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
@@ -42,7 +45,7 @@ export default function ManufacturingMaterialsPage() {
       setLocations(l.data ?? []);
       setStaff(Array.isArray(u.data) ? u.data : (u.data?.data ?? []));
     } catch {
-      toast.error("Failed to load materials");
+      toast.error(t("mfg.materials.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -60,12 +63,12 @@ export default function ManufacturingMaterialsPage() {
         jobId: form.jobId ? Number(form.jobId) : undefined,
         issuedToId: form.issuedToId ? Number(form.issuedToId) : undefined,
       });
-      toast.success("Material issued");
+      toast.success(t("mfg.materials.added"));
       setShowIssue(false);
       setForm(emptyIssue());
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to issue material");
+      toast.error(err?.response?.data?.message || t("mfg.materials.issueFailed"));
     }
   };
 
@@ -74,12 +77,12 @@ export default function ManufacturingMaterialsPage() {
     if (!showReturn) return;
     try {
       await api.post("/manufacturing/returns", { issueId: showReturn.id, quantity: Number(returnQty) || 1 });
-      toast.success("Return recorded");
+      toast.success(t("mfg.materials.returned"));
       setShowReturn(null);
       setReturnQty("1");
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to record return");
+      toast.error(err?.response?.data?.message || t("mfg.materials.returnFailed"));
     }
   };
 
@@ -100,10 +103,10 @@ export default function ManufacturingMaterialsPage() {
   return (
     <div>
       <div className="flex justify-between items-center mb-6 gap-3 flex-wrap">
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Materials & Issues</h1>
-        <p className="text-sm text-gray-500 mt-1 w-full">Bulk materials handed to workers by amount — what's issued, what came back unused, and what was used.</p>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-800">{t("mfg.materials.title")}</h1>
+        <p className="text-sm text-gray-500 mt-1 w-full">{t("mfg.materials.subtitle")}</p>
         {canManage && (
-          <button onClick={() => setShowIssue(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">+ Issue Material</button>
+          <button onClick={() => setShowIssue(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">{t("mfg.materials.issueMaterial")}</button>
         )}
       </div>
 
@@ -111,12 +114,12 @@ export default function ManufacturingMaterialsPage() {
         <table className="w-full text-left min-w-[760px] text-xs sm:text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="p-3">Product</th>
-              <th className="p-3">Worker</th>
-              <th className="p-3 text-center">Issued / Returned</th>
-              <th className="p-3 text-center">Used</th>
-              <th className="p-3">Location</th>
-              <th className="p-3">Status</th>
+              <th className="p-3">{t("mfg.materials.colProduct")}</th>
+              <th className="p-3">{t("mfg.materials.colWorker")}</th>
+              <th className="p-3 text-center">{t("mfg.materials.colIssuedReturned")}</th>
+              <th className="p-3 text-center">{t("mfg.materials.colUsed")}</th>
+              <th className="p-3">{t("common.location")}</th>
+              <th className="p-3">{t("common.status")}</th>
               <th className="p-3"></th>
             </tr>
           </thead>
@@ -129,60 +132,60 @@ export default function ManufacturingMaterialsPage() {
                 <td className="p-3 text-center font-semibold">{i.usedQty}</td>
                 <td className="p-3 text-gray-500">{lName(i.locationId)}</td>
                 <td className="p-3">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLOR[i.status] ?? "bg-gray-100"}`}>{i.status}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLOR[i.status] ?? "bg-gray-100"}`}>{statusLabel(i.status)}</span>
                 </td>
                 <td className="p-3">
                   {canManage && i.status !== "RETURNED" && i.status !== "CLOSED" && (
-                    <button onClick={() => { setShowReturn(i); setReturnQty("1"); }} className="text-xs text-green-600 hover:underline">Return</button>
+                    <button onClick={() => { setShowReturn(i); setReturnQty("1"); }} className="text-xs text-green-600 hover:underline">{t("mfg.materials.returnAction")}</button>
                   )}
                 </td>
               </tr>
             ))}
-            {issues.length === 0 && <tr><td colSpan={7} className="p-6 text-center text-gray-400">No material issues yet.</td></tr>}
+            {issues.length === 0 && <tr><td colSpan={7} className="p-6 text-center text-gray-400">{t("mfg.materials.noIssues")}</td></tr>}
           </tbody>
         </table>
       </div>
 
-      <Modal isOpen={showIssue} onClose={() => setShowIssue(false)} title="Issue Material">
+      <Modal isOpen={showIssue} onClose={() => setShowIssue(false)} title={t("mfg.materials.issueTitle")}>
         <form onSubmit={submitIssue} className="grid grid-cols-1 gap-4">
-          {field("Product *", (
+          {field(t("mfg.materials.productLabel"), (
             <select value={form.productId} onChange={(e) => setForm({ ...form, productId: e.target.value })} className={inputCls} required>
-              <option value="">Select product</option>
+              <option value="">{t("mfg.materials.selectProduct")}</option>
               {products.map((p) => <option key={p.id} value={p.id}>{`${p.brand} ${p.baseName}`.trim()}</option>)}
             </select>
           ))}
           <div className="grid grid-cols-2 gap-4">
-            {field("Quantity *", <input type="number" min="0.0001" step="any" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} className="border p-2 rounded-lg w-full" required />)}
-            {field("Location *", (
+            {field(t("mfg.materials.quantityLabel"), <input type="number" min="0.0001" step="any" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} className="border p-2 rounded-lg w-full" required />)}
+            {field(t("mfg.materials.locationLabel"), (
               <select value={form.locationId} onChange={(e) => setForm({ ...form, locationId: e.target.value })} className={inputCls} required>
-                <option value="">Select location</option>
+                <option value="">{t("mfg.materials.selectLocation")}</option>
                 {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
             ))}
           </div>
           <div className="grid grid-cols-3 gap-4">
-            {field("Work order", <input value={form.workOrderId} onChange={(e) => setForm({ ...form, workOrderId: e.target.value })} placeholder="Optional" className="border p-2 rounded-lg w-full" />)}
-            {field("Job", <input value={form.jobId} onChange={(e) => setForm({ ...form, jobId: e.target.value })} placeholder="Optional" className="border p-2 rounded-lg w-full" />)}
-            {field("Issued to (team member)", (
+            {field(t("mfg.materials.workOrderLabel"), <input value={form.workOrderId} onChange={(e) => setForm({ ...form, workOrderId: e.target.value })} placeholder={t("mfg.common.optional")} className="border p-2 rounded-lg w-full" />)}
+            {field(t("mfg.materials.jobLabel"), <input value={form.jobId} onChange={(e) => setForm({ ...form, jobId: e.target.value })} placeholder={t("mfg.common.optional")} className="border p-2 rounded-lg w-full" />)}
+            {field(t("mfg.materials.issuedToTeamLabel"), (
               <select value={form.issuedToId} onChange={(e) => setForm({ ...form, issuedToId: e.target.value })} className={inputCls}>
-                <option value="">— None —</option>
+                <option value="">{t("mfg.materials.noneOption")}</option>
                 {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
             ))}
           </div>
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setShowIssue(false)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">Cancel</button>
-            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">Issue</button>
+            <button type="button" onClick={() => setShowIssue(false)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">{t("mfg.common.cancel")}</button>
+            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">{t("mfg.materials.issueButton")}</button>
           </div>
         </form>
       </Modal>
 
-      <Modal isOpen={!!showReturn} onClose={() => setShowReturn(null)} title={`Return from issue #${showReturn?.id ?? ""}`}>
+      <Modal isOpen={!!showReturn} onClose={() => setShowReturn(null)} title={t("mfg.materials.returnTitle", { id: showReturn?.id ?? "" })}>
         <form onSubmit={submitReturn} className="grid grid-cols-1 gap-4">
-          {field("Quantity (leftover/offcut)", <input type="number" min="0.0001" step="any" value={returnQty} onChange={(e) => setReturnQty(e.target.value)} className="border p-2 rounded-lg w-full" required />)}
+          {field(t("mfg.materials.leftoverLabel"), <input type="number" min="0.0001" step="any" value={returnQty} onChange={(e) => setReturnQty(e.target.value)} className="border p-2 rounded-lg w-full" required />)}
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setShowReturn(null)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">Cancel</button>
-            <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm">Return</button>
+            <button type="button" onClick={() => setShowReturn(null)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">{t("mfg.common.cancel")}</button>
+            <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm">{t("mfg.materials.returnAction")}</button>
           </div>
         </form>
       </Modal>

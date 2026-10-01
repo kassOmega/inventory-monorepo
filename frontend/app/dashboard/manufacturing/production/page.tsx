@@ -6,6 +6,7 @@ import RowActionsMenu from "@/app/components/RowActionsMenu";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useToast } from "@/app/components/ToastProvider";
 import { fmtCurrency } from "@/lib/currency";
+import { formatDate } from "@/lib/datetime";
 import { statusLabel } from "@/lib/statusLabel";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -384,16 +385,16 @@ export default function ManufacturingProductionPage() {
               <div>
                 {label(t("mfg.workOrders.produced"), true)}
                 <input type="number" min="0.0001" step="any" required value={compForm.goodUnits} onChange={(e) => setCompForm({ ...compForm, goodUnits: e.target.value })} className="border p-2 rounded-lg w-full" />
-                <p className="text-[11px] text-gray-400 mt-1">Good units deposited into the store</p>
+                <p className="text-[11px] text-gray-400 mt-1">{t("mfg.production.goodUnitsHint")}</p>
               </div>
               <div>
                 {label(t("mfg.workOrders.scrapQuantityLabel"))}
                 <input type="number" min="0" step="any" value={compForm.scrapUnits} onChange={(e) => setCompForm({ ...compForm, scrapUnits: e.target.value })} className="border p-2 rounded-lg w-full" />
-                <p className="text-[11px] text-gray-400 mt-1">Finished units scrapped (not stocked)</p>
+                <p className="text-[11px] text-gray-400 mt-1">{t("mfg.production.scrapUnitsHint")}</p>
               </div>
             </div>
             <div>
-              {label("Target inventory store")}
+              {label(t("mfg.production.storeLabel"))}
               <select className="border p-2 rounded-lg w-full bg-white" value={compForm.locationId} onChange={(e) => setCompForm({ ...compForm, locationId: e.target.value })}>
                 <option value="">—</option>
                 {locations.filter((l) => l.type === "STORE").map((l) => (
@@ -404,11 +405,11 @@ export default function ManufacturingProductionPage() {
 
             <div className="grid grid-cols-2 gap-2 rounded-lg bg-gray-50 p-3 text-sm">
               <div>
-                <span className="block text-xs text-gray-400">Total COGM (est.)</span>
+                <span className="block text-xs text-gray-400">{t("mfg.production.totalCogmEst")}</span>
                 <span className="font-semibold text-gray-800">{compEst != null ? fmtCurrency(compEst) : "—"}</span>
               </div>
               <div>
-                <span className="block text-xs text-gray-400">Unit COGM = COGM ÷ good units</span>
+                <span className="block text-xs text-gray-400">{t("mfg.production.unitCogmFormula")}</span>
                 <span className="font-semibold text-gray-800">
                   {compEst != null && Number(compForm.goodUnits) > 0
                     ? fmtCurrency(compEst / Number(compForm.goodUnits))
@@ -417,12 +418,12 @@ export default function ManufacturingProductionPage() {
               </div>
             </div>
             <p className="text-[11px] text-gray-400">
-              Estimates use current raw-material prices; the exact COGM is computed at completion from store average costs.
+              {t("mfg.production.estimateNote")}
             </p>
 
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setShowComplete(null)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">{t("mfg.common.cancel")}</button>
-              <button type="submit" disabled={compBusy} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm">{compBusy ? "Working…" : t("mfg.workOrders.complete")}</button>
+              <button type="submit" disabled={compBusy} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm">{compBusy ? t("mfg.production.working") : t("mfg.workOrders.complete")}</button>
             </div>
           </form>
         )}
@@ -468,7 +469,7 @@ export default function ManufacturingProductionPage() {
               {t("mfg.workOrders.target")}: {detail.targetQuantity} · {t("mfg.workOrders.produced")}: {detail.producedQuantity || 0}
             </p>
             {detail.batchNumber && <p className="text-gray-500">{t("mfg.workOrders.colBatch")}: {detail.batchNumber}</p>}
-            {detail.expiryDate && <p className="text-gray-500">{t("mfg.workOrders.expiryDateLabel")}: {new Date(detail.expiryDate).toLocaleDateString()}</p>}
+            {detail.expiryDate && <p className="text-gray-500">{t("mfg.workOrders.expiryDateLabel")}: {formatDate(detail.expiryDate)}</p>}
             {detail.notes && <p className="text-gray-600">{detail.notes}</p>}
           </div>
         )}
