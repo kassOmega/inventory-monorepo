@@ -4,9 +4,11 @@ import Loading from "@/app/components/Loading";
 import Modal from "@/app/components/Modal";
 import { useToast } from "@/app/components/ToastProvider";
 import { fmtCurrency } from "@/lib/currency";
+import { formatDate, formatDateTime } from "@/lib/datetime";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import RejectedStockPanel from "./rejected-panel";
 
 const inputCls = "border p-2 rounded-lg w-full bg-white";
@@ -17,6 +19,7 @@ type QtyMap = Record<number, string>;
 export default function ManufacturingReceiptsPage() {
   const { hasPermission } = useAuth();
   const toast = useToast();
+  const { t } = useTranslation();
   const canManage = hasPermission("manufacturing.manage");
   const [receipts, setReceipts] = useState<any[]>([]);
   const [pos, setPos] = useState<any[]>([]);
@@ -45,11 +48,11 @@ export default function ManufacturingReceiptsPage() {
       setMaterials(m.data ?? []);
       setStores((l.data ?? []).filter((x: any) => x.type === "STORE"));
     } catch {
-      toast.error("Failed to load receipts");
+      toast.error(t("mfg.receipts.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [t, toast]);
   useEffect(() => { load(); }, [load]);
 
   const productName = (id: number) => materials.find((m) => m.id === id)?.baseName ?? `#${id}`;
@@ -79,7 +82,7 @@ export default function ManufacturingReceiptsPage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!poId || !storeId) {
-      toast.error("Pick a purchase order and a store");
+      toast.error(t("mfg.receipts.pickPoStore"));
       return;
     }
     const items = Object.keys(rec)
@@ -90,7 +93,7 @@ export default function ManufacturingReceiptsPage() {
       }))
       .filter((i) => i.receivedQty > 0 || i.rejectedQty > 0);
     if (!items.length) {
-      toast.error("Enter a quantity to receive");
+      toast.error(t("mfg.receipts.enterQty"));
       return;
     }
     setBusy(true);
@@ -101,11 +104,11 @@ export default function ManufacturingReceiptsPage() {
         notes: notes || undefined,
         items,
       });
-      toast.success("Stock received — store balance updated");
+      toast.success(t("mfg.receipts.received"));
       setShow(false);
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to receive stock");
+      toast.error(err?.response?.data?.message || t("mfg.receipts.receiveFailed"));
     } finally {
       setBusy(false);
     }
@@ -123,23 +126,23 @@ export default function ManufacturingReceiptsPage() {
     <div>
       <div className="flex justify-between items-center mb-3 flex-wrap gap-3">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Stock Receipts (GRN)</h1>
-          <p className="text-sm text-gray-500 mt-1">Receiving updates store balances immediately.</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-800">{t("mfg.receipts.title")}</h1>
+          <p className="text-sm text-gray-500 mt-1">{t("mfg.receipts.subtitle")}</p>
         </div>
-        {canManage && <button onClick={openReceive} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm whitespace-nowrap">+ Receive Stock</button>}
+        {canManage && <button onClick={openReceive} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm whitespace-nowrap">{t("mfg.receipts.receiveStock")}</button>}
       </div>
-      <div className="mb-3"><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search GRN or PO number…" className="border p-2 rounded-lg text-sm w-64" /></div>
+      <div className="mb-3"><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("mfg.receipts.searchPlaceholder")} className="border p-2 rounded-lg text-sm w-64" /></div>
       <div className="bg-white rounded-xl shadow-sm border overflow-x-auto">
         <table className="w-full text-left min-w-[820px] text-xs sm:text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="p-3">GRN #</th>
-              <th className="p-3">PO #</th>
-              <th className="p-3">Vendor</th>
-              <th className="p-3">Store</th>
-              <th className="p-3">Received on</th>
-              <th className="p-3 text-right">Value</th>
-              <th className="p-3 text-center">Lines</th>
+              <th className="p-3">{t("mfg.receipts.colGrn")}</th>
+              <th className="p-3">{t("mfg.receipts.colPo")}</th>
+              <th className="p-3">{t("mfg.receipts.colVendor")}</th>
+              <th className="p-3">{t("mfg.receipts.colStore")}</th>
+              <th className="p-3">{t("mfg.receipts.colReceivedOn")}</th>
+              <th className="p-3 text-right">{t("mfg.receipts.colValue")}</th>
+              <th className="p-3 text-center">{t("mfg.receipts.colLines")}</th>
             </tr>
           </thead>
           <tbody>
@@ -151,7 +154,7 @@ export default function ManufacturingReceiptsPage() {
                   <td className="p-3">{r.po?.poNumber ?? `#${r.poId}`}</td>
                   <td className="p-3">{r.po?.vendor?.name ?? `#${r.po?.vendorId ?? ""}`}</td>
                   <td className="p-3 text-gray-500">{stores.find((s) => s.id === r.locationId)?.name ?? `#${r.locationId}`}</td>
-                  <td className="p-3 text-gray-500">{new Date(r.receivedAt).toLocaleString()}</td>
+                  <td className="p-3 text-gray-500">{formatDateTime(r.receivedAt)}</td>
                   <td className="p-3 text-right font-medium">{money(value)}</td>
                   <td className="p-3 text-center">
                     <div>{(r.items ?? []).length}</div>
@@ -162,7 +165,7 @@ export default function ManufacturingReceiptsPage() {
                           .map((i: any) => (
                             <div key={i.id} className="truncate max-w-[180px]">
                               {i.batchNumber}
-                              {i.expiryDate ? ` · ${new Date(i.expiryDate).toLocaleDateString()}` : ""}
+                              {i.expiryDate ? ` · ${formatDate(i.expiryDate)}` : ""}
                             </div>
                           ))}
                       </div>
@@ -171,33 +174,33 @@ export default function ManufacturingReceiptsPage() {
                 </tr>
               );
             })}
-            {filtered.length === 0 && <tr><td colSpan={7} className="p-6 text-center text-gray-400">No stock receipts yet.</td></tr>}
+            {filtered.length === 0 && <tr><td colSpan={7} className="p-6 text-center text-gray-400">{t("mfg.receipts.none")}</td></tr>}
           </tbody>
         </table>
       </div>
-      <Modal isOpen={show} onClose={() => setShow(false)} title="Receive Stock">
+      <Modal isOpen={show} onClose={() => setShow(false)} title={t("mfg.receipts.receiveTitle")}>
         <form onSubmit={submit} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className={labelCls}>Purchase order *</label>
+              <label className={labelCls}>{t("mfg.receipts.poLabel")}</label>
               <select className={inputCls} value={poId} onChange={(e) => selectPo(e.target.value)}>
-                <option value="">Select…</option>
+                <option value="">{t("mfg.receipts.selectPlaceholder")}</option>
                 {receivable.map((po) => (
                   <option key={po.id} value={po.id}>{po.poNumber} — {po.vendor?.name}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label className={labelCls}>Receive into store *</label>
+              <label className={labelCls}>{t("mfg.receipts.storeLabel")}</label>
               <select className={inputCls} value={storeId} onChange={(e) => setStoreId(e.target.value)}>
-                <option value="">Select…</option>
+                <option value="">{t("mfg.receipts.selectPlaceholder")}</option>
                 {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
           </div>
           <div>
-            <label className={labelCls}>Notes</label>
-            <input className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
+            <label className={labelCls}>{t("common.notes")}</label>
+            <input className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={t("mfg.common.optional")} />
           </div>
 
           {poId && (
@@ -205,11 +208,11 @@ export default function ManufacturingReceiptsPage() {
               <table className="w-full text-xs min-w-[680px]">
                 <thead>
                   <tr className="text-left text-gray-400 border-b">
-                    <th className="py-1">Raw material</th>
-                    <th className="py-1 text-right">Ordered</th>
-                    <th className="py-1 text-right">Received</th>
-                    <th className="py-1 text-right">Receive now</th>
-                    <th className="py-1 text-right">Reject/scrap</th>
+                    <th className="py-1">{t("mfg.receipts.colMaterial")}</th>
+                    <th className="py-1 text-right">{t("mfg.receipts.colOrdered")}</th>
+                    <th className="py-1 text-right">{t("mfg.receipts.colReceived")}</th>
+                    <th className="py-1 text-right">{t("mfg.receipts.colReceiveNow")}</th>
+                    <th className="py-1 text-right">{t("mfg.receipts.colRejectScrap")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -236,8 +239,8 @@ export default function ManufacturingReceiptsPage() {
           )}
 
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setShow(false)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">Cancel</button>
-            <button type="submit" disabled={busy} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm">{busy ? "Receiving…" : "Confirm Receipt"}</button>
+            <button type="button" onClick={() => setShow(false)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">{t("mfg.common.cancel")}</button>
+            <button type="submit" disabled={busy} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm">{busy ? t("mfg.receipts.receiving") : t("mfg.receipts.confirmReceipt")}</button>
           </div>
         </form>
       </Modal>
