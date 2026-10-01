@@ -383,15 +383,6 @@ export default function ProductsPage() {
             <tbody>
               {products.map((p: any) => {
                 const stock = getTotalStock(p);
-                // Shown in the inline details panel of variant-less products.
-                const specsText = Object.values(
-                  (p.attributes ?? {}) as Record<string, unknown>,
-                )
-                  .filter(
-                    (x) => x !== null && x !== undefined && String(x).trim() !== "",
-                  )
-                  .map((x) => String(x).trim())
-                  .join(" · ");
                 return (
                   <Fragment key={p.id}>
                   <tr onClick={() => setDetailProduct(p)} className="border-b hover:bg-gray-50 cursor-pointer">
@@ -484,94 +475,84 @@ export default function ProductsPage() {
                     <tr key={`${p.id}-variants`} className="bg-slate-50/60">
                       <td
                         colSpan={tableColCount}
-                        className="p-2 sm:p-3 md:p-4 pl-8 sm:pl-12 whitespace-normal"
+                        className="p-2 sm:p-3 md:p-4 pl-8 sm:pl-12"
                       >
                         {(p.variants ?? []).length === 0 ? (
-                          /* No variants: the same details the variant table
-                             would carry, laid out inline so a simple product
-                             still has an expansion worth opening. */
-                          <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs sm:grid-cols-3 lg:grid-cols-4">
-                            <div>
-                              <span className="block text-gray-400">
-                                {t("products.barcode")}
-                              </span>
-                              <span className="font-mono">
-                                {p.barcode || t("common.notAvailable")}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="block text-gray-400">
-                                {t("products.category")}
-                              </span>
-                              <span>
-                                {p.category?.name || t("common.notAvailable")}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="block text-gray-400">
-                                {t("products.unit")}
-                              </span>
-                              <span>
-                                {p.unit?.name || t("common.notAvailable")}
-                              </span>
-                            </div>
-                            {canViewProfit && (
-                              <div>
-                                <span className="block text-gray-400">
-                                  {t("products.buyPrice")}
-                                </span>
-                                <span>
-                                  {p.currentBuyPrice != null
-                                    ? fmtCurrency(p.currentBuyPrice)
+                          /* No variants: the product itself is the single row,
+                             laid out in the same table the variant products use
+                             below — same columns in the same order, named for a
+                             product (its own SKU rather than a variant's).
+                             Specifications live in the details modal only. */
+                          <table className="w-full bg-slate-50/60 text-xs whitespace-nowrap">
+                            <thead>
+                              <tr className="text-gray-400">
+                                <th className="text-left p-1 font-medium">{t("products.sku")}</th>
+                                <th className="text-left p-1 font-medium">{t("products.barcode")}</th>
+                                {canViewProfit && (
+                                  <th className="text-right p-1 font-medium">{t("products.buyPrice")}</th>
+                                )}
+                                <th className="text-right p-1 font-medium">{t("products.sellPrice")}</th>
+                                <th className="text-right p-1 font-medium">{t("products.stock")}</th>
+                                <th className="text-right p-1 font-medium">{t("common.actions")}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr className="border-t border-gray-200">
+                                <td className="p-1 font-mono">{p.sku}</td>
+                                <td className="p-1 font-mono">{p.barcode || "—"}</td>
+                                {canViewProfit && (
+                                  <td className="p-1 text-right">
+                                    {p.currentBuyPrice != null
+                                      ? fmtCurrency(p.currentBuyPrice)
+                                      : "—"}
+                                  </td>
+                                )}
+                                <td className="p-1 text-right">
+                                  {p.currentSellPrice != null
+                                    ? fmtCurrency(p.currentSellPrice)
                                     : "—"}
-                                </span>
-                              </div>
-                            )}
-                            <div>
-                              <span className="block text-gray-400">
-                                {t("products.sellPrice")}
-                              </span>
-                              <span>
-                                {p.currentSellPrice != null
-                                  ? fmtCurrency(p.currentSellPrice)
-                                  : "—"}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="block text-gray-400">
-                                {t("products.stock")}
-                              </span>
-                              <span
-                                className={`font-bold ${stock < 10 ? "text-red-500" : "text-gray-800"}`}
-                              >
-                                {stock}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="block text-gray-400">
-                                {t("pf.lowStockLevel")}
-                              </span>
-                              <span>{p.reorderLevel ?? 0}</span>
-                            </div>
-                            <div>
-                              <span className="block text-gray-400">
-                                {t("products.attributes")}
-                              </span>
-                              <span>{specsText || t("common.notAvailable")}</span>
-                            </div>
-                            <div className="col-span-2 sm:col-span-3 lg:col-span-4">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setDetailProduct(p);
-                                }}
-                                className="text-blue-600 hover:underline"
-                              >
-                                {t("products.viewDetails")}
-                              </button>
-                            </div>
-                          </div>
+                                </td>
+                                <td className="p-1 text-right font-semibold">{stock}</td>
+                                <td className="p-1 text-right whitespace-nowrap">
+                                  {canAdjust && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openCountModal(p);
+                                      }}
+                                      className="text-emerald-600 hover:underline mr-2"
+                                    >
+                                      {t("products.adjust")}
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      startQr(p);
+                                    }}
+                                    className="text-blue-600 hover:underline mr-2"
+                                    title={t("products.printQrTitle")}
+                                  >
+                                    {t("products.printQr")}
+                                  </button>
+                                  {canEdit && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        startEdit(p);
+                                      }}
+                                      className="text-gray-500 hover:underline"
+                                    >
+                                      {t("common.edit")}
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
                         ) : (
                         <table className="w-full bg-slate-50/60 text-xs whitespace-nowrap">
                           <thead>
