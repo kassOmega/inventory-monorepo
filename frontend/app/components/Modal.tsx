@@ -7,10 +7,10 @@ interface ModalProps {
   title: string;
   children: ReactNode;
   /**
-   * Panel width. The default suits forms; `wide` is for a sheet with a matrix of
-   * location columns.
+   * Panel width. `sm` is for a one-input prompt, the default suits forms, and
+   * `wide` is for a sheet with a matrix of location columns.
    */
-  size?: "md" | "wide";
+  size?: "sm" | "md" | "wide";
 }
 
 export default function Modal({
@@ -32,7 +32,7 @@ export default function Modal({
       <div className="flex items-start justify-center min-h-full p-3 sm:p-4">
         <div
           className={`bg-white rounded-xl shadow-xl w-full my-4 sm:my-8 ${
-            size === "wide" ? "max-w-5xl" : "max-w-2xl"
+            size === "wide" ? "max-w-5xl" : size === "sm" ? "max-w-sm" : "max-w-2xl"
           }`}
         >
           <div className="flex justify-between items-center px-4 sm:px-6 pt-4 sm:pt-6 pb-3 sm:pb-4 border-b">

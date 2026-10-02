@@ -6,8 +6,20 @@ import api, { markHandled } from "@/lib/api";
 import { variantLabel } from "@/lib/variantLabel";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Plus } from "lucide-react";
 import AiPhotoPicker from "./AiPhotoPicker";
 import BarcodeScanner from "./BarcodeScanner";
+import Modal from "./Modal";
+
+// Field labels stay on one line. A half-width cell (and Amharic, which runs
+// longer than English) used to break a label onto a second row, which pushed its
+// input down and left the two columns of a row misaligned.
+const LABEL =
+  "block text-sm font-medium text-gray-500 mb-1 whitespace-nowrap truncate";
+const LABEL_SM =
+  "block text-xs font-medium text-gray-500 mb-1 whitespace-nowrap truncate";
+const LABEL_XS =
+  "block text-[11px] font-medium text-gray-500 mb-1 whitespace-nowrap truncate";
 
 interface ProductFormProps {
   /** Called after a successful create (add mode). */
@@ -24,7 +36,6 @@ interface VariantRow {
   slot2: string;
   slot3: string;
   slot4: string;
-  sku: string;
   barcode: string;
   buyPrice: string;
   sellPrice: string;
@@ -42,7 +53,6 @@ const emptyVariant = (): VariantRow => ({
   slot2: "",
   slot3: "",
   slot4: "",
-  sku: "",
   barcode: "",
   buyPrice: "",
   sellPrice: "",
@@ -71,7 +81,6 @@ const mapVariantToSlots = (v: any): VariantRow => {
     slot2: pick("slot2") || pick("color") || others[1] || "",
     slot3: pick("slot3") || others[2] || "",
     slot4: pick("slot4") || others[3] || "",
-    sku: v.sku ?? "",
     barcode: v.barcode ?? "",
     buyPrice: v.buyPrice != null ? String(v.buyPrice) : "",
     sellPrice: v.sellPrice != null ? String(v.sellPrice) : "",
@@ -110,6 +119,9 @@ export default function ProductForm({
   const [units, setUnits] = useState<any[]>([]);
   const [showCatForm, setShowCatForm] = useState(false);
   const [newCat, setNewCat] = useState("");
+  // Creating a category/unit happens in its own small prompt (Modal) so both
+  // dropdowns keep one row instead of growing an inline input beside them.
+  const [showUnitForm, setShowUnitForm] = useState(false);
   const [newUnit, setNewUnit] = useState("");
   const [form, setForm] = useState<any>({
     brand: "",
@@ -347,14 +359,13 @@ export default function ProductForm({
     }));
     const suggestedVariants = (Array.isArray(s.variants) ? s.variants : [])
       .filter(
-        (v: any) => v.slot1 || v.slot2 || v.slot3 || v.slot4 || v.sku || v.barcode,
+        (v: any) => v.slot1 || v.slot2 || v.slot3 || v.slot4 || v.barcode,
       )
       .map((v: any) => ({
         slot1: v.slot1 ?? "",
         slot2: v.slot2 ?? "",
         slot3: v.slot3 ?? "",
         slot4: v.slot4 ?? "",
-        sku: v.sku ?? "",
         barcode: v.barcode ?? "",
         buyPrice: v.buyPrice != null ? String(v.buyPrice) : "",
         sellPrice: v.sellPrice != null ? String(v.sellPrice) : "",
@@ -437,7 +448,6 @@ export default function ProductForm({
         slot2: v.slot2 ?? "",
         slot3: v.slot3 ?? "",
         slot4: v.slot4 ?? "",
-        sku: v.sku ?? "",
         barcode: v.barcode ?? "",
         buyPrice: v.buyPrice != null ? String(v.buyPrice) : "",
         sellPrice: v.sellPrice != null ? String(v.sellPrice) : "",
@@ -532,7 +542,6 @@ export default function ProductForm({
                 .map((k) => [k, v[k].trim()] as const)
                 .filter(([, val]) => val !== ""),
             ),
-            sku: v.sku?.trim() || undefined,
             barcode: v.barcode?.trim() || undefined,
             buyPrice:
               v.buyPrice !== "" && v.buyPrice !== undefined
@@ -576,22 +585,25 @@ export default function ProductForm({
     }
   };
 
-  const handleAddCategory = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCat) return;
-    const res = await api.post("/categories", { name: newCat });
+  // Called from the prompt modal (button or Enter). No <form> wraps the prompt
+  // because it is rendered inside the product <form>, so Enter is handled
+  // explicitly and must stop the product's implicit submission.
+  const handleAddCategory = async () => {
+    if (!newCat.trim()) return;
+    const res = await api.post("/categories", { name: newCat.trim() });
     setCategories([...categories, res.data]);
+    setForm({ ...form, categoryId: String(res.data.id) });
     setNewCat("");
     setShowCatForm(false);
-    setForm({ ...form, categoryId: res.data.id });
   };
 
   const handleAddUnit = async () => {
     if (!newUnit.trim()) return;
     const res = await api.post("/units", { name: newUnit.trim() });
     setUnits([...units, res.data]);
-    setForm({ ...form, unitId: res.data.id });
+    setForm({ ...form, unitId: String(res.data.id) });
     setNewUnit("");
+    setShowUnitForm(false);
   };
 
   const updateVariant = (
@@ -610,15 +622,15 @@ export default function ProductForm({
     ? variants.reduce((s, v) => s + (Number(v.quantity) || 0), 0)
     : Number(form.quantity) || 0;
 
-  // Rows the user actually filled (attribute slots / sku / barcode). Empty
-  // starter rows are ignored for validation and submission alike.
+  // Rows the user actually filled (attribute slots / barcode). The SKU is
+  // generated by the backend, so an empty starter row is ignored for both
+  // validation and submission.
   const activeVariants = variants.filter(
     (v) =>
       v.slot1.trim() ||
       v.slot2.trim() ||
       v.slot3.trim() ||
       v.slot4.trim() ||
-      v.sku.trim() ||
       v.barcode.trim(),
   );
   // A Store/Location is required whenever initial stock will actually be
@@ -697,10 +709,10 @@ export default function ProductForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="grid grid-cols-1 md:grid-cols-2 gap-3"
+      className="grid grid-cols-2 gap-3"
     >
       {canUseAi && (
-        <div className="md:col-span-2">
+        <div className="col-span-2">
           <AiPhotoPicker onImages={handleAiPhoto} busy={aiBusy} />
           <p className="text-[11px] text-gray-400 mt-1">
             {t("pf.aiBanner")}
@@ -709,7 +721,7 @@ export default function ProductForm({
       )}
 
       {duplicate && (
-        <div className="md:col-span-2 border border-amber-300 bg-amber-50 rounded-lg p-3 text-sm text-amber-800">
+        <div className="col-span-2 border border-amber-300 bg-amber-50 rounded-lg p-3 text-sm text-amber-800">
           <p className="font-semibold">
             {t("pf.dupExists", { name: `${duplicate.brand} ${duplicate.baseName}` })}
           </p>
@@ -720,8 +732,8 @@ export default function ProductForm({
       )}
 
       {/* --- 1. Basic Info --- */}
-      <div>
-        <label className="block text-sm font-medium text-gray-500 mb-1">
+      <div className="min-w-0">
+        <label className={LABEL} title={t("pf.brand")}>
           {t("pf.brand")}
         </label>
         <input
@@ -731,8 +743,8 @@ export default function ProductForm({
           required
         />
       </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-500 mb-1">
+      <div className="min-w-0">
+        <label className={LABEL} title={t("pf.baseName")}>
           {t("pf.baseName")}
         </label>
         <input
@@ -742,15 +754,16 @@ export default function ProductForm({
           required
         />
       </div>
-      <div className="md:col-span-2">
-        <label className="block text-sm font-medium text-gray-500 mb-1">
+      {/* --- 1b. Category + Unit: one row, each creatable from its own prompt --- */}
+      <div className="min-w-0">
+        <label className={LABEL} title={t("pf.category")}>
           {t("pf.category")}
         </label>
         <div className="flex gap-2">
           <select
             value={form.categoryId}
             onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
-            className="border p-2 rounded-lg w-full bg-white text-sm"
+            className="border p-2 rounded-lg flex-1 min-w-0 bg-white text-sm"
             required
           >
             <option value="">{t("pf.selectCategory")}</option>
@@ -762,39 +775,24 @@ export default function ProductForm({
           </select>
           <button
             type="button"
-            onClick={() => setShowCatForm(!showCatForm)}
-            className="bg-gray-200 px-3 rounded-lg text-sm whitespace-nowrap"
+            onClick={() => setShowCatForm(true)}
+            title={t("menu.newCategory")}
+            aria-label={t("menu.newCategory")}
+            className="shrink-0 w-9 rounded-lg bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center"
           >
-            {t("pf.addCat")}
+            <Plus size={16} />
           </button>
         </div>
-        {showCatForm && (
-          <div className="flex gap-2 mt-2">
-            <input
-              placeholder={t("cat.newNamePh")}
-              value={newCat}
-              onChange={(e) => setNewCat(e.target.value)}
-              className="border p-2 rounded-lg flex-1 text-sm"
-            />
-            <button
-              type="button"
-              onClick={handleAddCategory}
-              className="bg-green-600 text-white px-3 rounded-lg text-sm"
-            >
-              {t("common.add")}
-            </button>
-          </div>
-        )}
       </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-500 mb-1">
+      <div className="min-w-0">
+        <label className={LABEL} title={t("pf.unit")}>
           {t("pf.unit")}
         </label>
         <div className="flex gap-2">
           <select
             value={form.unitId}
             onChange={(e) => setForm({ ...form, unitId: e.target.value })}
-            className="border p-2 rounded-lg flex-1 bg-white text-sm"
+            className="border p-2 rounded-lg flex-1 min-w-0 bg-white text-sm"
           >
             <option value="">{t("pf.select")}</option>
             {units.map((u: any) => (
@@ -803,24 +801,113 @@ export default function ProductForm({
               </option>
             ))}
           </select>
-          <input
-            placeholder={t("pf.newPh")}
-            value={newUnit}
-            onChange={(e) => setNewUnit(e.target.value)}
-            className="border p-2 rounded-lg w-24 text-sm"
-          />
           <button
             type="button"
-            onClick={handleAddUnit}
-            className="bg-gray-200 px-2 rounded-lg text-xs"
+            onClick={() => setShowUnitForm(true)}
+            title={t("menu.newUnit")}
+            aria-label={t("menu.newUnit")}
+            className="shrink-0 w-9 rounded-lg bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center"
           >
-            +
+            <Plus size={16} />
           </button>
         </div>
       </div>
 
+      {/* --- 1c. New category / unit prompts. They sit inside the product <form>
+           (as the scanner does) and carry no <form> of their own, so Enter is
+           handled explicitly and every button is type="button" — otherwise the
+           key or the click would submit the product. --- */}
+      <Modal
+        isOpen={showCatForm}
+        onClose={() => {
+          setShowCatForm(false);
+          setNewCat("");
+        }}
+        title={t("menu.newCategory")}
+        size="sm"
+      >
+        <div className="space-y-3">
+          <input
+            autoFocus
+            value={newCat}
+            onChange={(e) => setNewCat(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleAddCategory();
+              }
+            }}
+            placeholder={t("cat.newNamePh")}
+            className="border p-2 rounded-lg w-full text-sm"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleAddCategory}
+              className="bg-green-600 text-white p-2 rounded-lg flex-1 text-sm"
+            >
+              {t("common.add")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowCatForm(false);
+                setNewCat("");
+              }}
+              className="bg-gray-200 text-gray-700 p-2 rounded-lg flex-1 text-sm"
+            >
+              {t("common.cancel")}
+            </button>
+          </div>
+        </div>
+      </Modal>
+      <Modal
+        isOpen={showUnitForm}
+        onClose={() => {
+          setShowUnitForm(false);
+          setNewUnit("");
+        }}
+        title={t("menu.newUnit")}
+        size="sm"
+      >
+        <div className="space-y-3">
+          <input
+            autoFocus
+            value={newUnit}
+            onChange={(e) => setNewUnit(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleAddUnit();
+              }
+            }}
+            placeholder={t("menu.unitNamePlaceholder")}
+            className="border p-2 rounded-lg w-full text-sm"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleAddUnit}
+              className="bg-green-600 text-white p-2 rounded-lg flex-1 text-sm"
+            >
+              {t("common.add")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowUnitForm(false);
+                setNewUnit("");
+              }}
+              className="bg-gray-200 text-gray-700 p-2 rounded-lg flex-1 text-sm"
+            >
+              {t("common.cancel")}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
       {/* --- 2. Has Variants / Perishable toggles --- */}
-      <div className="md:col-span-2 flex gap-6">
+      <div className="col-span-2 flex flex-wrap gap-x-6 gap-y-2">
         <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
           <input type="checkbox" checked={!!form.hasVariants} onChange={(e) => setForm({ ...form, hasVariants: e.target.checked })} className="rounded" /> {t("pf.hasVariants")}
         </label>
@@ -832,7 +919,7 @@ export default function ProductForm({
 
       {/* --- 3. Variant Builder (4-slot rows + per-row barcode tools) --- */}
       {form.hasVariants && (
-        <div className="md:col-span-2 border rounded-lg p-3 space-y-3">
+        <div className="col-span-2 border rounded-lg p-3 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h3 className="font-semibold text-sm">{t("pf.variantBuilder")}</h3>
             {canUseAi && (
@@ -931,45 +1018,39 @@ export default function ProductForm({
                   {t("pf.remove")}
                 </button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-500 mb-1">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="min-w-0">
+                  <label className={LABEL_XS} title={t("pf.slot1Label")}>
                     {t("pf.slot1Label")}
                   </label>
                   <input placeholder={t("pf.slot1Ph")} value={v.slot1} onChange={(e) => updateVariant(i, "slot1", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
                 </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                <div className="min-w-0">
+                  <label className={LABEL_XS} title={t("pf.slot2Label")}>
                     {t("pf.slot2Label")}
                   </label>
                   <input placeholder={t("pf.slot2Ph")} value={v.slot2} onChange={(e) => updateVariant(i, "slot2", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
                 </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                <div className="min-w-0">
+                  <label className={LABEL_XS} title={t("pf.slot3Label")}>
                     {t("pf.slot3Label")}
                   </label>
                   <input placeholder={t("pf.slot3Ph")} value={v.slot3} onChange={(e) => updateVariant(i, "slot3", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
                 </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                <div className="min-w-0">
+                  <label className={LABEL_XS} title={t("pf.slot4Label")}>
                     {t("pf.slot4Label")}
                   </label>
                   <input placeholder={t("pf.slot4Ph")} value={v.slot4} onChange={(e) => updateVariant(i, "slot4", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-500 mb-1">
-                    {t("pf.variantSku")}
-                  </label>
-                  <input placeholder={t("pf.optional")} value={v.sku} onChange={(e) => updateVariant(i, "sku", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-medium text-gray-500 mb-1">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <div className="col-span-2 sm:col-span-3 min-w-0">
+                  <label className={LABEL_XS} title={t("pf.barcode")}>
                     {t("pf.barcode")}
                   </label>
-                  <div className="flex gap-1">
+                  <div className="flex flex-wrap gap-1">
                     <input placeholder={t("pf.scanOrGen")} value={v.barcode} onChange={(e) => updateVariant(i, "barcode", e.target.value)} className="border p-2 rounded-lg text-sm flex-1 min-w-0" />
                     <BarcodeScanner onScan={(code) => updateVariant(i, "barcode", code)} label={t("pf.scan")} />
                     <button
@@ -982,41 +1063,45 @@ export default function ProductForm({
                     </button>
                   </div>
                 </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                <div className="min-w-0">
+                  <label className={LABEL_XS} title={t("pf.initialQty")}>
                     {t("pf.initialQty")}
                   </label>
                   {v.variantId ? (
                     // Existing variants keep their stock in the inventory rows —
                     // this field only seeds a NEW variant, so typing here looked
-                    // like it "restored" stock while changing nothing.
-                    <p className="border p-2 rounded-lg text-[11px] text-gray-400 bg-gray-50 leading-snug">
-                      {t("pf.useAdjustForStock")}
-                    </p>
+                    // like it "restored" stock while changing nothing. Show the
+                    // number beside the hint instead of a three-line note.
+                    <div
+                      className="border p-2 rounded-lg text-sm bg-gray-50 text-gray-500 tabular-nums"
+                      title={t("pf.useAdjustForStock")}
+                    >
+                      {v.quantity || 0}
+                    </div>
                   ) : (
                     <input type="number" min="0" placeholder="0" value={v.quantity} onChange={(e) => updateVariant(i, "quantity", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
                   )}
                 </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                <div className="min-w-0">
+                  <label className={LABEL_XS} title={t("pf.buyPrice")}>
                     {t("pf.buyPrice")}
                   </label>
                   <input type="number" placeholder="e.g. 12.50" value={v.buyPrice} onChange={(e) => updateVariant(i, "buyPrice", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
                 </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                <div className="min-w-0">
+                  <label className={LABEL_XS} title={t("pf.sellPrice")}>
                     {t("pf.sellPrice")}
                   </label>
                   <input type="number" placeholder="e.g. 19.99" value={v.sellPrice} onChange={(e) => updateVariant(i, "sellPrice", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
                 </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                <div className="min-w-0">
+                  <label className={LABEL_XS} title={t("pf.variantLowStock")}>
                     {t("pf.variantLowStock")}
                   </label>
                   <input type="number" min="0" placeholder={String(form.reorderLevel ?? 0)} value={v.reorderLevel} onChange={(e) => updateVariant(i, "reorderLevel", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
                 </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                <div className="col-span-2 min-w-0">
+                  <label className={LABEL_XS} title={t("pf.variantReorderQty")}>
                     {t("pf.variantReorderQty")}
                   </label>
                   <input type="number" min="0" placeholder={t("pf.inherit")} value={v.reorderQty} onChange={(e) => updateVariant(i, "reorderQty", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
@@ -1033,19 +1118,19 @@ export default function ProductForm({
 
       {/* --- 4. Batch / Expiry (perishable) --- */}
       {form.isPerishable && (
-        <div className="md:col-span-2 border rounded-lg p-3 space-y-3">
+        <div className="col-span-2 border rounded-lg p-3 space-y-3">
           <h3 className="font-semibold text-sm">{t("pf.batchTitle")}</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">{t("pf.batchNumber")}</label>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div className="min-w-0">
+              <label className={LABEL_SM} title={t("pf.batchNumber")}>{t("pf.batchNumber")}</label>
               <input value={batch.batchNumber} onChange={(e) => setBatch({ ...batch, batchNumber: e.target.value })} placeholder={t("pf.batchNumberPh")} className="border p-2 rounded-lg text-sm w-full" />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">{t("pf.manufactureDate")}</label>
+            <div className="min-w-0">
+              <label className={LABEL_SM} title={t("pf.manufactureDate")}>{t("pf.manufactureDate")}</label>
               <input type="date" value={batch.manufactureDate} onChange={(e) => setBatch({ ...batch, manufactureDate: e.target.value })} className="border p-2 rounded-lg text-sm w-full" />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">{t("pf.expiryDate")}</label>
+            <div className="min-w-0">
+              <label className={LABEL_SM} title={t("pf.expiryDate")}>{t("pf.expiryDate")}</label>
               <input type="date" value={batch.expiryDate} onChange={(e) => setBatch({ ...batch, expiryDate: e.target.value })} className="border p-2 rounded-lg text-sm w-full" />
             </div>
           </div>
@@ -1058,7 +1143,7 @@ export default function ProductForm({
       )}
 
       {/* --- 5. Product Specifications --- */}
-      <div className="md:col-span-2 border-t pt-4 mt-2">
+      <div className="col-span-2 border-t pt-4 mt-2">
         <h3 className="font-semibold mb-2 text-sm">{t("pf.specsTitle")}</h3>
         {attrs.map((attr, i) => (
           <div key={i} className="flex gap-2 mb-2">
@@ -1072,7 +1157,7 @@ export default function ProductForm({
                   ),
                 )
               }
-              className="border p-2 rounded-lg flex-1 text-sm"
+              className="border p-2 rounded-lg flex-1 min-w-0 text-sm"
             />
             <input
               placeholder={t("pf.specValuePh")}
@@ -1084,7 +1169,7 @@ export default function ProductForm({
                   ),
                 )
               }
-              className="border p-2 rounded-lg flex-1 text-sm"
+              className="border p-2 rounded-lg flex-1 min-w-0 text-sm"
             />
             <button
               type="button"
@@ -1106,8 +1191,8 @@ export default function ProductForm({
 
 
       {/* --- 6. Stock target, prices, quantity, barcode, reorder --- */}
-      <div>
-        <label className="block text-sm font-medium text-gray-500 mb-1">
+      <div className="min-w-0">
+        <label className={LABEL} title={t("pf.store")}>
           {t("pf.store")}
           {needsStore && <span className="text-red-500"> *</span>}
         </label>
@@ -1128,7 +1213,7 @@ export default function ProductForm({
       {!form.hasVariants && (
         <>
           <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">
+            <label className={LABEL} title={t("pf.buyPrice")}>
               {t("pf.buyPrice")}
             </label>
             <input
@@ -1143,7 +1228,7 @@ export default function ProductForm({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">
+            <label className={LABEL} title={t("pf.sellPrice")}>
               {t("pf.sellPrice")}
             </label>
             <input
@@ -1160,7 +1245,7 @@ export default function ProductForm({
         </>
       )}
       <div>
-        <label className="block text-sm font-medium text-gray-500 mb-1">
+        <label className={LABEL} title={t("pf.totalQuantity")}>
           {t("pf.totalQuantity")}
         </label>
         {form.hasVariants ? (
@@ -1180,20 +1265,26 @@ export default function ProductForm({
         )}
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-500 mb-1">{t("pf.lowStockLevel")}</label>
+        <label className={LABEL} title={t("pf.lowStockLevel")}>
+          {t("pf.lowStockLevel")}
+        </label>
         <input type="number" min="0" value={form.reorderLevel} onChange={(e) => setForm({ ...form, reorderLevel: e.target.value })} className="border p-2 rounded-lg w-full text-sm" placeholder={t("pf.zeroNoAlert")} />
         <p className="text-[11px] text-gray-400 mt-0.5">{t("pf.lowStockHint")}</p>
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-500 mb-1">{t("pf.suggestedReorder")}</label>
+        <label className={LABEL} title={t("pf.suggestedReorder")}>
+          {t("pf.suggestedReorder")}
+        </label>
         <input type="number" min="0" value={form.reorderQty} onChange={(e) => setForm({ ...form, reorderQty: e.target.value })} className="border p-2 rounded-lg w-full text-sm" placeholder={t("pf.optional")} />
       </div>
 
       {!form.hasVariants && (
-        <div className="md:col-span-2">
-          <label className="block text-sm font-medium text-gray-500 mb-1">{t("pf.barcodeField")}</label>
-          <div className="flex gap-2">
-            <input value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} placeholder={t("pf.optional")} className="border p-2 rounded-lg flex-1 text-sm" />
+        <div className="col-span-2">
+          <label className={LABEL} title={t("pf.barcodeField")}>
+            {t("pf.barcodeField")}
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <input value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} placeholder={t("pf.optional")} className="border p-2 rounded-lg flex-1 min-w-0 text-sm" />
             <BarcodeScanner onScan={(code) => setForm({ ...form, barcode: code })} label={t("pf.scanCode")} />
             <button
               type="button"
@@ -1209,7 +1300,7 @@ export default function ProductForm({
           </p>
         </div>
       )}
-      <div className="md:col-span-2 flex gap-2 mt-2">
+      <div className="col-span-2 flex gap-2 mt-2">
         <button
           type="submit"
           className="bg-green-600 text-white p-2 rounded-lg flex-1 text-sm"
