@@ -9,6 +9,7 @@ import { assertNotDuplicate } from '../common/duplicate.util';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { getCurrentTenantId, requireTenantId } from '../common/tenant/tenant.context';
 import { resolveTax, round2, splitTax } from '../common/tax.util';
+import { CustomerLoyaltyService } from '../customers/customer-loyalty.service';
 import { FinanceService } from '../finance/finance.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -34,7 +35,76 @@ export class SalesService {
     private prisma: PrismaService,
     private notifications: NotificationsService,
     private finance: FinanceService,
+    private loyalty: CustomerLoyaltyService,
   ) {}
+
+  /**
+   * Credit gate: a customer flagged `canTakeCredit = false` may not be billed a
+   * credit or partial sale. Existing debts are untouched — only *new* credit is
+   * blocked. Read through the caller's transaction client so a concurrent
+   * toggle cannot slip past the check.
+   */
+  private async assertCustomerMayTakeCredit(
+    tx: Prisma.TransactionClient,
+    saleType: string,
+    customerId?: number | null,
+  ) {
+    if (saleType !== 'PARTIALLY_PAID' && saleType !== 'CREDITED') return;
+    if (!customerId) return; // the caller's own "customer is required" check
+    const customer = await tx.customer.findFirst({
+      where: { id: customerId },
+      select: { id: true, name: true, canTakeCredit: true },
+    });
+    if (!customer) throw new BadRequestException(tr('errors.customerNotFound'));
+    if (!customer.canTakeCredit) {
+      throw new BadRequestException(
+        tr('errors.customerCreditBlocked', { name: customer.name }),
+      );
+    }
+  }
+
+  /**
+   * CRM bookkeeping for one sale: loyalty points and the customer's
+   * "last purchase" stamp. Both no-op when the sale has no customer. Returns the
+   * loyalty result so the checkout response can report the points earned.
+   */
+  private async syncSaleCustomer(
+    tx: Prisma.TransactionClient,
+    opts: {
+      organizationId: number;
+      saleId: number;
+      customerId: number | null | undefined;
+      previousCustomerId?: number | null;
+      totalAmount: number;
+      refundedAmount?: number;
+      saleDate?: Date;
+      invoiceNumber?: string;
+      userId?: number;
+    },
+  ): Promise<{ earned: number; reversed: number; balance: number | null } | null> {
+    // A sale that just lost its customer (re-billed to a walk-in) still owns
+    // rows for the previous customer: sync against them with zero amounts so
+    // they are retired and the points handed back.
+    const customerId = opts.customerId ?? opts.previousCustomerId;
+    if (customerId == null) return null;
+    const earning = opts.customerId != null;
+    const result = await this.loyalty.syncSaleLoyalty(tx, {
+      organizationId: opts.organizationId,
+      customerId,
+      saleId: opts.saleId,
+      totalAmount: earning ? opts.totalAmount : 0,
+      refundedAmount: earning ? (opts.refundedAmount ?? 0) : 0,
+      createdById: opts.userId ?? null,
+      reason: opts.invoiceNumber ?? null,
+    });
+    if (earning && opts.saleDate) {
+      await tx.customer.updateMany({
+        where: { id: opts.customerId! },
+        data: { lastPurchaseAt: opts.saleDate },
+      });
+    }
+    return result;
+  }
 
   /** Chart accounts required by the automatic sales posting engine. */
   private requiredPostingAccounts() {
@@ -339,6 +409,8 @@ export class SalesService {
       if ((saleType === 'PARTIALLY_PAID' || saleType === 'CREDITED') && !dto.customerId) {
         throw new BadRequestException('Customer is required for credit/partial');
       }
+      // CRM gate: credit-blocked customers cannot be billed a new credit sale.
+      await this.assertCustomerMayTakeCredit(tx, saleType, dto.customerId);
 
       const sale = await tx.sale.create({
         data: {
@@ -383,6 +455,19 @@ export class SalesService {
         });
       }
 
+      // CRM: award loyalty points for the sale and stamp the customer's last
+      // purchase. Inside the same transaction, so a rolled-back checkout never
+      // leaves points behind.
+      const loyalty = await this.syncSaleCustomer(tx, {
+        organizationId: tenantId,
+        saleId: sale.id,
+        customerId: sale.customerId,
+        totalAmount: sale.totalAmount,
+        saleDate: sale.saleDate,
+        invoiceNumber: sale.invoiceNumber,
+        userId: user.sub,
+      });
+
       await tx.auditLog.create({
         data: {
           tenantId,
@@ -403,7 +488,7 @@ export class SalesService {
         );
       }
 
-      return sale;
+      return { ...sale, loyalty };
     };
 
     if (opts.tx) {
@@ -764,6 +849,12 @@ export class SalesService {
       if (saleType === 'PARTIALLY_PAID' || saleType === 'CREDITED') {
         if (!dto.customerId && !oldSale.customerId)
           throw new BadRequestException('Customer is required');
+        // CRM gate: the (possibly new) customer must be credit-eligible.
+        await this.assertCustomerMayTakeCredit(
+          tx,
+          saleType,
+          dto.customerId ?? oldSale.customerId,
+        );
         await tx.creditSale.create({
           data: {
             tenantId,
@@ -778,6 +869,24 @@ export class SalesService {
         });
       }
 
+      // CRM: re-sync loyalty points — the total, the customer or the returns may
+      // all have changed in this edit — and refresh the last-purchase stamp.
+      const refunded = await tx.return.aggregate({
+        where: { saleId: id },
+        _sum: { totalRefund: true },
+      });
+      const loyalty = await this.syncSaleCustomer(tx, {
+        organizationId: tenantId,
+        saleId: id,
+        customerId: updated.customerId,
+        previousCustomerId: oldSale.customerId,
+        totalAmount: updated.totalAmount,
+        refundedAmount: refunded._sum.totalRefund ?? 0,
+        saleDate: updated.saleDate,
+        invoiceNumber: updated.invoiceNumber,
+        userId: user.sub,
+      });
+
       // Refresh the auto-posted ledger entries so they mirror the edited
       // sale (income, COGS, journal and any existing return reversals).
       await this.refreshSalePostings(tx, id, tenantId);
@@ -791,7 +900,7 @@ export class SalesService {
         },
       });
 
-      return updated;
+      return { ...updated, loyalty };
     }).then(async (updated) => {
       for (const item of dto.items) {
         await this.notifications.checkAndNotifyLowStock(item.productId, updated.shopId);
@@ -870,6 +979,20 @@ export class SalesService {
       // 4. Wipe linked credit payments so payment-channel reports stay accurate
       await tx.creditPayment.deleteMany({ where: { saleId: id } });
 
+      // 4.5 CRM: hand back the loyalty points this sale earned. The ledger rows
+      // survive the deletion (the FK nulls) so the customer's history stays
+      // readable and the balance returns to what it was before the sale.
+      if (sale.customerId) {
+        await this.loyalty.reverseSaleLoyalty(tx, {
+          organizationId: sale.tenantId ?? requireTenantId(),
+          customerId: sale.customerId,
+          saleId: id,
+          totalAmount: sale.totalAmount,
+          createdById: user.sub,
+          reason: `${sale.invoiceNumber} (deleted)`,
+        });
+      }
+
       // 5. Delete the sale (sale items cascade; purchase link nulls)
       await tx.sale.delete({ where: { id } });
 
@@ -881,6 +1004,18 @@ export class SalesService {
         },
       });
     });
+
+    // The deleted sale may have been the customer's most recent one.
+    if (sale.customerId) {
+      const latest = await this.prisma.sale.aggregate({
+        where: { customerId: sale.customerId },
+        _max: { saleDate: true },
+      });
+      await this.prisma.customer.updateMany({
+        where: { id: sale.customerId },
+        data: { lastPurchaseAt: latest._max.saleDate ?? null },
+      });
+    }
 
     return { message: 'Sale deleted' };
   }
@@ -980,6 +1115,27 @@ export class SalesService {
       }
 
       await tx.return.delete({ where: { id } });
+
+      // CRM: the refund is gone, so the points it had reversed come back.
+      const remainingRefunds = await tx.return.aggregate({
+        where: { saleId: sale.id },
+        _sum: { totalRefund: true },
+      });
+      const freshSale = await tx.sale.findFirst({
+        where: { id: sale.id },
+        select: { totalAmount: true, customerId: true, invoiceNumber: true },
+      });
+      if (freshSale?.customerId) {
+        await this.syncSaleCustomer(tx, {
+          organizationId: sale.tenantId ?? requireTenantId(),
+          saleId: sale.id,
+          customerId: freshSale.customerId,
+          totalAmount: freshSale.totalAmount,
+          refundedAmount: remainingRefunds._sum.totalRefund ?? 0,
+          invoiceNumber: freshSale.invoiceNumber,
+          userId: user.sub,
+        });
+      }
 
       // Wipe the finance reversal entries tied to this return.
       await tx.cogsEntry.deleteMany({
@@ -1129,6 +1285,24 @@ export class SalesService {
             });
           }
         }
+      }
+
+      // CRM: a return gives back part of what the sale charged, so the points it
+      // earned are reversed proportionally (never below the customer's balance).
+      if (sale.customerId) {
+        const refundedAll = await tx.return.aggregate({
+          where: { saleId: sale.id },
+          _sum: { totalRefund: true },
+        });
+        await this.syncSaleCustomer(tx, {
+          organizationId: tenantId,
+          saleId: sale.id,
+          customerId: sale.customerId,
+          totalAmount: sale.totalAmount,
+          refundedAmount: refundedAll._sum.totalRefund ?? 0,
+          invoiceNumber: sale.invoiceNumber,
+          userId: user.sub,
+        });
       }
 
       await tx.auditLog.create({

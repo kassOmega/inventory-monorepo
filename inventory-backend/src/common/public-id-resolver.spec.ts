@@ -35,7 +35,7 @@ describe('numeric id / publicId resolution', () => {
   it('passes legacy numeric refs straight through', async () => {
     const prisma = makePrisma({});
     await expect(
-      new CustomersService(prisma as any).resolveCustomerId('42'),
+      new CustomersService(prisma as any, {} as any).resolveCustomerId('42'),
     ).resolves.toBe(42);
     await expect(
       new CreditSalesService(prisma as any).resolveCreditSaleId('7'),
@@ -64,7 +64,7 @@ describe('numeric id / publicId resolution', () => {
       user: 14,
     });
     await expect(
-      new CustomersService(prisma as any).resolveCustomerId(UUID),
+      new CustomersService(prisma as any, {} as any).resolveCustomerId(UUID),
     ).resolves.toBe(11);
     await expect(
       new CreditSalesService(prisma as any).resolveCreditSaleId(UUID),
@@ -96,7 +96,9 @@ describe('numeric id / publicId resolution', () => {
   it('throws NotFound for unknown uuids', async () => {
     const prisma = makePrisma({});
     await expect(
-      new CustomersService(prisma as any).resolveCustomerId(UNKNOWN),
+      new CustomersService(prisma as any, {} as any).resolveCustomerId(
+        UNKNOWN,
+      ),
     ).rejects.toBeInstanceOf(NotFoundException);
     await expect(
       new CreditSalesService(prisma as any).resolveCreditSaleId(UNKNOWN),

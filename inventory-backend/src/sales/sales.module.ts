@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CustomersModule } from '../customers/customers.module';
 import { FinanceModule } from '../finance/finance.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { FiscalModule } from '../fiscal/fiscal.module';
@@ -6,7 +7,13 @@ import { SalesController } from './sales.controller';
 import { SalesService } from './sales.service';
 
 @Module({
-  imports: [NotificationsModule, FinanceModule, FiscalModule],
+  imports: [
+    NotificationsModule,
+    FinanceModule,
+    FiscalModule,
+    // CRM: loyalty points are awarded/reversed inside the checkout transaction.
+    CustomersModule,
+  ],
   controllers: [SalesController],
   providers: [SalesService],
   exports: [SalesService],

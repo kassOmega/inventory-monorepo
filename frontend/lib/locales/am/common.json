@@ -73,7 +73,8 @@
     "aiAgent": "ኤአይ ወኪል",
     "logout": "ውጣ",
     "openMenu": "ሜኑ ክፈት",
-    "stock": "እቃ"
+    "stock": "እቃ",
+    "customers": "ደንበኞች"
   },
   "sales": {
     "title": "ሽያጮች",
@@ -278,7 +279,6 @@
     "customerRequiredForCredit": "ለዕዳ ወይም ከፊል ክፍያ ደንበኛ ያስፈልጋል።",
     "receiptConfirmedAndSale": "ደረሰኝ ተረጋግጧል እና ሽያጩ ተመዝግቧል!",
     "failedRecordSale": "ሽያጩን መመዝገብ አልተሳካም።",
-    "failedAddCustomer": "ደንበኛ ማከል አልተሳካም።",
     "addAtLeastOneProduct": "እባክዎ ቢያንስ አንድ ምርት ያክሉ።",
     "closeRequestConfirm": "ይህን ጥያቄ መዝጋት ይፈልጋሉ? ማንኛውም ጉድለት ተቀባይነት ያገኛል እና ተጨማሪ መላክ አይደረግም።",
     "itemFallback": "አንድ ዕቃ",
@@ -336,7 +336,6 @@
     "noItemsPending": "ለማረጋገጥ በመጠባበቅ ላይ ያሉ ዕቃዎች የሉም።",
     "totalLabelSell": "ጠቅላላ",
     "newPaymentMethodPlaceholder": "አዲስ የክፍያ ዘዴ",
-    "newCustomerNamePlaceholder": "የአዲስ ደንበኛ ስም",
     "confirmAndSell": "አረጋግጥ እና ሽጥ",
     "dispatchedInline": "የተላከ፡",
     "shortageInline": "· እጥረት {{n}}",
@@ -3381,7 +3380,6 @@
       "updateFailed": "ፈረቃ ማዘመን አልተሳካም።",
       "assignFailed": "ሰራተኞችን መመደብ አልተሳካም።"
     },
-
     "production": {
       "goodUnitsHint": "ጥሩ አሃዶች ወደ መጋዘን ገብተዋል",
       "scrapUnitsHint": "የተጨረሱ አሃዶች ተጣልተዋል (ወደ ክምችት አልገቡም)",
@@ -3391,7 +3389,6 @@
       "estimateNote": "ግምቶቹ የአሁኑን የጥሬ ዕቃ ዋጋ ይጠቀማሉ፤ ትክክለኛው COGM በተጠናቀቀ ጊዜ ከመጋዘኑ አማካይ ወጪ ይሰላል።",
       "working": "በሂደት ላይ…"
     },
-
     "materials": {
       "title": "ዕቃዎችና ተሰጥቶች",
       "subtitle": "ለሰራተኞች በመጠን የሚሰጡ ጅምላ ዕቃዎች — የተሰጠው፣ ጥቅም ላይ ሳይውል የተመለሰው እና የዋለው።",
@@ -3421,7 +3418,6 @@
       "returnFailed": "መመለስ መመዝገብ አልተሳካም።",
       "loadFailed": "ዕቃዎችን መጫን አልተሳካም።"
     },
-
     "flows": {
       "title": "የምርት ፍሰቶች / ሂደት",
       "subtitle": "እያንዳንዱ የምርት ፍሰት ትዕዛዝ የሚያልፍባቸው ቡድኖች በቅደም ተከተል የተደረደሩበት ነው። ትዕዛዝ ሲፈጥሩ ፍሰቱን ይምረጡ — ትዕዛዙ የሚከተለው እነዚያን ደረጃዎች ብቻ ነው። አንዱን ደረጃ የምርት/ግንባታ ደረጃ ብለው ምልክት ያድርጉበት ስራ ትዕዛዝ በራስ-ሰር እንዲገናኝ።",
@@ -3463,7 +3459,6 @@
       "deleteFailed": "ፍሰቱን ማጥፋት አልተሳካም።",
       "loadFailed": "ፍሰቶችን መጫን አልተሳካም።"
     },
-
     "catalog": {
       "title": "የንድፍ ካታሎግ",
       "subtitle": "ዝርዝር መግለጫዎች፣ ንድፎች እና ነባሪ የምርት BOM ያላቸው የምርትና ንድፍ መዝገብ — ከስራ ትዕዛዞችና ከዋና ትዕዛዞች ይገናኛል።",
@@ -3508,7 +3503,6 @@
       "saveCategoryFailed": "ምድብ ማስቀመጥ አልተሳካም።",
       "deleteCategoryFailed": "ምድብ ማጥፋት አልተሳካም።"
     },
-
     "receipts": {
       "title": "የዕቃ ደረሰኞች (GRN)",
       "subtitle": "ዕቃ መቀበል የመጋዘኑን ቀሪ ሂሳብ ወዲያውኑ ያዘምናል።",
@@ -3562,7 +3556,6 @@
       "scrapFailed": "ቆሻሻ ማድረግ አልተሳካም።",
       "creditFailed": "የማስተካከያ ማስታወሻ አልተሳካም።"
     },
-
     "vendors": {
       "title": "አቅራቢዎች",
       "newVendor": "+ አዲስ አቅራቢ",
@@ -3601,7 +3594,6 @@
       "stPartiallyReceived": "በከፊል ተቀብሏል",
       "loadFailed": "ያልተጠናቀቁ ትዕዛዞችን መጫን አልተሳካም።"
     },
-
     "directBuy": {
       "title": "ቀጥታ ግዢ / ፈጣን ደረሰኝ",
       "newDirectBuy": "አዲስ ቀጥታ ግዢ",
@@ -3665,8 +3657,6 @@
       "saving": "በማስቀመጥ ላይ…",
       "loadFailed": "የአቅራቢ ሂሳቦችን መጫን አልተሳካም።"
     },
-
-
     "purchasing": {
       "tabPos": "የግዢ ትዕዛዞች",
       "tabBackorders": "ያልተጠናቀቁ ትዕዛዞች",
@@ -3738,7 +3728,6 @@
       "deleteFailed": "ማጥፋት አልተሳካም",
       "vendorAdded": "አቅራቢ ተጨምሮ ተመርጧል"
     },
-
     "orders": {
       "title": "ትዕዛዞች",
       "subtitle": "እያንዳንዱ ትዕዛዝ በፍሰትዎ ውስጥ ይጓዛል — ቡድኖች ያዘምኑታል እና ለቀጣዩ ቡድን ያስተላልፉታል። የመጨረሻው ቡድን ይዘጋዋል።",
@@ -3814,7 +3803,6 @@
       "deleteFailed": "ትዕዛዝ ማጥፋት አልተሳካም",
       "detailFailed": "የትዕዛዝ ዝርዝሮችን መጫን አልተሳካም"
     },
-
     "jobs": {
       "title": "ስራዎች",
       "newJob": "+ አዲስ ስራ",
@@ -4065,5 +4053,117 @@
     "docTitle": "የግዢ ትዕዛዝ #{{id}}",
     "docTotal": "ግምታዊ ጠቅላላ፦ {{total}}",
     "docNote": "በ AI ከቀጥታ የክምችት መረጃ የተፈጠረ — ለአቅራቢው ከመላክዎ በፊት ብዛቱን ያረጋግጡ።"
+  },
+  "crm": {
+    "title": "ደንበኞች",
+    "subtitle": "የደንበኛ መዝገብ፣ የግንኙነት ታሪክና የታማኝነት ነጥብ",
+    "addCustomer": "ደንበኛ ያክሉ",
+    "editCustomer": "ደንበኛ ያስተካክሉ",
+    "searchPlaceholder": "ስም፣ ስልክ ወይም ኮድ ይፈልጉ",
+    "filterAll": "ሁሉም",
+    "filterDebt": "ዕዳ ያለባቸው",
+    "filterBlocked": "በዕዳ የተከለከሉ",
+    "filterArchived": "በማህደር",
+    "customerNumber": "የደንበኛ ቁጥር",
+    "creditBlocked": "በዕዳ ተከልክሏል",
+    "creditAllowed": "በዕዳ መውሰድ ይችላል",
+    "loyaltyPoints": "የታማኝነት ነጥብ",
+    "points": "ነጥብ",
+    "pointsBalance": "የነጥብ ቀሪ",
+    "lastPurchase": "የመጨረሻ ግዢ",
+    "never": "በጭራሽ",
+    "totalSpent": "ጠቅላላ ወጪ",
+    "salesCount": "የግዢ ብዛት",
+    "averageOrder": "አማካይ ግዢ",
+    "statTotal": "ጠቅላላ ደንበኞች",
+    "statNewThisMonth": "በዚህ ወር አዲስ",
+    "statDebtors": "ዕዳ ያለባቸው",
+    "statBlocked": "በዕዳ የተከለከሉ",
+    "statFollowUps": "መከታተያ የሚጠይቁ",
+    "viewProfile": "መገለጫ ይክፈቱ",
+    "archive": "በማህደር ያስቀምጡ",
+    "restore": "ይመልሱ",
+    "archivedBadge": "በማህደር",
+    "archiveConfirm": "ይህ ደንበኛ በማህደር ይቀመጥ? ታሪኩ ይቀመጣል።",
+    "restoreConfirm": "ይህ ደንበኛ ወደ ደንበኞች ዝርዝር ይመለስ?",
+    "archivedDone": "ደንበኛው በማህደር ተቀምጧል",
+    "restoredDone": "ደንበኛው ተመልሷል",
+    "archiveFailed": "ደንበኛውን ማዘመን አልተቻለም",
+    "deleteConfirm": "ይህ ደንበኛ ለዘላለም ይጥፋ? ሽያጭ ወይም ዕዳ ያላቸው ደንበኞች በማህደር መቀመጥ አለባቸው።",
+    "customerDeleted": "ደንበኛው ተጠፍቷል",
+    "deleteFailed": "ደንበኛውን ማጥፋት አልተቻለም",
+    "noCustomers": "እስካሁን ደንበኛ የለም",
+    "loadFailed": "ደንበኞችን ማምጣት አልተቻለም",
+    "notFound": "ደንበኛ አልተገኘም",
+    "customerSaved": "ደንበኛው ተቀምጧል",
+    "sectionContact": "መገኛ",
+    "sectionProfile": "መገለጫ",
+    "sectionCredit": "ዕዳና ታማኝነት",
+    "address": "አድራሻ",
+    "birthday": "የልደት ቀን",
+    "preferredLanguage": "የሚመርጡት ቋንቋ",
+    "tags": "ምድቦች",
+    "tagsPlaceholder": "VIP፣ ጅምላ (በኮማ ይለያዩ)",
+    "source": "እንዴት እንደመጡ",
+    "sourceWALK_IN": "በአካል የመጣ",
+    "sourceREFERRAL": "በምክር የመጣ",
+    "sourceONLINE": "በመስመር ላይ",
+    "sourceEVENT": "በዝግጅት",
+    "sourceOTHER": "ሌላ",
+    "canTakeCredit": "በዕዳ መውሰድ ይችላል",
+    "canTakeCreditHint": "ይህ ሲጠፋ ለዚህ ደንበኛ አዲስ የዕዳና የግማሽ ክፍያ ሽያጭ ይከለከላል።",
+    "creditLimit": "የዕዳ ገደብ",
+    "notesHint": "በደንበኛው መዝገብ ላይ የሚቀመጥ ማጠቃለያ። ግንኙነቶችን በታሪክ ዝርዝር ይመዝግቡ።",
+    "blockedHint": "ይህ ደንበኛ በዕዳ መውሰድ አይችልም",
+    "profileTitle": "የደንበኛ መገለጫ",
+    "editProfile": "መገለጫ ያስተካክሉ",
+    "balance": "ቀሪ ዕዳ",
+    "viewCredits": "ዕዳዎችን ይመልከቱ",
+    "recentSales": "የቅርብ ጊዜ ግዢዎች",
+    "noSales": "እስካሁን ግዢ የለም",
+    "timeline": "የግንኙነት ታሪክ",
+    "timelineHint": "ጥሪዎችን፣ ጉብኝቶችን፣ ቅሬታዎችንና መከታተያዎችን እዚህ ይመዝግቡ።",
+    "addEntry": "ግንኙነት ያክሉ",
+    "entryBody": "ምን ተከናወነ?",
+    "entryKind": "ዓይነት",
+    "entryKindNOTE": "ማስታወሻ",
+    "entryKindCALL": "ጥሪ",
+    "entryKindVISIT": "ጉብኝት",
+    "entryKindCOMPLAINT": "ቅሬታ",
+    "entryKindFOLLOW_UP": "መከታተያ",
+    "followUpAt": "መከታተያ ቀን",
+    "followUpDue": "መከታተያው ደርሷል",
+    "entryAdded": "ግንኙነቱ ተመዝግቧል",
+    "entryFailed": "ግንኙነቱን መመዝገብ አልተቻለም",
+    "entryDeleted": "ግንኙነቱ ተጠፍቷል",
+    "entryDeleteFailed": "ግንኙነቱን ማጥፋት አልተቻለም",
+    "deleteEntry": "ያጥፉ",
+    "deleteEntryConfirm": "ይህ የግንኙነት መዝገብ ይጥፋ?",
+    "noEntries": "እስካሁን መዝገብ የለም",
+    "loyaltyTitle": "የታማኝነት ነጥብ",
+    "loyaltyHistory": "የነጥብ ታሪክ",
+    "adjustPoints": "ነጥብ ያስተካክሉ",
+    "pointsDelta": "ነጥብ (+/-)",
+    "pointsReason": "ምክንያት",
+    "apply": "ይተግብሩ",
+    "pointsAdjusted": "ነጥቡ ተስተካክሏል",
+    "pointsAdjustFailed": "ነጥቡን ማስተካከል አልተቻለም",
+    "noPoints": "እስካሁን የነጥብ እንቅስቃሴ የለም",
+    "entryEARN": "የተገኘ",
+    "entryREDEEM": "የተጠቀመ",
+    "entryADJUST": "የተስተካከለ",
+    "entryREVERSE": "የተመለሰ",
+    "entryEXPIRE": "ያለፈ",
+    "earnedToast": "{{points}} ነጥብ ተገኝቷል",
+    "programTitle": "የታማኝነት ፕሮግራም",
+    "programEnabled": "የታማኝነት ነጥብ ያስጀምሩ",
+    "programEnabledHint": "ከደንበኛ ጋር በተያዘ ሽያጭ ሁሉ ነጥብ በራስ-ሰር ይሰጣል።",
+    "pointsPer100": "በየ100 ግዢ የሚገኝ ነጥብ",
+    "valuePerPoint": "የአንድ ነጥብ ዋጋ",
+    "minRedeemPoints": "በአንድ ጊዜ የሚጠቀሙበት ዝቅተኛ ነጥብ",
+    "programSaved": "የታማኝነት ቅንብሮች ተቀምጠዋል",
+    "programSaveFailed": "ቅንብሮቹን ማስቀመጥ አልተቻለም",
+    "redeemLaterHint": "በሽያጭ ጊዜ ነጥብ መጠቀም በሚቀጥለው የተለቀቀ ቅጂ ይመጣል።",
+    "saveSettings": "ቅንብሮቹን ያስቀምጡ"
   }
 }

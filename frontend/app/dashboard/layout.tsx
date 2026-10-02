@@ -152,12 +152,19 @@ export default function DashboardLayout({
     const customServiceRoute = /^\/dashboard\/hospitality\/service\/[^/]+$/.test(
       pathname,
     );
+    // CRM: /dashboard/customers/<id|publicId> is the customer profile. The
+    // static map cannot hold a dynamic segment, so it falls back to the same
+    // read permission the directory itself uses.
+    const customerProfileRoute = /^\/dashboard\/customers\/[^/]+$/.test(
+      pathname,
+    );
     // A route may accept any of several permissions (e.g. /dashboard/users is
     // opened by users.view, users.manage or roles.manage because Users & Roles
     // share one tabbed page) — mirroring the backend PermissionsGuard, which
     // passes when any of the required keys is held.
     let required: string | string[] | undefined =
       routePermissionMap[pathname] ??
+      (customerProfileRoute ? "customers.view" : undefined) ??
       (customServiceRoute ? "facility.view" : undefined);
     if (!required && stationMatch) {
       if (stations.length === 0) return; // station list still loading

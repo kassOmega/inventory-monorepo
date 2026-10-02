@@ -11,6 +11,7 @@ import { formatBusinessNumber } from "@/lib/bizNumber";
 import { useAuth } from "@/context/AuthContext";
 import api, { markHandled } from "@/lib/api";
 import { fmtCurrency } from "@/lib/currency";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -86,15 +87,19 @@ export default function CreditsPage() {
   }, [filterSig, creditPaged.page, creditPaged.pageSize, isOwner]);
 
   const handleDelete = async (id: number) => {
-    const ok = await confirm(t("credits.deleteCustomerConfirm"));
+    const ok = await confirm(t("crm.deleteConfirm"));
     if (!ok) return;
     try {
       await api.delete(`/customers/${id}`);
       fetchCustomers();
-      toast.success(t("credits.customerDeleted"));
+      toast.success(t("crm.customerDeleted"));
     } catch (err: any) {
       markHandled(err);
-      toast.error(t("credits.failedDeleteCustomer"));
+      // A customer with history cannot be deleted: the API explains that and
+      // points at archiving, so surface its message instead of a generic one.
+      toast.error(
+        err?.response?.data?.message ?? t("crm.deleteFailed"),
+      );
     }
   };
 
@@ -164,14 +169,41 @@ export default function CreditsPage() {
             {customers.map((c: any) => (
               <tr key={c.id} className="border-b hover:bg-gray-50">
                 <td className="p-2 sm:p-3 md:p-4 font-medium">
-                  {c.name}
-                  {(c.numberLabel ??
-                    formatBusinessNumber("CUST", c.number)) && (
-                    <span className="block text-[10px] font-normal text-gray-400">
-                      {c.numberLabel ??
-                        formatBusinessNumber("CUST", c.number)}
-                    </span>
-                  )}
+                  <Link
+                    href={`/dashboard/customers/${c.publicId ?? c.id}`}
+                    className="hover:text-blue-600 hover:underline"
+                  >
+                    {c.name}
+                  </Link>
+                  <span className="flex flex-wrap items-center gap-1 mt-0.5">
+                    {(c.numberLabel ??
+                      formatBusinessNumber("CUST", c.number)) && (
+                      <span className="text-[10px] font-normal text-gray-400">
+                        {c.numberLabel ??
+                          formatBusinessNumber("CUST", c.number)}
+                      </span>
+                    )}
+                    {/* Credit-blocked is the one flag that changes what the
+                        cashier may do, so it is called out on the row. */}
+                    {c.canTakeCredit === false && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-600">
+                        {t("crm.creditBlocked")}
+                      </span>
+                    )}
+                    {c.loyaltyPoints > 0 && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">
+                        {c.loyaltyPoints} {t("crm.points")}
+                      </span>
+                    )}
+                    {(c.tags ?? []).map((tag: string) => (
+                      <span
+                        key={tag}
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </span>
                 </td>
                 <td className="p-2 sm:p-3 md:p-4 text-gray-500 hidden sm:table-cell">
                   {c.phone || "—"}
@@ -193,6 +225,13 @@ export default function CreditsPage() {
                       {
                         label: t("credits.view"),
                         onClick: () => router.push(`/dashboard/credits/${c.publicId ?? c.id}`),
+                      },
+                      {
+                        label: t("crm.viewProfile"),
+                        onClick: () =>
+                          router.push(
+                            `/dashboard/customers/${c.publicId ?? c.id}`,
+                          ),
                       },
                       {
                         label: t("credits.sale"),

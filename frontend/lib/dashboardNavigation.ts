@@ -160,6 +160,11 @@ export const routePermissionMap: Record<string, string | string[]> = {
   "/dashboard/purchases": "purchases.view",
   "/dashboard/prices": "prices.view",
   "/dashboard/credits": "credits.view",
+  // CRM: deliberately not in routeFeatureMap — the directory serves every
+  // business type (retail, hospitality guests, service clients, manufacturing
+  // dealers), so only the permission gates it.
+  "/dashboard/customers": "customers.view",
+  "/dashboard/customers/settings": "customers.manage",
   "/dashboard/locations": "locations.manage",
   "/dashboard/users": ["users.view", "users.manage", "roles.manage"],
   "/dashboard/reports": "reports.view",
@@ -343,7 +348,21 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
       { href: "/dashboard/purchases", label: t("nav.purchases"), permission: "purchases.view" },
       { href: "/dashboard/prices", label: t("nav.prices"), permission: "prices.view" },
       { href: "/dashboard/credits", label: t("nav.credits"), permission: "credits.view" },
+      { href: "/dashboard/customers", label: t("nav.customers"), permission: "customers.view" },
     );
+  }
+
+  // CRM: the customer book is not retail-only — hospitality bills guests,
+  // service bills clients and manufacturing bills dealers, so every vertical
+  // that grants `customers.view` gets the directory. It sits in Sales &
+  // Payments because that is the section it is read alongside (credits).
+  if (ctx.hasBusiness && !ctx.isRetail) {
+    sales.items.push({
+      href: "/dashboard/customers",
+      label: t("nav.customers"),
+      permission: ["customers.view", "credits.view"],
+      match: ["/dashboard/credits"],
+    });
   }
 
   if (ctx.hasBusiness && ctx.hasFinance) {

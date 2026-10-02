@@ -8,10 +8,10 @@ section 0.
 
 | Gate | Command | Baseline |
 | --- | --- | --- |
-| Catalog (frontend) | `cd frontend && node scripts/i18n-check.mjs` | **all gates clean** — parity 3814/3814 ✓, no identical-value misses, 0 glossary violations |
-| Catalog (backend) | `cd inventory-backend && node scripts/i18n-check.mjs` | **all gates clean** — parity 218/218 ✓, no identical-value misses, 0 glossary violations |
-| Frontend UI | `cd frontend && node scripts/i18n-audit.mjs [--list --file X --strict]` | **180 files scanned, 0 dirty, 0 hits** |
-| Backend messages | `cd inventory-backend && node scripts/i18n-audit.mjs [--list --strict]` | 667 `throw` sites, 424 localized, 243 remaining (243 static + **0 interpolated**) |
+| Catalog (frontend) | `cd frontend && node scripts/i18n-check.mjs` | **all gates clean** — parity 3923/3923 ✓, no identical-value misses, 0 glossary violations |
+| Catalog (backend) | `cd inventory-backend && node scripts/i18n-check.mjs` | **all gates clean** — parity 274/274 ✓, no identical-value misses, 0 glossary violations |
+| Frontend UI | `cd frontend && node scripts/i18n-audit.mjs [--list --file X --strict]` | **183 files scanned, 0 dirty, 0 hits** |
+| Backend messages | `cd inventory-backend && node scripts/i18n-audit.mjs [--list --strict]` | 681 `throw` sites, 438 localized, 243 remaining (243 static + **0 interpolated**) — `src/customers` 0 |
 
 - `docs/i18n-glossary.md` is the single source of truth for terminology; `i18n-check.mjs`
   parses its table and fails on an avoided variant.
@@ -115,6 +115,9 @@ categories automatically (`tenants.service.ts`, `common/verticals.ts`).
   **Chart of Accounts**, **Products** (list, variants, adjust-stock, QR printing, delete flows),
   **Restock/Purchasing** (owner+staff flows, variant & batch/expiry forms),
   **Credits** (customer list + customer detail: grouped sales, payment history, record/edit/delete payment),
+  **Customers CRM** (directory with KPI tiles/segments/credit-blocked badges, the customer profile with
+  interaction timeline + loyalty ledger, and the loyalty programme settings page — all on the shared
+  `CustomerForm`; see the CRM batch note below),
   **Sales** (full POS: cart builder, sale types, payments, returns, view/delete-return/settle modals, fiscal batch print),
   **Requests** (full stock-request lifecycle: list/filters, manage modal with approvals/dispatch/store/receive + captions, create-request form, confirm-receipt-&-sell),
   **Food / Menu** (stations + route builder, menu categories, item CRUD w/ SIMPLE/BENCHMARK/PERPETUAL tracking,
@@ -238,6 +241,28 @@ categories automatically (`tenants.service.ts`, `common/verticals.ts`).
   that shadowed `t` was renamed to `ticket`, and `t` was added to the `load` `useCallback` deps.
   Repo totals after this batch: **406 hits / 31 dirty files**, catalog
   **3476 en / 3476 am keys, all gates clean** (`tsc --noEmit` green).
+- **Customer CRM** (done): a new `crm.*` group (**110 keys**) plus `nav.customers` carries the whole
+  module — the directory (`/dashboard/customers`, KPI tiles + four filter chips + table), the profile
+  (`/dashboard/customers/[id]`: profile panel, purchase stats, interaction timeline, loyalty ledger)
+  and the loyalty programme settings page. The **single reusable `CustomerForm`** — rewritten from
+  name+phone to the full CRM record (contact, birthday, preferred language, segments, source, credit
+  limit, `canTakeCredit`, summary notes) — is now the only customer form in the app: the inline
+  name/phone pair in `app/dashboard/requests/page.tsx` was deleted in favour of it, and credits,
+  sales, the directory and the profile all mount the same component. Enum-driven labels resolve
+  through catalog keys (`crm.source*`, `crm.entryKind*`, `crm.entry*`) instead of literals, statuses
+  and dates go through `fmtCurrency`/`formatDate`/`formatDateTime`, and the sales page reports earned
+  points via `crm.earnedToast` (`{{points}}`). The pre-existing `app/dashboard/finance/page.tsx`
+  regression from `b6740fe` (six bare tab ids) is closed with the audit's documented per-line
+  `// i18n-ignore`, since those literals are internal ids and the rendered label is `fin.tab<Id>`.
+  Backend gained `errors.customerCreditBlocked|customerHasHistory|customerNoteNotFound|
+  loyaltyPointsRequired|loyaltyInsufficientPoints` in both catalogs (269 → 274 keys); every new
+  throw goes through `tr()`. Two catalog keys that only the deleted inline form used
+  (`requests.newCustomerNamePlaceholder`, `requests.failedAddCustomer`) were dropped from both
+  locales, so no dead key is left behind.
+  Repo totals after this batch: frontend catalog **3923 en / 3923 am keys**, frontend audit
+  **183 files, 0 dirty, 0 hits**; backend catalog **274/274**, backend audit **681 sites / 438
+  localized / 243 remaining** (unchanged — the CRM module contributes 0). `tsc --noEmit` green in
+  both apps, `next build` green (the three new routes prerender as expected).
 - Fiscal print preview & PDF exports (Ethiopic font work): the preview/button chrome is localized
   and the receipt body is pinned Latin in `i18n-check.mjs` (`fiscal.receipt.*`) until the Ethiopic
   font work lands.
@@ -316,7 +341,7 @@ Language: use the 🇪🇹/🇬🇧 pill in the top-right of the dashboard (and 
 
 ## 4. Immediate next steps (recommended order)
 1. ~~Convert remaining FE pages module-by-module~~ — **done**: `scripts/i18n-audit.mjs` is clean
-   across all 180 frontend files. Keep it green (`--strict` in CI) and re-run `i18n-check.mjs`
+   across all 183 frontend files. Keep it green (`--strict` in CI) and re-run `i18n-check.mjs`
    after every catalog edit.
 2. Catalog + convert the remaining **243 static** backend throws, module by module
    (manufacturing 40, hotel 34, restock 18, finance 17, packages 14, products 13, sales 12,

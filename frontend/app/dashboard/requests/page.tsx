@@ -2,6 +2,7 @@
 import AiPhotoPicker from "@/app/components/AiPhotoPicker";
 import BarcodeScanner from "@/app/components/BarcodeScanner";
 import { useConfirm } from "@/app/components/ConfirmProvider";
+import CustomerForm from "@/app/components/CustomerForm";
 import FilterRow, { FilterField } from "@/app/components/FilterRow";
 import Loading from "@/app/components/Loading";
 import Modal from "@/app/components/Modal";
@@ -150,8 +151,9 @@ export default function RequestsPage() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [customerId, setCustomerId] = useState("");
   const [newPaymentMethodName, setNewPaymentMethodName] = useState("");
-  const [newCustomerName, setNewCustomerName] = useState("");
-  const [newCustomerPhone, setNewCustomerPhone] = useState("");
+  // The reusable customer form (components/CustomerForm) replaces the old inline
+  // name/phone pair, so a customer added here is a full CRM record.
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [saleNotes, setSaleNotes] = useState("");
   const [savingSale, setSavingSale] = useState(false);
 
@@ -441,24 +443,6 @@ export default function RequestsPage() {
       toast.error("Failed to add payment method.");
     }
   };
-  const handleAddCustomer = async () => {
-    const name = newCustomerName.trim();
-    if (!name) return;
-    try {
-      const res = await api.post("/customers", {
-        name,
-        ...(newCustomerPhone.trim() ? { phone: newCustomerPhone.trim() } : {}),
-      });
-      setCustomers((prev) => [...prev, res.data]);
-      setCustomerId(String(res.data.id));
-      setNewCustomerName("");
-      setNewCustomerPhone("");
-    } catch (err: any) {
-      markHandled(err);
-      toast.error(t("requests.failedAddCustomer"));
-    }
-  };
-
   // Deep-link: /dashboard/requests?req=<id> opens that request's detail.
   const searchParams = useSearchParams();
   useEffect(() => {
@@ -2526,24 +2510,12 @@ export default function RequestsPage() {
                   ))}
                 </select>
                 <div className="flex gap-2 mt-1">
-                  <input
-                    value={newCustomerName}
-                    onChange={(e) => setNewCustomerName(e.target.value)}
-                    placeholder={t("requests.newCustomerNamePlaceholder")}
-                    className="border p-2 rounded-lg flex-1 text-sm"
-                  />
-                  <input
-                    value={newCustomerPhone}
-                    onChange={(e) => setNewCustomerPhone(e.target.value)}
-                    placeholder={t("auth.phone")}
-                    className="border p-2 rounded-lg w-32 text-sm"
-                  />
                   <button
                     type="button"
-                    onClick={handleAddCustomer}
-                    className="bg-gray-200 px-3 rounded-lg text-sm"
+                    onClick={() => setShowCustomerModal(true)}
+                    className="bg-gray-200 px-3 py-2 rounded-lg text-sm hover:bg-gray-300"
                   >
-                    +
+                    + {t("common.new")}
                   </button>
                 </div>
               </div>
@@ -2582,6 +2554,24 @@ export default function RequestsPage() {
             </>
           )}
         </div>
+      </Modal>
+
+      {/* One reusable customer form — full CRM record, not just name/phone. */}
+      <Modal
+        isOpen={showCustomerModal}
+        onClose={() => setShowCustomerModal(false)}
+        title={t("credits.newCustomerTitle")}
+      >
+        <CustomerForm
+          onCreated={(cust) => {
+            setCustomers((prev) =>
+              prev.some((c: any) => c.id === cust.id) ? prev : [...prev, cust],
+            );
+            setCustomerId(String(cust.id));
+            setShowCustomerModal(false);
+          }}
+          onCancel={() => setShowCustomerModal(false)}
+        />
       </Modal>
     </div>
   );

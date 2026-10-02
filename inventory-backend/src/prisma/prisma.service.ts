@@ -21,6 +21,9 @@ const TENANT_MODELS = new Set([
   'ReturnItem',
   'PaymentMethod',
   'Customer',
+  'CustomerNote',
+  'CustomerLoyaltyEntry',
+  'LoyaltyProgram',
   'CreditSale',
   'CreditSaleItem',
   'CreditPayment',
@@ -95,6 +98,10 @@ const TENANT_MODELS = new Set([
  */
 const TENANT_FIELD_BY_MODEL: Record<string, string> = {
   Customer: 'organizationId',
+  // CRM: notes, loyalty ledger and programme all hang off `Organization`.
+  CustomerNote: 'organizationId',
+  CustomerLoyaltyEntry: 'organizationId',
+  LoyaltyProgram: 'organizationId',
   TaxRate: 'organizationId',
   BillOfMaterials: 'organizationId',
   WorkOrder: 'organizationId',

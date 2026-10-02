@@ -636,8 +636,8 @@ export default function SalesPage() {
           customerId: customerId ? Number(customerId) : undefined,
           shopId: isOwner && ownerShopId ? Number(ownerShopId) : undefined,
         });
-      } else
-        await api.post("/sales", {
+      } else {
+        const res = await api.post("/sales", {
           items,
           saleType,
           paidAmount:
@@ -651,6 +651,13 @@ export default function SalesPage() {
           shopId: isOwner && ownerShopId ? Number(ownerShopId) : undefined,
           clientRef,
         });
+        // CRM: tell the cashier what the customer just earned, when the loyalty
+        // programme is on and the sale was billed to somebody.
+        const earned = res.data?.loyalty?.earned ?? 0;
+        if (earned > 0) {
+          toast.success(t("crm.earnedToast", { points: earned }));
+        }
+      }
       resetForm();
       fetchSales();
     } catch (err: any) {
@@ -1376,36 +1383,51 @@ export default function SalesPage() {
               </div>
             )}
 
-            {/* Customer — for partial and credited */}
-            {(saleType === "PARTIALLY_PAID" || saleType === "CREDITED") && (
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-medium text-gray-500 mb-1">
-                  {t("sales.customer")}
-                </label>
-                <div className="flex gap-2">
-                  <select
-                    value={customerId}
-                    onChange={(e) => setCustomerId(e.target.value)}
-                    className="border p-2 rounded-lg flex-1 bg-white text-sm"
-                    required
-                  >
-                    <option value="">{t("sales.selectCustomer")}</option>
-                    {customers.map((c: any) => (
-                      <option key={c.id} value={c.id}>
+            {/* Customer — required for credit/partial, an optional attachment
+                otherwise (so a walk-in can still be tied to a profile). */}
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-gray-500 mb-1">
+                {t("sales.customer")}
+                {(saleType === "PARTIALLY_PAID" || saleType === "CREDITED") && (
+                  <span className="text-red-500"> *</span>
+                )}
+              </label>
+              <div className="flex gap-2">
+                <select
+                  value={customerId}
+                  onChange={(e) => setCustomerId(e.target.value)}
+                  className="border p-2 rounded-lg flex-1 bg-white text-sm"
+                  required={
+                    saleType === "PARTIALLY_PAID" || saleType === "CREDITED"
+                  }
+                >
+                  <option value="">{t("sales.selectCustomer")}</option>
+                  {customers.map((c: any) => {
+                    // The backend blocks credit-blocked customers from credit
+                    // sales; keep them unpickable here so the cashier sees why
+                    // before the sale is rejected.
+                    const blocked = c.canTakeCredit === false;
+                    return (
+                      <option
+                        key={c.id}
+                        value={c.id}
+                        disabled={blocked && saleType !== "FULLY_PAID"}
+                      >
                         {c.name} {c.phone ? "· " + c.phone : ""}
+                        {blocked ? ` — ${t("crm.creditBlocked")}` : ""}
                       </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => setShowCustomerModal(true)}
-                    className="bg-gray-200 px-3 rounded-lg text-xs whitespace-nowrap"
-                  >
-                    + {t("common.new")}
-                  </button>
-                </div>
+                    );
+                  })}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setShowCustomerModal(true)}
+                  className="bg-gray-200 px-3 rounded-lg text-xs whitespace-nowrap"
+                >
+                  + {t("common.new")}
+                </button>
               </div>
-            )}
+            </div>
           </div>
 
           <button

@@ -60,6 +60,14 @@ export const amMessages: Record<string, any> = {
     locationNameRequired: 'የቦታ ስም ያስፈልጋል',
     locationTypeInvalid: 'የቦታ አይነት ትክክል አይደለም',
     customerNotFound: 'ደንበኛ አልተገኘም',
+    customerCreditBlocked:
+      'ደንበኛ «{{name}}» በዕዳ እንዲወስድ አልተፈቀደም። በደንበኛው መዝገብ ላይ ፈቃዱን ያስተካክሉ ወይም ሙሉ ክፍያ ይቀበሉ።',
+    customerHasHistory:
+      'ይህ ደንበኛ የሽያጭ ወይም የዕዳ ታሪክ አለው — ከመሰረዝ ይልቅ በማህደር ያስቀምጡት።',
+    customerNoteNotFound: 'የደንበኛ ማስታወሻ አልተገኘም',
+    loyaltyPointsRequired: 'ከዜሮ የተለየ የነጥብ ብዛት ያስገቡ',
+    loyaltyInsufficientPoints:
+      'ደንበኛው {{balance}} ነጥብ ብቻ ነው ያለው፤ ከዚያ በላይ ማንሳት አይቻልም።',
     paymentMethodNotFound: 'የክፍያ ዘዴ አልተገኘም',
     duplicatePaymentMethod: 'በዚያ ስም ያለ የክፍያ ዘዴ ቀድሞ አለ',
     requestNotFound: 'ጥያቄ አልተገኘም',

@@ -154,7 +154,7 @@ model RestaurantStation {
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
 
-  menuCategories MenuCategory[]
+  menuCategories      MenuCategory[]
   packageEntitlements PackageEntitlement[]
 
   @@unique([tenantId, key])
@@ -237,52 +237,56 @@ enum VerificationDocumentType {
 
 // --- Organizations (Tenants) ---
 model Organization {
-  id              Int          @id @default(autoincrement())
-  name            String
-  slug            String       @unique
-  businessType    BusinessType @default(RETAIL)
-  standalone      Boolean      @default(false) // Single-location business run by the owner alone (no staff)
-  currency        String       @default("ETB")
-  timezone        String       @default("Africa/Addis_Ababa")
+  id                         Int          @id @default(autoincrement())
+  name                       String
+  slug                       String       @unique
+  businessType               BusinessType @default(RETAIL)
+  standalone                 Boolean      @default(false) // Single-location business run by the owner alone (no staff)
+  currency                   String       @default("ETB")
+  timezone                   String       @default("Africa/Addis_Ababa")
   // Primary UI language for this tenant ("en" | "am"). Used as the fallback
   // when localized entity content has no translation in the requester's
   // language, and as the default language for notifications/push/receipts.
-  defaultLanguage String       @default("en")
+  defaultLanguage            String       @default("en")
   // Per-company tax configuration. taxEnabled is the master switch; when it is
   // turned on the VAT payable/receivable accounts are auto-created for the org.
-  taxEnabled      Boolean      @default(false)
-  taxInclusive    Boolean      @default(true) // true = entered prices already include tax
-  taxId           String? // VAT / TIN registration number (receipts & reports)
-  status          OrgStatus    @default(ACTIVE)
-  settings        Json?
+  taxEnabled                 Boolean      @default(false)
+  taxInclusive               Boolean      @default(true) // true = entered prices already include tax
+  taxId                      String? // VAT / TIN registration number (receipts & reports)
+  status                     OrgStatus    @default(ACTIVE)
+  settings                   Json?
   // Denormalized list of the hospitality service lines the business offers
   // (HospitalityServiceType values). Kept in sync with the HospitalityService
   // rows so list responses and nav gating can read it without a join.
-  enabledHospitalityServices String[] @default([])
-  aiEnabled       Boolean      @default(true) // AI feature enabled (on-demand, admin-controlled)
-  aiTrialEndsAt   DateTime? // null = unlimited (paid); otherwise the 15-day trial / granted window
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  enabledHospitalityServices String[]     @default([])
+  aiEnabled                  Boolean      @default(true) // AI feature enabled (on-demand, admin-controlled)
+  aiTrialEndsAt              DateTime? // null = unlimited (paid); otherwise the 15-day trial / granted window
+  createdAt                  DateTime     @default(now())
+  updatedAt                  DateTime     @updatedAt
 
   // Business account verification (trade license required, TIN optional).
   verificationStatus   VerificationStatus @default(PENDING)
   verificationNote     String?
   verificationAttempts Int                @default(0)
 
-  memberships      Membership[]
-  roles            Role[]
-  customers        Customer[]
-  hospitalityServices HospitalityService[]
+  memberships            Membership[]
+  roles                  Role[]
+  customers              Customer[]
+  // CRM: interaction timeline + loyalty ledger + programme config.
+  customerNotes          CustomerNote[]
+  customerLoyaltyEntries CustomerLoyaltyEntry[]
+  loyaltyProgram         LoyaltyProgram?
+  hospitalityServices    HospitalityService[]
   // Strict-tenancy core models (tenantId is required + FK-enforced).
-  products         Product[]
-  sales            Sale[]
-  orders           Order[]
-  inventory        Inventory[]
-  agentConfig      OrganizationAgentConfig?
-  agentActions     AgentActionLog[]
-  verificationDocs VerificationDocument[]   @relation("OrgVerificationDocs")
-  taxRates         TaxRate[]
-  fiscalConfig     TenantFiscalConfig?
+  products               Product[]
+  sales                  Sale[]
+  orders                 Order[]
+  inventory              Inventory[]
+  agentConfig            OrganizationAgentConfig?
+  agentActions           AgentActionLog[]
+  verificationDocs       VerificationDocument[]   @relation("OrgVerificationDocs")
+  taxRates               TaxRate[]
+  fiscalConfig           TenantFiscalConfig?
 
   // MANUFACTURING vertical
   boms                   BillOfMaterials[]
@@ -478,20 +482,23 @@ model User {
   verificationNote     String?
   verificationAttempts Int                @default(0)
 
-  auditLogs        AuditLog[]
-  memberships      Membership[]
-  aiChatSessions   AiChatSession[]
-  dailyAiUsage     UserDailyAiUsage[]
-  sales            Sale[]
-  verificationDocs VerificationDocument[] @relation("UserVerificationDocs")
-  servicePayments  ServicePayment[]
+  auditLogs              AuditLog[]
+  memberships            Membership[]
+  aiChatSessions         AiChatSession[]
+  dailyAiUsage           UserDailyAiUsage[]
+  sales                  Sale[]
+  verificationDocs       VerificationDocument[] @relation("UserVerificationDocs")
+  servicePayments        ServicePayment[]
   // Hotel PMS: billing creators + front-desk check-ins.
-  foliosCreated      Folio[]            @relation("FolioCreatedBy")
-  foliosSettled      Folio[]            @relation("FolioSettledBy")
-  guestFoliosSettled GuestFolio[]       @relation("GuestFolioSettledBy")
-  folioEntries       FolioEntry[]
-  guestFolioEntries  GuestFolioEntry[]
-  hotelCheckIns      HotelReservation[]
+  foliosCreated          Folio[]                @relation("FolioCreatedBy")
+  foliosSettled          Folio[]                @relation("FolioSettledBy")
+  guestFoliosSettled     GuestFolio[]           @relation("GuestFolioSettledBy")
+  folioEntries           FolioEntry[]
+  guestFolioEntries      GuestFolioEntry[]
+  hotelCheckIns          HotelReservation[]
+  // CRM: authored timeline entries + loyalty adjustments.
+  customerNotes          CustomerNote[]
+  customerLoyaltyEntries CustomerLoyaltyEntry[]
 }
 
 model LocationCategory {
@@ -612,22 +619,22 @@ model Unit {
 
 // --- Product Variants (Shoes, Apparel, Multi-Pack Options) ---
 model ProductVariant {
-  id         Int      @id @default(autoincrement())
-  tenantId   Int?
-  productId  Int
-  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  sku        String // e.g., SHOE-NIKE-42-BLK
-  barcode    String?
-  attributes Json     @default("{}") // e.g., {"size": "42", "color": "Black"}
-  buyPrice   Float?
-  sellPrice  Float?
-  quantity   Int      @default(0) // reserved for per-variant stock (Phase 2)
+  id           Int      @id @default(autoincrement())
+  tenantId     Int?
+  productId    Int
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku          String // e.g., SHOE-NIKE-42-BLK
+  barcode      String?
+  attributes   Json     @default("{}") // e.g., {"size": "42", "color": "Black"}
+  buyPrice     Float?
+  sellPrice    Float?
+  quantity     Int      @default(0) // reserved for per-variant stock (Phase 2)
   // Per-variant low-stock alert number (0 → inherit the product's) and the
   // suggested quantity to reorder once it is breached (null → inherit).
-  reorderLevel Int    @default(0)
+  reorderLevel Int      @default(0)
   reorderQty   Int?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   inventory    Inventory[]
   saleItems    SaleItem[]
@@ -668,10 +675,10 @@ model ProductBatch {
 }
 
 model PriceHistory {
-  id           Int      @id @default(autoincrement())
+  id           Int             @id @default(autoincrement())
   tenantId     Int?
   productId    Int
-  product      Product  @relation(fields: [productId], references: [id])
+  product      Product         @relation(fields: [productId], references: [id])
   /// The variant this change belongs to; null = the product's own (parent) row.
   variantId    Int?
   variant      ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
@@ -684,7 +691,7 @@ model PriceHistory {
   oldSellPrice Float
   newSellPrice Float
   updatedById  Int
-  updatedAt    DateTime @default(now())
+  updatedAt    DateTime        @default(now())
 
   @@index([tenantId])
   @@index([productId, updatedAt])
@@ -694,20 +701,20 @@ model PriceHistory {
 
 // --- Inventory Tracking (Location Specific) ---
 model Inventory {
-  id         Int             @id @default(autoincrement())
-  tenantId   Int
-  organization Organization  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  productId  Int
-  product    Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  variantId  Int? // set for variant-level stock; null for plain products
-  variant    ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
-  locationId Int
-  location   Location        @relation(fields: [locationId], references: [id])
-  quantity   Float           @default(0)
+  id           Int             @id @default(autoincrement())
+  tenantId     Int
+  organization Organization    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productId    Int
+  product      Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId    Int? // set for variant-level stock; null for plain products
+  variant      ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  locationId   Int
+  location     Location        @relation(fields: [locationId], references: [id])
+  quantity     Float           @default(0)
   // Moving weighted-average unit cost per (product, variant, location).
   // Reweighted on stock inflows (purchases/returns); unchanged on outflows
   // (sales/consumption), which are valued at this average for COGS.
-  avgCost    Float           @default(0)
+  avgCost      Float           @default(0)
 
   // One row per product/location for plain items; per variant/location for variants
   @@unique([productId, variantId, locationId])
@@ -763,6 +770,7 @@ model StockRequest {
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 
+  @@unique([tenantId, number])
   @@index([storeId])
   @@index([shopId])
   @@index([status])
@@ -770,7 +778,6 @@ model StockRequest {
   @@index([requestType])
   @@index([createdById])
   @@index([tenantId])
-  @@unique([tenantId, number])
 }
 
 model RequestItem {
@@ -815,41 +822,43 @@ model RequestActivity {
 
 // --- Sales & Profit Tracking ---
 model Sale {
-  id              Int             @id @default(autoincrement())
+  id              Int                    @id @default(autoincrement())
   tenantId        Int
-  organization    Organization    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization    Organization           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   invoiceNumber   String
   shopId          Int
-  shop            Location        @relation(fields: [shopId], references: [id])
+  shop            Location               @relation(fields: [shopId], references: [id])
   totalAmount     Float
   totalCost       Float
   profit          Float
   // Output VAT snapshot from the company's configured default rate at sale
   // time. totalAmount is the gross the customer pays; revenue = total - tax.
-  taxAmount       Float           @default(0)
+  taxAmount       Float                  @default(0)
   taxRateId       Int?
   soldById        Int
-  soldBy          User            @relation(fields: [soldById], references: [id])
-  paidAmount      Float           @default(0)
-  remainingAmount Float           @default(0)
-  saleType        SaleType        @default(FULLY_PAID)
+  soldBy          User                   @relation(fields: [soldById], references: [id])
+  paidAmount      Float                  @default(0)
+  remainingAmount Float                  @default(0)
+  saleType        SaleType               @default(FULLY_PAID)
   paymentMethodId Int?
-  paymentMethod   PaymentMethod?  @relation(fields: [paymentMethodId], references: [id])
+  paymentMethod   PaymentMethod?         @relation(fields: [paymentMethodId], references: [id])
   customerId      Int?
-  customer        Customer?       @relation(fields: [customerId], references: [id])
+  customer        Customer?              @relation(fields: [customerId], references: [id])
   notes           String?
-  saleDate        DateTime        @default(now())
+  saleDate        DateTime               @default(now())
   items           SaleItem[]
   creditSale      CreditSale?
   creditPayments  CreditPayment[]
   returns         Return[]
+  // CRM loyalty entries earned by / reversed for this sale.
+  loyaltyEntries  CustomerLoyaltyEntry[]
   fiscalReceipt   FiscalReceipt?
-  fiscalStatus    FiscalStatus    @default(NOT_PRINTED)
+  fiscalStatus    FiscalStatus           @default(NOT_PRINTED)
   fiscalError     String?
-  purchaseId      Int?            @unique
-  purchase        Purchase?       @relation(fields: [purchaseId], references: [id])
+  purchaseId      Int?                   @unique
+  purchase        Purchase?              @relation(fields: [purchaseId], references: [id])
   requestId       Int?
-  request         StockRequest?   @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  request         StockRequest?          @relation(fields: [requestId], references: [id], onDelete: SetNull)
   clientRef       String? // client-generated idempotency key (double-submit protection)
 
   @@unique([tenantId, invoiceNumber])
@@ -912,22 +921,22 @@ model ReturnItem {
 
 // --- Payment Methods (dynamic, any role can add) ---
 model PaymentMethod {
-  id              Int              @id @default(autoincrement())
-  tenantId        Int?
-  name            String
-  nameI18n        Json?
-  isDigital       Boolean          @default(false)
-  account         String?
-  sales           Sale[]
-  creditPayments  CreditPayment[]
-  purchases       Purchase[]
-  returns         Return[]
-  expenses        Expense[]
-  orders          Order[]
-  orderPayments   OrderPayment[]
+  id               Int               @id @default(autoincrement())
+  tenantId         Int?
+  name             String
+  nameI18n         Json?
+  isDigital        Boolean           @default(false)
+  account          String?
+  sales            Sale[]
+  creditPayments   CreditPayment[]
+  purchases        Purchase[]
+  returns          Return[]
+  expenses         Expense[]
+  orders           Order[]
+  orderPayments    OrderPayment[]
   facilityPayments FacilityPayment[]
-  cashCollections CashCollection[]
-  servicePayments ServicePayment[]
+  cashCollections  CashCollection[]
+  servicePayments  ServicePayment[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -935,32 +944,152 @@ model PaymentMethod {
 
 // --- Credit Customers ---
 model Customer {
-  id               Int               @id @default(autoincrement())
+  id                  Int                    @id @default(autoincrement())
   /// Non-guessable public identifier (DB-generated UUID).
-  publicId         String            @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  publicId            String                 @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// Per-business customer number (CUST-001...), assigned by DB trigger.
-  number           Int?
-  organizationId   Int
-  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  name             String
-  phone            String?
+  number              Int?
+  organizationId      Int
+  organization        Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name                String
+  phone               String?
   /// Optional contact email — used by the memberships module (MembershipType
   /// assignment matches/creates customers by phone, name and email).
-  email            String?
-  shopId           Int?
-  shop             Location?         @relation(fields: [shopId], references: [id])
-  createdAt        DateTime          @default(now())
-  sales            Sale[]
-  creditSales      CreditSale[]
-  creditPayments   CreditPayment[]
-  serviceBookings  ServiceBooking[]
-  serviceTickets   ServiceTicket[]
-  businessInsights BusinessInsight[]
+  email               String?
+  // --- CRM profile (all additive/optional, safe on populated databases) ---
+  /// Street/sub-city address, printed on invoices when present.
+  address             String?
+  /// Birthday — used for greetings and "this month" segments. The year is
+  /// optional in practice (customers often give day/month only).
+  birthday            DateTime?
+  /// Free-form segments ("VIP", "wholesale", …) that power the directory filter.
+  tags                String[]               @default([])
+  /// CRM summary note. The interaction log lives in CustomerNote (`customerNotes`).
+  notes               String?
+  /// Preferred contact language ("en" | "am").
+  preferredLanguage   String?
+  /// How the customer was acquired.
+  source              CustomerSource?
+  /// Optional credit ceiling (informational today — `canTakeCredit` is the gate).
+  creditLimit         Float?
+  /// Whether this customer may take goods on credit. When false, new
+  /// credit/partial sales are rejected for them; existing debts are untouched.
+  canTakeCredit       Boolean                @default(true)
+  /// Hidden from the default directory listing (history/reports keep it).
+  isArchived          Boolean                @default(false)
+  /// Cached loyalty balance in points. Ledger of record: CustomerLoyaltyEntry.
+  loyaltyPoints       Int                    @default(0)
+  /// Denormalized last-sale date (directory "last purchase" column).
+  lastPurchaseAt      DateTime?
+  shopId              Int?
+  shop                Location?              @relation(fields: [shopId], references: [id])
+  createdAt           DateTime               @default(now())
+  sales               Sale[]
+  creditSales         CreditSale[]
+  creditPayments      CreditPayment[]
+  serviceBookings     ServiceBooking[]
+  serviceTickets      ServiceTicket[]
+  businessInsights    BusinessInsight[]
   customerMemberships CustomerMembership[]
-  facilityVisits       FacilityVisit[]
+  facilityVisits      FacilityVisit[]
+  customerNotes       CustomerNote[]
+  loyaltyEntries      CustomerLoyaltyEntry[]
 
   @@unique([organizationId, number])
   @@index([organizationId])
+  @@index([organizationId, isArchived])
+  @@index([organizationId, canTakeCredit])
+}
+
+// --- CRM: customer profile, interaction timeline & loyalty ---
+enum CustomerSource {
+  WALK_IN
+  REFERRAL
+  ONLINE
+  EVENT
+  OTHER
+}
+
+enum CustomerNoteKind {
+  NOTE
+  CALL
+  VISIT
+  COMPLAINT
+  FOLLOW_UP
+}
+
+/// One entry in a customer's interaction timeline. `Customer.notes` is a single
+/// summary line; everything chronological lives here so the profile page can
+/// render a timeline without parsing free text.
+model CustomerNote {
+  id             Int              @id @default(autoincrement())
+  organizationId Int
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customerId     Int
+  customer       Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// Author of the entry; null for system-generated rows.
+  userId         Int?
+  user           User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  kind           CustomerNoteKind @default(NOTE)
+  body           String           @db.Text
+  /// Optional reminder ("call back on …") surfaced at the top of the timeline.
+  followUpAt     DateTime?
+  createdAt      DateTime         @default(now())
+
+  @@index([organizationId, customerId, createdAt])
+  @@index([organizationId, followUpAt])
+}
+
+enum LoyaltyEntryType {
+  EARN
+  REDEEM
+  ADJUST
+  REVERSE
+  EXPIRE
+}
+
+/// Loyalty points ledger. `Customer.loyaltyPoints` caches the running total;
+/// this table is the source of truth (audit trail + per-sale traceability).
+model CustomerLoyaltyEntry {
+  id             Int              @id @default(autoincrement())
+  organizationId Int
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customerId     Int
+  customer       Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// Sale that produced/consumed the points (null for manual adjustments).
+  saleId         Int?
+  sale           Sale?            @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  type           LoyaltyEntryType
+  /// Signed delta: positive earns, negative reversals/redemptions.
+  points         Int
+  /// Customer balance right after this entry (audit trail).
+  balanceAfter   Int?
+  /// Human-readable context; keeps the trace after the sale row itself is gone.
+  reason         String?
+  createdById    Int?
+  createdBy      User?            @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt      DateTime         @default(now())
+
+  /// One EARN and one REVERSE row per sale, so createSale/returnSale stay
+  /// idempotent: a retry updates the row instead of double-crediting points.
+  @@unique([saleId, type])
+  @@index([organizationId, customerId, createdAt])
+}
+
+/// Per-organization loyalty programme (1:1). Off by default, so existing
+/// organizations keep earning nothing until the owner opts in.
+model LoyaltyProgram {
+  id                Int          @id @default(autoincrement())
+  organizationId    Int          @unique
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  enabled           Boolean      @default(false)
+  /// Points earned per 1.00 of the sale total (0.01 = 1 point per 100 spent).
+  pointsPerCurrency Float        @default(0.01)
+  /// Money value of one point when redeemed (0 = not redeemable yet).
+  valuePerPoint     Float        @default(0)
+  /// Smallest number of points a redemption may consume.
+  minRedeemPoints   Int          @default(0)
+  updatedAt         DateTime     @updatedAt
 }
 
 // --- Credit Sales (item taken on credit) ---
@@ -1147,31 +1276,31 @@ enum JournalPostingStatus {
 }
 
 model AccountMapping {
-  id               Int      @id @default(autoincrement())
-  tenantId         Int?
-  transactionType  String
-  debitAccountId   Int?
-  creditAccountId  Int?
-  debitAccount     Account? @relation("MappingDebit", fields: [debitAccountId], references: [id], onDelete: SetNull)
-  creditAccount    Account? @relation("MappingCredit", fields: [creditAccountId], references: [id], onDelete: SetNull)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id              Int      @id @default(autoincrement())
+  tenantId        Int?
+  transactionType String
+  debitAccountId  Int?
+  creditAccountId Int?
+  debitAccount    Account? @relation("MappingDebit", fields: [debitAccountId], references: [id], onDelete: SetNull)
+  creditAccount   Account? @relation("MappingCredit", fields: [creditAccountId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@unique([tenantId, transactionType])
   @@index([tenantId])
 }
 
 model JournalEntry {
-  id          Int      @id @default(autoincrement())
-  tenantId    Int?
-  reference   String?
-  description String?
-  entryDate   DateTime @default(now())
-  locationId  Int?
-  sourceModule String?
+  id            Int                  @id @default(autoincrement())
+  tenantId      Int?
+  reference     String?
+  description   String?
+  entryDate     DateTime             @default(now())
+  locationId    Int?
+  sourceModule  String?
   postingStatus JournalPostingStatus @default(POSTED)
-  createdById Int?
-  createdAt   DateTime @default(now())
+  createdById   Int?
+  createdAt     DateTime             @default(now())
 
   lines JournalLine[]
 
@@ -1390,22 +1519,22 @@ model TenantFiscalConfig {
 
 // --- Restaurant: Menu, Tables, Orders, Reservations ---
 model MenuCategory {
-  id           Int                @id @default(autoincrement())
-  tenantId     Int?
-  name         String
-  nameI18n     Json?
-  sortOrder    Int                @default(0)
-  stationId    Int?
-  station      RestaurantStation? @relation(fields: [stationId], references: [id], onDelete: SetNull)
+  id                  Int                  @id @default(autoincrement())
+  tenantId            Int?
+  name                String
+  nameI18n            Json?
+  sortOrder           Int                  @default(0)
+  stationId           Int?
+  station             RestaurantStation?   @relation(fields: [stationId], references: [id], onDelete: SetNull)
   // Ordered list of [{ id, name, key }] hops items in this category route
   // through (defaults to the primary station above).
-  stationRoute Json               @default("[]")
+  stationRoute        Json                 @default("[]")
   // Optional parent for sub-categories (e.g. Beverages -> Beer / Wine / Spirits).
-  parentId     Int?
-  parent       MenuCategory?      @relation("MenuCategoryHierarchy", fields: [parentId], references: [id])
-  children     MenuCategory[]     @relation("MenuCategoryHierarchy")
-  items        MenuItem[]
-  otherIncomes OtherIncome[]
+  parentId            Int?
+  parent              MenuCategory?        @relation("MenuCategoryHierarchy", fields: [parentId], references: [id])
+  children            MenuCategory[]       @relation("MenuCategoryHierarchy")
+  items               MenuItem[]
+  otherIncomes        OtherIncome[]
   packageEntitlements PackageEntitlement[]
 
   @@index([tenantId])
@@ -1414,37 +1543,37 @@ model MenuCategory {
 }
 
 model MenuItem {
-  id              Int                  @id @default(autoincrement())
-  tenantId        Int?
-  menuCategoryId  Int
-  menuCategory    MenuCategory         @relation(fields: [menuCategoryId], references: [id], onDelete: Cascade)
-  name            String
-  description     String?
-  nameI18n        Json?
-  descriptionI18n Json?
-  price           Float
-  cost            Float                @default(0)
-  isAvailable     Boolean              @default(true)
+  id                  Int                  @id @default(autoincrement())
+  tenantId            Int?
+  menuCategoryId      Int
+  menuCategory        MenuCategory         @relation(fields: [menuCategoryId], references: [id], onDelete: Cascade)
+  name                String
+  description         String?
+  nameI18n            Json?
+  descriptionI18n     Json?
+  price               Float
+  cost                Float                @default(0)
+  isAvailable         Boolean              @default(true)
   // COGS tracking strategy: SIMPLE (revenue only), BENCHMARK (estimated COGS)
   // or PERPETUAL (recipe-based COGS + live stock deduction).
-  trackingMode    MenuItemTrackingMode @default(SIMPLE)
+  trackingMode        MenuItemTrackingMode @default(SIMPLE)
   // Estimated cost per portion — required (and used) when trackingMode is
   // BENCHMARK; ignored otherwise.
-  estimatedCogs   Float?
-  imageUrl        String?
+  estimatedCogs       Float?
+  imageUrl            String?
   // Service duration in minutes (spa/wellness treatments, massages, salon).
   // Null for items where duration is not tracked (most F&B menu items).
-  durationMins    Int?
-  sortOrder       Int                  @default(0)
+  durationMins        Int?
+  sortOrder           Int                  @default(0)
   // Optional per-item station route override (ordered [{ id, name, key }]);
   // null = inherit the menu category's route.
-  stationRoute    Json?
-  options         MenuItemOption[]
-  orderItems      OrderItem[]
-  ingredients     MenuItemIngredient[]
+  stationRoute        Json?
+  options             MenuItemOption[]
+  orderItems          OrderItem[]
+  ingredients         MenuItemIngredient[]
   packageEntitlements PackageEntitlement[]
-  otherIncomes    OtherIncome[]
-  cogsEntries     CogsEntry[]
+  otherIncomes        OtherIncome[]
+  cogsEntries         CogsEntry[]
 
   @@index([tenantId])
   @@index([menuCategoryId])
@@ -1479,7 +1608,7 @@ model DiningTable {
 model Order {
   id              Int                  @id @default(autoincrement())
   tenantId        Int
-  organization    Organization          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization    Organization         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   orderNumber     String
   tableId         Int?
   table           DiningTable?         @relation(fields: [tableId], references: [id])
@@ -1509,22 +1638,22 @@ model Order {
   // --- Hospitality packages / room charging (Package & Entitlement Routing) ---
   // STANDARD (default) = normal POS billing. PACKAGE/ROOM_CHARGE bill the
   // order against a guest package; entitlements cover part of the value.
-  billingType    String            @default("STANDARD") // STANDARD | PACKAGE | ROOM_CHARGE
-  packageGuestId String?
-  packageGuest   PackageGuest?     @relation(fields: [packageGuestId], references: [id], onDelete: SetNull)
-  packageId      String?
-  package        HospitalityPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
-  guestTag       String? // e.g. "[Room 12 / Spa Package]" shown on station tickets
-  packageDiscount Float             @default(0) // ETB covered by package entitlements
+  billingType        String              @default("STANDARD") // STANDARD | PACKAGE | ROOM_CHARGE
+  packageGuestId     String?
+  packageGuest       PackageGuest?       @relation(fields: [packageGuestId], references: [id], onDelete: SetNull)
+  packageId          String?
+  package            HospitalityPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  guestTag           String? // e.g. "[Room 12 / Spa Package]" shown on station tickets
+  packageDiscount    Float               @default(0) // ETB covered by package entitlements
   // --- Charge-to-room (POS -> hotel stay folio) ---
   // Set when an order is billed to a stay. Package guests still route through
   // packageGuestId (GuestFolioEntry); a standard stay posts itemized FolioEntry
   // lines on this reservation's folio.
   hotelReservationId Int?
-  hotelReservation   HotelReservation? @relation(fields: [hotelReservationId], references: [id], onDelete: SetNull)
+  hotelReservation   HotelReservation?   @relation(fields: [hotelReservationId], references: [id], onDelete: SetNull)
   // Settlement intent captured at order time (PAY_NOW | DEFER_TO_FOLIO). Null
   // falls back to the company hospitality policy at settlement.
-  netChargeMode  String?
+  netChargeMode      String?
 
   @@unique([tenantId, orderNumber])
   @@unique([tenantId, clientRef])
@@ -1556,26 +1685,26 @@ model OrderStatusHistory {
 }
 
 model OrderItem {
-  id           Int             @id @default(autoincrement())
-  tenantId     Int?
-  orderId      Int
-  order        Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  menuItemId   Int?
-  menuItem     MenuItem?       @relation(fields: [menuItemId], references: [id])
-  name         String
-  quantity     Int
-  unitPrice    Float
-  cost         Float           @default(0)
-  status       OrderItemStatus @default(QUEUED)
+  id              Int             @id @default(autoincrement())
+  tenantId        Int?
+  orderId         Int
+  order           Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId      Int?
+  menuItem        MenuItem?       @relation(fields: [menuItemId], references: [id])
+  name            String
+  quantity        Int
+  unitPrice       Float
+  cost            Float           @default(0)
+  status          OrderItemStatus @default(QUEUED)
   // Snapshot of the station route at order time (ordered [{ id, name, key }]).
-  stationRoute Json            @default("[]")
-  stationIndex Int             @default(0)
-  stationKey   String? // current hop's key (fast board queries)
-  stationName  String? // current hop's display name (board + history)
-  notes          String?
+  stationRoute    Json            @default("[]")
+  stationIndex    Int             @default(0)
+  stationKey      String? // current hop's key (fast board queries)
+  stationName     String? // current hop's display name (board + history)
+  notes           String?
   // Package/entitlement coverage for hospitality package billing.
-  packageDiscount Float       @default(0) // ETB covered by the guest's entitlement
-  netCharge      Float        @default(0) // gross - packageDiscount (excess to charge)
+  packageDiscount Float           @default(0) // ETB covered by the guest's entitlement
+  netCharge       Float           @default(0) // gross - packageDiscount (excess to charge)
 
   @@index([tenantId])
   @@index([orderId])
@@ -1652,10 +1781,10 @@ model HotelReservation {
   checkedInById         Int?
   checkedInBy           User?        @relation(fields: [checkedInById], references: [id], onDelete: SetNull)
 
-  folios      Folio[]
+  folios        Folio[]
   packageGuests PackageGuest[]
   // POS orders charged to this stay (charge-to-room).
-  orders      Order[]
+  orders        Order[]
 
   @@index([tenantId])
   @@index([checkIn])
@@ -1709,24 +1838,24 @@ model Folio {
 }
 
 model FolioEntry {
-  id          Int      @id @default(autoincrement())
-  tenantId    Int?
-  folioId     Int
-  folio       Folio    @relation(fields: [folioId], references: [id], onDelete: Cascade)
-  accountId   Int?
-  account     Account? @relation(fields: [accountId], references: [id])
-  description String
-  amount      Float
-  type        String   @default("CHARGE")
+  id            Int      @id @default(autoincrement())
+  tenantId      Int?
+  folioId       Int
+  folio         Folio    @relation(fields: [folioId], references: [id], onDelete: Cascade)
+  accountId     Int?
+  account       Account? @relation(fields: [accountId], references: [id])
+  description   String
+  amount        Float
+  type          String   @default("CHARGE")
   // Itemization for POS charge-to-room lines (mirrors GuestFolioEntry).
   // `amount` stays the line total; the count lives in the description.
   sourceService String?
-  unitPrice   Float    @default(0)
+  unitPrice     Float    @default(0)
   // POS order this line came from (null for room rates / manual add-ons).
-  orderId     Int?
-  createdAt   DateTime @default(now())
-  createdById Int?
-  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  orderId       Int?
+  createdAt     DateTime @default(now())
+  createdById   Int?
+  createdBy     User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([folioId])
@@ -1749,9 +1878,9 @@ model HospitalityService {
   createdAt      DateTime               @default(now())
   updatedAt      DateTime               @updatedAt
 
-  membershipTypes MembershipType[]
-  facilityVisits   FacilityVisit[]
-  packages         HospitalityPackage[]
+  membershipTypes     MembershipType[]
+  facilityVisits      FacilityVisit[]
+  packages            HospitalityPackage[]
   packageEntitlements PackageEntitlement[]
 
   @@unique([organizationId, serviceType, customKey])
@@ -1760,18 +1889,18 @@ model HospitalityService {
 
 // Pass plans for a service (e.g. monthly Gym pass, seasonal Pool pass).
 model MembershipType {
-  id                   String                 @id @default(uuid())
+  id                   String             @id @default(uuid())
   organizationId       Int
   hospitalityServiceId String
-  hospitalityService   HospitalityService     @relation(fields: [hospitalityServiceId], references: [id], onDelete: Cascade)
+  hospitalityService   HospitalityService @relation(fields: [hospitalityServiceId], references: [id], onDelete: Cascade)
   name                 String
   durationDays         Int
   price                Float
-  isActive             Boolean                @default(true)
-  createdAt            DateTime               @default(now())
+  isActive             Boolean            @default(true)
+  createdAt            DateTime           @default(now())
 
-  customerMemberships  CustomerMembership[]
-  packageEntitlements  PackageEntitlement[]
+  customerMemberships CustomerMembership[]
+  packageEntitlements PackageEntitlement[]
 
   @@index([organizationId])
   @@index([hospitalityServiceId])
@@ -1799,24 +1928,24 @@ model CustomerMembership {
 
 // A facility visit / check-in (member with an active pass, or a walk-in).
 model FacilityVisit {
-  id                    String               @id @default(uuid())
-  organizationId        Int
-  hospitalityServiceId  String
-  hospitalityService    HospitalityService   @relation(fields: [hospitalityServiceId], references: [id], onDelete: Cascade)
-  type                  FacilityVisitType
-  customerId            Int?
-  customer              Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  customerMembershipId  String?
-  customerMembership    CustomerMembership?  @relation(fields: [customerMembershipId], references: [id], onDelete: SetNull)
-  guestName             String?
-  guestPhone            String?
+  id                   String              @id @default(uuid())
+  organizationId       Int
+  hospitalityServiceId String
+  hospitalityService   HospitalityService  @relation(fields: [hospitalityServiceId], references: [id], onDelete: Cascade)
+  type                 FacilityVisitType
+  customerId           Int?
+  customer             Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerMembershipId String?
+  customerMembership   CustomerMembership? @relation(fields: [customerMembershipId], references: [id], onDelete: SetNull)
+  guestName            String?
+  guestPhone           String?
   // When set, this facility check-in is billed against the guest's package
   // (entitlement-covered at $0) instead of a walk-in day pass.
-  packageGuestId        String?
-  packageGuest          PackageGuest?        @relation(fields: [packageGuestId], references: [id], onDelete: SetNull)
-  checkInAt             DateTime             @default(now())
-  checkOutAt            DateTime?
-  payment               FacilityPayment?
+  packageGuestId       String?
+  packageGuest         PackageGuest?       @relation(fields: [packageGuestId], references: [id], onDelete: SetNull)
+  checkInAt            DateTime            @default(now())
+  checkOutAt           DateTime?
+  payment              FacilityPayment?
 
   @@index([organizationId])
   @@index([hospitalityServiceId])
@@ -1828,20 +1957,20 @@ model FacilityVisit {
 // Walk-in / day-pass payment queued for the cashier to confirm, then posted
 // to the ledger (Finance) as facility income.
 model FacilityPayment {
-  id                    Int              @id @default(autoincrement())
-  tenantId              Int?
-  facilityVisitId       String?          @unique
-  facilityVisit         FacilityVisit?   @relation(fields: [facilityVisitId], references: [id], onDelete: SetNull)
-  hospitalityServiceId  String?
-  amount                Float
-  paymentMethodId       Int?
-  paymentMethod         PaymentMethod?   @relation(fields: [paymentMethodId], references: [id])
-  status                String           @default("PENDING_CONFIRMATION") // PENDING_CONFIRMATION | CONFIRMED | VOIDED
-  collectedById         Int?
-  confirmedById         Int?
-  confirmedAt           DateTime?
-  notes                 String?
-  createdAt             DateTime         @default(now())
+  id                   Int            @id @default(autoincrement())
+  tenantId             Int?
+  facilityVisitId      String?        @unique
+  facilityVisit        FacilityVisit? @relation(fields: [facilityVisitId], references: [id], onDelete: SetNull)
+  hospitalityServiceId String?
+  amount               Float
+  paymentMethodId      Int?
+  paymentMethod        PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  status               String         @default("PENDING_CONFIRMATION") // PENDING_CONFIRMATION | CONFIRMED | VOIDED
+  collectedById        Int?
+  confirmedById        Int?
+  confirmedAt          DateTime?
+  notes                String?
+  createdAt            DateTime       @default(now())
 
   @@index([tenantId])
   @@index([status])
@@ -2034,16 +2163,16 @@ enum ScrapKind {
 
 // --- MANUFACTURING design catalog (customer-facing products/designs) ---
 model DesignCategory {
-  id             Int               @id @default(autoincrement())
+  id             Int              @id @default(autoincrement())
   organizationId Int
   name           String
   parentId       Int?
-  parent         DesignCategory?   @relation("DesignCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
-  children       DesignCategory[]  @relation("DesignCategoryTree")
+  parent         DesignCategory?  @relation("DesignCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children       DesignCategory[] @relation("DesignCategoryTree")
   description    String?
-  sortOrder      Int               @default(0)
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  sortOrder      Int              @default(0)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
   items DesignCatalog[]
 
@@ -2073,7 +2202,7 @@ model DesignCatalog {
   updatedAt      DateTime        @updatedAt
 
   manufacturingOrders ManufacturingOrder[]
-  workOrders           WorkOrder[]
+  workOrders          WorkOrder[]
 
   @@unique([organizationId, sku])
   @@index([organizationId])
@@ -2114,35 +2243,35 @@ model BomItem {
 }
 
 model WorkOrder {
-  id                Int             @id @default(autoincrement())
-  organizationId    Int
-  organization      Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  bomId             Int
-  bom               BillOfMaterials @relation(fields: [bomId], references: [id], onDelete: Restrict)
-  finishedProductId Int
-  finishedProduct   Product         @relation("WorkOrderFinishedProduct", fields: [finishedProductId], references: [id], onDelete: Restrict)
-  finishedVariantId Int?
-  targetQuantity    Float
-  producedQuantity  Float           @default(0)
-  locationId        Int
-  location          Location        @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  id                 Int             @id @default(autoincrement())
+  organizationId     Int
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  bomId              Int
+  bom                BillOfMaterials @relation(fields: [bomId], references: [id], onDelete: Restrict)
+  finishedProductId  Int
+  finishedProduct    Product         @relation("WorkOrderFinishedProduct", fields: [finishedProductId], references: [id], onDelete: Restrict)
+  finishedVariantId  Int?
+  targetQuantity     Float
+  producedQuantity   Float           @default(0)
+  locationId         Int
+  location           Location        @relation(fields: [locationId], references: [id], onDelete: Restrict)
   // Target inventory store where finished goods are deposited at completion
   // (defaults to locationId when not set).
   finishedLocationId Int?
-  batchNumber       String?
-  expiryDate        DateTime?
-  notes             String?
+  batchNumber        String?
+  expiryDate         DateTime?
+  notes              String?
   // Optional design-catalog item this work order produces (specs/blueprints).
-  designCatalogId   Int?
-  designCatalog     DesignCatalog? @relation(fields: [designCatalogId], references: [id], onDelete: SetNull)
-  status            WorkOrderStatus @default(DRAFT)
-  totalCogmCost     Float           @default(0)
-  cogmUnitCost      Float           @default(0)
-  startedAt         DateTime?
-  completedAt       DateTime?
-  createdById       Int?
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  designCatalogId    Int?
+  designCatalog      DesignCatalog?  @relation(fields: [designCatalogId], references: [id], onDelete: SetNull)
+  status             WorkOrderStatus @default(DRAFT)
+  totalCogmCost      Float           @default(0)
+  cogmUnitCost       Float           @default(0)
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdById        Int?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
 
   scrapLogs           ProductionScrapLog[]
   manufacturingOrders ManufacturingOrder[]
@@ -2229,41 +2358,41 @@ model MfgServiceIncome {
 }
 
 model ManufacturingOrder {
-  id             Int              @id @default(autoincrement())
-  organizationId Int
-  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  jobNumber      String
-  title          String
-  customerName   String?
-  bomId          Int?
-  bom            BillOfMaterials? @relation(fields: [bomId], references: [id], onDelete: SetNull)
-  targetQuantity Float?
-  dueDate        DateTime?
-  stage          MfgOrderStage    @default(DESIGN)
-  workOrderId    Int?
-  workOrder      WorkOrder?       @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+  id                 Int              @id @default(autoincrement())
+  organizationId     Int
+  organization       Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  jobNumber          String
+  title              String
+  customerName       String?
+  bomId              Int?
+  bom                BillOfMaterials? @relation(fields: [bomId], references: [id], onDelete: SetNull)
+  targetQuantity     Float?
+  dueDate            DateTime?
+  stage              MfgOrderStage    @default(DESIGN)
+  workOrderId        Int?
+  workOrder          WorkOrder?       @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
   // COGM snapshot carried over when the linked work order completes (so job
   // orders, variance and reports expose what was actually produced and at what
   // cost without re-reading the work order).
-  producedQuantity Float?
-  totalCogmCost     Float          @default(0)
-  cogmUnitCost      Float          @default(0)
-  flowId            Int? // MfgFlow the order is routed through
-  currentStepIndex Int @default(-1) // -1 = not yet on a flow
-  currentTeamId  Int? // team that currently owns the order
+  producedQuantity   Float?
+  totalCogmCost      Float            @default(0)
+  cogmUnitCost       Float            @default(0)
+  flowId             Int? // MfgFlow the order is routed through
+  currentStepIndex   Int              @default(-1) // -1 = not yet on a flow
+  currentTeamId      Int? // team that currently owns the order
   currentOperationId Int? // active operation inside the current flow step
-  flow           MfgFlow?          @relation(fields: [flowId], references: [id], onDelete: SetNull)
+  flow               MfgFlow?         @relation(fields: [flowId], references: [id], onDelete: SetNull)
   // Customer design the job produces (picked from the Design Catalog).
-  designCatalogId Int?
-  designCatalog   DesignCatalog?   @relation(fields: [designCatalogId], references: [id], onDelete: SetNull)
-  completedAt    DateTime?
-  notes          String?
-  createdById    Int?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  designCatalogId    Int?
+  designCatalog      DesignCatalog?   @relation(fields: [designCatalogId], references: [id], onDelete: SetNull)
+  completedAt        DateTime?
+  notes              String?
+  createdById        Int?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 
-  history    ManufacturingOrderHistory[]
-  handovers  MfgOrderHandover[]
+  history   ManufacturingOrderHistory[]
+  handovers MfgOrderHandover[]
 
   @@unique([organizationId, jobNumber])
   @@index([organizationId, stage])
@@ -2272,16 +2401,16 @@ model ManufacturingOrder {
 }
 
 model MfgOrderHandover {
-  id             Int       @id @default(autoincrement())
+  id             Int                @id @default(autoincrement())
   organizationId Int
   orderId        Int
   order          ManufacturingOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   fromTeamId     Int?
   toTeamId       Int?
-  stepIndex      Int       @default(0)
+  stepIndex      Int                @default(0)
   note           String?
   changedById    Int?
-  createdAt      DateTime  @default(now())
+  createdAt      DateTime           @default(now())
 
   @@index([organizationId])
   @@index([orderId])
@@ -2417,9 +2546,9 @@ model Machine {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  components    MachineComponent[]
-  statusLogs    MachineStatusLog[]
-  issuances     MachineIssuance[]
+  components MachineComponent[]
+  statusLogs MachineStatusLog[]
+  issuances  MachineIssuance[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -2708,17 +2837,17 @@ model MenuItemIngredient {
 // part of the item value and the excess (net charge) is either deferred to
 // the guest folio or collected at the POS, per the business policy.
 model HospitalityPackage {
-  id                   String               @id @default(uuid())
+  id                   String              @id @default(uuid())
   organizationId       Int
   // Primary service line (optional now): a cross-service package (stay + spa
   // voucher + gym access) spans several services and leaves this null.
   hospitalityServiceId String?
-  hospitalityService   HospitalityService?  @relation(fields: [hospitalityServiceId], references: [id], onDelete: SetNull)
+  hospitalityService   HospitalityService? @relation(fields: [hospitalityServiceId], references: [id], onDelete: SetNull)
   name                 String
-  price                Float                @default(0) // package value paid upfront
-  isActive             Boolean              @default(true)
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
+  price                Float               @default(0) // package value paid upfront
+  isActive             Boolean             @default(true)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
 
   entitlements PackageEntitlement[]
   guests       PackageGuest[]
@@ -2735,27 +2864,27 @@ model HospitalityPackage {
 //             facility check-in — e.g. 1 pool pass or 1 spa voucher.
 // Service-scoped lines carry `hospitalityServiceId`; item lines carry a station.
 model PackageEntitlement {
-  id                   String               @id @default(uuid())
+  id                   String              @id @default(uuid())
   packageId            String
-  package              HospitalityPackage   @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  package              HospitalityPackage  @relation(fields: [packageId], references: [id], onDelete: Cascade)
   // ITEM | CREDIT | PASS
-  entitlementKind      String               @default("ITEM")
+  entitlementKind      String              @default("ITEM")
   stationId            Int?
-  station              RestaurantStation?   @relation(fields: [stationId], references: [id], onDelete: SetNull)
+  station              RestaurantStation?  @relation(fields: [stationId], references: [id], onDelete: SetNull)
   menuCategoryId       Int?
-  menuCategory         MenuCategory?        @relation(fields: [menuCategoryId], references: [id], onDelete: SetNull)
+  menuCategory         MenuCategory?       @relation(fields: [menuCategoryId], references: [id], onDelete: SetNull)
   menuItemId           Int?
-  menuItem             MenuItem?            @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+  menuItem             MenuItem?           @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
   // Service line this entitlement belongs to (cross-service packages).
   hospitalityServiceId String?
-  hospitalityService   HospitalityService?  @relation(fields: [hospitalityServiceId], references: [id], onDelete: SetNull)
+  hospitalityService   HospitalityService? @relation(fields: [hospitalityServiceId], references: [id], onDelete: SetNull)
   // PASS entitlements may target a specific pass plan (e.g. Monthly Gym Pass).
   membershipTypeId     String?
-  membershipType       MembershipType?      @relation(fields: [membershipTypeId], references: [id], onDelete: SetNull)
-  allowanceValue       Float                @default(0) // covered ETB per unit (0 = fully covered)
-  dailyLimit           Int?                 // max covered units per day (null = unlimited)
-  isActive             Boolean              @default(true)
-  createdAt            DateTime             @default(now())
+  membershipType       MembershipType?     @relation(fields: [membershipTypeId], references: [id], onDelete: SetNull)
+  allowanceValue       Float               @default(0) // covered ETB per unit (0 = fully covered)
+  dailyLimit           Int? // max covered units per day (null = unlimited)
+  isActive             Boolean             @default(true)
+  createdAt            DateTime            @default(now())
 
   usage PackageGuestEntitlementUsage[]
 
@@ -2767,28 +2896,28 @@ model PackageEntitlement {
 
 // A guest checked in under a package (room + guest + active package).
 model PackageGuest {
-  id             String                 @id @default(uuid())
-  organizationId Int
-  packageId      String
-  package        HospitalityPackage     @relation(fields: [packageId], references: [id], onDelete: Cascade)
-  guestName      String
-  roomNumber     String?
+  id                 String             @id @default(uuid())
+  organizationId     Int
+  packageId          String
+  package            HospitalityPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  guestName          String
+  roomNumber         String?
   // Authoritative link to the hotel stay this guest is billed against. Kept
   // alongside `roomNumber`, which stays for POS display, the station guest tag
   // and legacy string lookups.
   hotelReservationId Int?
-  hotelReservation   HotelReservation? @relation(fields: [hotelReservationId], references: [id], onDelete: SetNull)
-  checkInAt      DateTime               @default(now())
-  checkOutAt     DateTime?
-  status         String                 @default("CHECKED_IN") // CHECKED_IN | CHECKED_OUT
-  createdAt      DateTime               @default(now())
+  hotelReservation   HotelReservation?  @relation(fields: [hotelReservationId], references: [id], onDelete: SetNull)
+  checkInAt          DateTime           @default(now())
+  checkOutAt         DateTime?
+  status             String             @default("CHECKED_IN") // CHECKED_IN | CHECKED_OUT
+  createdAt          DateTime           @default(now())
 
-  folio  GuestFolio?
-  orders Order[]
+  folio          GuestFolio?
+  orders         Order[]
   // Facility check-ins (gym/pool/spa) that consumed this guest's package
   // entitlements at $0 (see FacilityVisit.packageGuestId).
   facilityVisits FacilityVisit[]
-  usage  PackageGuestEntitlementUsage[]
+  usage          PackageGuestEntitlementUsage[]
 
   @@index([organizationId])
   @@index([packageId])
@@ -2798,19 +2927,19 @@ model PackageGuest {
 
 // Unified guest folio: aggregates every itemized charge across all stations.
 model GuestFolio {
-  id                   String            @id @default(uuid())
+  id                   String       @id @default(uuid())
   organizationId       Int
-  packageGuestId       String            @unique
-  packageGuest         PackageGuest      @relation(fields: [packageGuestId], references: [id], onDelete: Cascade)
-  status               String            @default("OPEN") // OPEN | SETTLED
+  packageGuestId       String       @unique
+  packageGuest         PackageGuest @relation(fields: [packageGuestId], references: [id], onDelete: Cascade)
+  status               String       @default("OPEN") // OPEN | SETTLED
   settledAt            DateTime?
   settledById          Int?
-  settledBy            User?             @relation("GuestFolioSettledBy", fields: [settledById], references: [id], onDelete: SetNull)
-  packageValuePaid     Float             @default(0) // upfront package price
-  totalPackageDiscount Float             @default(0) // ETB covered by entitlements
-  totalAddOns          Float             @default(0) // net charges (excess)
-  totalPayments        Float             @default(0) // collected at the POS
-  createdAt            DateTime          @default(now())
+  settledBy            User?        @relation("GuestFolioSettledBy", fields: [settledById], references: [id], onDelete: SetNull)
+  packageValuePaid     Float        @default(0) // upfront package price
+  totalPackageDiscount Float        @default(0) // ETB covered by entitlements
+  totalAddOns          Float        @default(0) // net charges (excess)
+  totalPayments        Float        @default(0) // collected at the POS
+  createdAt            DateTime     @default(now())
 
   entries GuestFolioEntry[]
 
@@ -2848,15 +2977,15 @@ model GuestFolioEntry {
 
 // Daily entitlement consumption per guest (drives remaining-allowance checks).
 model PackageGuestEntitlementUsage {
-  id             String              @id @default(uuid())
+  id             String             @id @default(uuid())
   packageGuestId String
-  packageGuest   PackageGuest        @relation(fields: [packageGuestId], references: [id], onDelete: Cascade)
+  packageGuest   PackageGuest       @relation(fields: [packageGuestId], references: [id], onDelete: Cascade)
   entitlementId  String
-  entitlement    PackageEntitlement  @relation(fields: [entitlementId], references: [id], onDelete: Cascade)
-  usageDate      String              // YYYY-MM-DD (business-local date)
-  quantityUsed   Int                 @default(0)
-  valueUsed      Float               @default(0)
-  updatedAt      DateTime            @updatedAt
+  entitlement    PackageEntitlement @relation(fields: [entitlementId], references: [id], onDelete: Cascade)
+  usageDate      String // YYYY-MM-DD (business-local date)
+  quantityUsed   Int                @default(0)
+  valueUsed      Float              @default(0)
+  updatedAt      DateTime           @updatedAt
 
   @@unique([packageGuestId, entitlementId, usageDate])
   @@index([entitlementId])
@@ -2867,17 +2996,17 @@ model PackageGuestEntitlementUsage {
 // they have a platform User account. Users are provisioned as Workers on
 // registration (userId is set) so "users are workers by default".
 model Worker {
-  id             Int       @id @default(autoincrement())
+  id             Int      @id @default(autoincrement())
   organizationId Int
-  userId         Int?      @unique // set when this worker also has a login
+  userId         Int?     @unique // set when this worker also has a login
   name           String
   title          String?
   phone          String?
   locationId     Int?
-  status         String    @default("ACTIVE")
+  status         String   @default("ACTIVE")
   notes          String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@index([organizationId])
   @@index([locationId])
@@ -2913,17 +3042,17 @@ model MachineIssuance {
 }
 
 model MachineIssuanceItem {
-  id               Int                 @id @default(autoincrement())
+  id               Int             @id @default(autoincrement())
   organizationId   Int
   issuanceId       Int
-  issuance         MachineIssuance     @relation(fields: [issuanceId], references: [id], onDelete: Cascade)
+  issuance         MachineIssuance @relation(fields: [issuanceId], references: [id], onDelete: Cascade)
   componentName    String // snapshot label, e.g. "1/2-inch Chuck Key"
-  expectedQuantity Int                 @default(1)
-  returnedQuantity Int                 @default(0)
-  status           String              @default("RETURNED") // RETURNED | DAMAGED | MISSING
-  replacementCost  Float?              @default(0)
+  expectedQuantity Int             @default(1)
+  returnedQuantity Int             @default(0)
+  status           String          @default("RETURNED") // RETURNED | DAMAGED | MISSING
+  replacementCost  Float?          @default(0)
   notes            String?
-  createdAt        DateTime            @default(now())
+  createdAt        DateTime        @default(now())
 
   @@index([organizationId])
   @@index([issuanceId])
@@ -2945,56 +3074,55 @@ model MachineLossCharge {
   @@index([organizationId])
 }
 
-
 // --- Manufacturing V2: owner-defined teams and ordered flow passes. ----------
 model MfgTeam {
-  id             Int           @id @default(autoincrement())
+  id             Int      @id @default(autoincrement())
   organizationId Int
   name           String
   description    String?
-  sortOrder      Int           @default(0)
-  active         Boolean       @default(true)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  sortOrder      Int      @default(0)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   steps MfgFlowStep[]
 
-  @@index([organizationId])
   @@unique([organizationId, name])
+  @@index([organizationId])
 }
 
 model MfgFlow {
-  id             Int           @id @default(autoincrement())
+  id             Int      @id @default(autoincrement())
   organizationId Int
   name           String
   description    String?
-  isDefault      Boolean       @default(false)
-  active         Boolean       @default(true)
+  isDefault      Boolean  @default(false)
+  active         Boolean  @default(true)
   // Auto-created role whose members view/update this flow's production board.
   roleId         Int?
-  role           Role?         @relation(fields: [roleId], references: [id], onDelete: SetNull)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  role           Role?    @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  steps MfgFlowStep[]
+  steps  MfgFlowStep[]
   orders ManufacturingOrder[]
 
-  @@index([organizationId])
   @@unique([organizationId, name])
+  @@index([organizationId])
 }
 
 model MfgFlowStep {
-  id             Int       @id @default(autoincrement())
-  organizationId Int
-  flowId         Int
-  flow           MfgFlow   @relation(fields: [flowId], references: [id], onDelete: Cascade)
-  teamId         Int?
-  team           MfgTeam?  @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  id               Int      @id @default(autoincrement())
+  organizationId   Int
+  flowId           Int
+  flow             MfgFlow  @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  teamId           Int?
+  team             MfgTeam? @relation(fields: [teamId], references: [id], onDelete: SetNull)
   // True when this team performs the build — auto-links the order's Work Order.
-  isProductionStep Boolean   @default(false)
-  name           String?
-  sortOrder      Int       @default(0)
-  createdAt      DateTime  @default(now())
+  isProductionStep Boolean  @default(false)
+  name             String?
+  sortOrder        Int      @default(0)
+  createdAt        DateTime @default(now())
 
   operations MfgFlowStepOperation[]
 
@@ -3053,17 +3181,17 @@ enum MfgRejectDisposition {
 }
 
 model MfgVendor {
-  id             Int              @id @default(autoincrement())
-  organizationId Int
-  name           String
-  contactPerson  String?
-  email          String?
-  phone          String?
-  address        String?
-  taxId          String?
+  id               Int      @id @default(autoincrement())
+  organizationId   Int
+  name             String
+  contactPerson    String?
+  email            String?
+  phone            String?
+  address          String?
+  taxId            String?
   paymentTermsDays Int?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   purchaseOrders MfgPurchaseOrder[]
 
@@ -3072,18 +3200,18 @@ model MfgVendor {
 }
 
 model MfgPurchaseOrder {
-  id                   Int                @id @default(autoincrement())
+  id                   Int         @id @default(autoincrement())
   organizationId       Int
   poNumber             String
   vendorId             Int
-  vendor               MfgVendor          @relation(fields: [vendorId], references: [id], onDelete: Restrict)
-  status               MfgPoStatus        @default(DRAFT)
+  vendor               MfgVendor   @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  status               MfgPoStatus @default(DRAFT)
   expectedDeliveryDate DateTime?
   notes                String?
-  totalAmount          Float              @default(0)
+  totalAmount          Float       @default(0)
   createdById          Int?
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
 
   items    MfgPurchaseOrderItem[]
   receipts MfgGoodsReceipt[]
@@ -3093,16 +3221,16 @@ model MfgPurchaseOrder {
 }
 
 model MfgPurchaseOrderItem {
-  id               Int              @id @default(autoincrement())
-  organizationId   Int
-  poId             Int
-  po               MfgPurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
-  productId        Int // raw-material Product (no FK — mirrors MaterialIssue.productId)
-  quantity         Float
-  unitCost         Float
-  quantityReceived Float            @default(0)
-  quantityRejected Float            @default(0)
-  quantityInvoiced Float            @default(0)
+  id                   Int              @id @default(autoincrement())
+  organizationId       Int
+  poId                 Int
+  po                   MfgPurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  productId            Int // raw-material Product (no FK — mirrors MaterialIssue.productId)
+  quantity             Float
+  unitCost             Float
+  quantityReceived     Float            @default(0)
+  quantityRejected     Float            @default(0)
+  quantityInvoiced     Float            @default(0)
   expectedDeliveryDate DateTime?
 
   @@index([poId])
@@ -3110,19 +3238,19 @@ model MfgPurchaseOrderItem {
 }
 
 model MfgGoodsReceipt {
-  id             Int                 @id @default(autoincrement())
+  id             Int               @id @default(autoincrement())
   organizationId Int
   grnNumber      String
   poId           Int?
-  po             MfgPurchaseOrder?   @relation(fields: [poId], references: [id], onDelete: Restrict)
+  po             MfgPurchaseOrder? @relation(fields: [poId], references: [id], onDelete: Restrict)
   vendorId       Int?
-  isDirect       Boolean             @default(false)
-  totalAmount    Float               @default(0)
+  isDirect       Boolean           @default(false)
+  totalAmount    Float             @default(0)
   locationId     Int // receiving store
   receivedById   Int?
-  receivedAt     DateTime            @default(now())
+  receivedAt     DateTime          @default(now())
   notes          String?
-  createdAt      DateTime            @default(now())
+  createdAt      DateTime          @default(now())
 
   items MfgGoodsReceiptItem[]
 
@@ -3132,18 +3260,18 @@ model MfgGoodsReceipt {
 }
 
 model MfgGoodsReceiptItem {
-  id                 Int              @id @default(autoincrement())
+  id                 Int             @id @default(autoincrement())
   organizationId     Int
   receiptId          Int
-  receipt            MfgGoodsReceipt  @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  receipt            MfgGoodsReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
   poItemId           Int?
   productId          Int
   orderedQty         Float
-  previouslyReceived Float            @default(0)
+  previouslyReceived Float           @default(0)
   receivedQty        Float
-  rejectedQty        Float            @default(0)
-  unitCost           Float            @default(0)
-  quantityBilled     Float            @default(0)
+  rejectedQty        Float           @default(0)
+  unitCost           Float           @default(0)
+  quantityBilled     Float           @default(0)
   batchNumber        String?
   expiryDate         DateTime?
   manufactureDate    DateTime?
@@ -3152,22 +3280,21 @@ model MfgGoodsReceiptItem {
   @@index([receiptId])
 }
 
-
 model MfgVendorBill {
-  id             Int          @id @default(autoincrement())
+  id             Int           @id @default(autoincrement())
   organizationId Int
   billNumber     String
   vendorId       Int?
   poId           Int?
   grnId          Int?
-  status         MfgBillStatus        @default(DRAFT)
-  totalAmount    Float        @default(0)
-  taxAmount      Float        @default(0)
+  status         MfgBillStatus @default(DRAFT)
+  totalAmount    Float         @default(0)
+  taxAmount      Float         @default(0)
   dueDate        DateTime?
   notes          String?
   createdById    Int?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
   items MfgVendorBillItem[]
 
@@ -3177,20 +3304,22 @@ model MfgVendorBill {
   @@index([poId])
   @@index([grnId])
 }
+
 model MfgVendorBillItem {
-  id             Int            @id @default(autoincrement())
+  id             Int           @id @default(autoincrement())
   organizationId Int
   billId         Int
-  bill           MfgVendorBill  @relation(fields: [billId], references: [id], onDelete: Cascade)
+  bill           MfgVendorBill @relation(fields: [billId], references: [id], onDelete: Cascade)
   poItemId       Int?
   grnItemId      Int?
   productId      Int
-  quantity       Float          @default(0)
-  unitCost       Float          @default(0)
-  amount         Float          @default(0)
+  quantity       Float         @default(0)
+  unitCost       Float         @default(0)
+  amount         Float         @default(0)
 
   @@index([billId])
 }
+
 model MfgVendorCreditNote {
   id               Int                 @id @default(autoincrement())
   organizationId   Int
@@ -3213,20 +3342,22 @@ model MfgVendorCreditNote {
   @@index([grnId])
   @@index([billId])
 }
+
 model MfgVendorCreditNoteItem {
-  id             Int                   @id @default(autoincrement())
+  id             Int                 @id @default(autoincrement())
   organizationId Int
   creditNoteId   Int
-  creditNote     MfgVendorCreditNote   @relation(fields: [creditNoteId], references: [id], onDelete: Cascade)
+  creditNote     MfgVendorCreditNote @relation(fields: [creditNoteId], references: [id], onDelete: Cascade)
   rejectionId    Int?
   grnItemId      Int?
   productId      Int
-  quantity       Float                 @default(0)
-  unitCost       Float                 @default(0)
-  amount         Float                 @default(0)
+  quantity       Float               @default(0)
+  unitCost       Float               @default(0)
+  amount         Float               @default(0)
 
   @@index([creditNoteId])
 }
+
 model MfgRejectedStock {
   id             Int                  @id @default(autoincrement())
   organizationId Int

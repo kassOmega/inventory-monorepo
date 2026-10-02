@@ -93,7 +93,11 @@ export default function CreditSaleForm({
 
   useEffect(() => {
     api.get("/categories").then((r) => setCategories(r.data));
-    api.get("/customers").then((r) => setCustomers(r.data));
+    // Only credit-eligible customers can be billed here — the backend enforces
+    // the same rule, this just keeps blocked customers out of the picker.
+    api
+      .get("/customers?canTakeCredit=true")
+      .then((r) => setCustomers(r.data));
     api.get("/payment-methods").then((r) => {
       setPaymentMethods(r.data);
       const cash = (r.data as any[]).find(

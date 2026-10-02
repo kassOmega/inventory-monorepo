@@ -65,6 +65,14 @@ export const enMessages: Record<string, any> = {
     locationNameRequired: 'Location name is required',
     locationTypeInvalid: 'Location type is invalid',
     customerNotFound: 'Customer not found',
+    customerCreditBlocked:
+      'Customer "{{name}}" is blocked from taking credit. Update the customer record to allow it, or take full payment.',
+    customerHasHistory:
+      'This customer has sales or credit history — archive them instead of deleting.',
+    customerNoteNotFound: 'Customer note not found',
+    loyaltyPointsRequired: 'Enter a non-zero number of points',
+    loyaltyInsufficientPoints:
+      'The customer only has {{balance}} points, so they cannot lose that many.',
     paymentMethodNotFound: 'Payment method not found',
     duplicatePaymentMethod: 'A payment method with that name already exists',
     requestNotFound: 'Request not found',

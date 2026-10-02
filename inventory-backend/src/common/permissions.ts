@@ -79,6 +79,10 @@ export const PERMISSIONS: PermissionDefinition[] = [
   { key: 'restock.create', label: 'Restock Products', group: 'Restock' },
   { key: 'credits.view', label: 'View Credits', group: 'Credits' },
   { key: 'credits.manage', label: 'Manage Credits', group: 'Credits' },
+  // Customer CRM: the directory/profile/timeline are reads; creating, editing,
+  // archiving, adding timeline entries and adjusting loyalty are writes.
+  { key: 'customers.view', label: 'View Customers', group: 'Customers' },
+  { key: 'customers.manage', label: 'Manage Customers', group: 'Customers' },
   { key: 'reports.view', label: 'View Reports', group: 'Reports' },
   { key: 'reports.full', label: 'Full Reports & Exports', group: 'Reports' },
   {
@@ -250,6 +254,7 @@ export const PERMISSION_GROUPS_BY_BUSINESS_TYPE: Record<
     'Stock Requests',
     'Restock',
     'Credits',
+    'Customers',
     'Reports',
     'Price History',
     'Users',
@@ -273,6 +278,7 @@ export const PERMISSION_GROUPS_BY_BUSINESS_TYPE: Record<
     // generic facility dashboards, but the vertical also reuses the Service
     // catalog keys for its service page — keep them assignable here.
     'Service',
+    'Customers',
     'Reports',
     'Users',
     'Roles',
@@ -285,6 +291,7 @@ export const PERMISSION_GROUPS_BY_BUSINESS_TYPE: Record<
     'Products',
     'Categories',
     'Manufacturing',
+    'Customers',
     'Reports',
     'Users',
     'Roles',
@@ -296,6 +303,7 @@ export const PERMISSION_GROUPS_BY_BUSINESS_TYPE: Record<
     'Dashboard',
     'Service',
     'Cashier',
+    'Customers',
     'Reports',
     'Users',
     'Roles',
@@ -324,6 +332,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'restock.create',
     'credits.view',
     'credits.manage',
+    'customers.view',
+    'customers.manage',
     'reports.view',
     'manufacturing.view',
     'manufacturing.manage',
@@ -342,6 +352,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'requests.confirm',
     'credits.view',
     'credits.manage',
+    'customers.view',
+    'customers.manage',
     'reports.view',
     'manufacturing.view',
   ],
@@ -373,6 +385,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'reports.full',
     'service.view',
     'service.manage',
+    'customers.view',
+    'customers.manage',
   ],
   WAITER: [
     'dashboard.view',
@@ -400,6 +414,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'folios.view',
     'folios.settle',
     'service.view',
+    // …and looks up / creates the customer a credit or partial sale is billed
+    // to (read-only: who may edit the customer record is `customers.manage`).
+    'customers.view',
   ],
   // Front desk: checks guests in/out, takes reservations and settles folios.
   // `folios.view` / `folios.charge` / `folios.settle` are what the unified folio
@@ -414,6 +431,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'folios.charge',
     'folios.settle',
     'folios.manage',
+    // Guests are customers: reception searches them by phone/name (read-only).
+    'customers.view',
   ],
   // Housekeeping maintains room cleanliness: see the board, flip the status.
   // Deliberately no folio/billing/reception keys.
@@ -439,6 +458,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'requests.confirm',
     'credits.view',
     'credits.manage',
+    'customers.view',
+    'customers.manage',
     'reports.view',
   ],
 };

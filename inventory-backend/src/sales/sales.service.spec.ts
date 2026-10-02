@@ -40,8 +40,16 @@ const makePrisma = (overrides: Record<string, any> = {}) => {
 const makeService = (prisma: any) => {
   const finance = { postSaleIncome: jest.fn(async () => 1) };
   const notifications = { checkAndNotifyLowStock: jest.fn(async () => undefined) };
-  const service = new SalesService(prisma, notifications as any, finance as any);
-  return { service, finance, notifications, prisma };
+  // CRM: only exercised for sales with a customer; a stub keeps these specs
+  // focused on the checkout/stock behaviour they cover.
+  const loyalty = { syncSaleLoyalty: jest.fn(async () => ({ earned: 0, reversed: 0, balance: null })) };
+  const service = new SalesService(
+    prisma,
+    notifications as any,
+    finance as any,
+    loyalty as any,
+  );
+  return { service, finance, notifications, loyalty, prisma };
 };
 
 const createUser = { sub: 1, isSuperuser: true, locationId: null, permissions: [] };
