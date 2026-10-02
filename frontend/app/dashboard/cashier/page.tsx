@@ -1,10 +1,10 @@
 "use client";
 
-import api from "@/lib/api";
 import DateFilter, { getDateRange } from "@/app/components/DateFilter";
-import { useAuth } from "@/context/AuthContext";
 import FiscalPrintButton from "@/app/components/FiscalPrintButton";
 import FiscalPrintPreviewModal from "@/app/components/FiscalPrintPreviewModal";
+import { useAuth } from "@/context/AuthContext";
+import api from "@/lib/api";
 import {
   ackFiscalBatch,
   dispatchFiscalPrint,
@@ -37,10 +37,17 @@ export default function CashierPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [floatForm, setFloatForm] = useState({ recipientId: "", amount: "" });
-  const [collectionForm, setCollectionForm] = useState({ fromUserId: "", amount: "" });
+  const [collectionForm, setCollectionForm] = useState({
+    fromUserId: "",
+    amount: "",
+  });
   const [pendingWaiter, setPendingWaiter] = useState("");
-  const [pendingPreset, setPendingPreset] = useState<"today" | "week" | "month" | "year">("today");
-  const [pendingFrom, setPendingFrom] = useState(() => getDateRange("today").start);
+  const [pendingPreset, setPendingPreset] = useState<
+    "today" | "week" | "month" | "year"
+  >("today");
+  const [pendingFrom, setPendingFrom] = useState(
+    () => getDateRange("today").start,
+  );
   const [pendingTo, setPendingTo] = useState(() => getDateRange("today").end);
 
   const load = useCallback(async () => {
@@ -158,7 +165,10 @@ export default function CashierPage() {
   const recordFloat = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post("/cashier/floats", { recipientId: Number(floatForm.recipientId), amount: Number(floatForm.amount) });
+      await api.post("/cashier/floats", {
+        recipientId: Number(floatForm.recipientId),
+        amount: Number(floatForm.amount),
+      });
       setFloatForm({ recipientId: "", amount: "" });
       await load();
     } catch (err: any) {
@@ -169,24 +179,34 @@ export default function CashierPage() {
   const recordCollection = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post("/cashier/collections", { fromUserId: Number(collectionForm.fromUserId), amount: Number(collectionForm.amount) });
+      await api.post("/cashier/collections", {
+        fromUserId: Number(collectionForm.fromUserId),
+        amount: Number(collectionForm.amount),
+      });
       setCollectionForm({ fromUserId: "", amount: "" });
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? t("cashier.failedRecordCollection"));
+      setError(
+        err?.response?.data?.message ?? t("cashier.failedRecordCollection"),
+      );
     }
   };
 
   if (loading) return <p className="text-gray-500">{t("common.loading")}</p>;
 
-  const money = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const money = (n: number) =>
+    n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-800">{t("nav.cashier")}</h1>
-      {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
+      {error && (
+        <div className="bg-red-50 text-red-600 p-3 rounded text-sm">
+          {error}
+        </div>
+      )}
 
-      <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-2">
+      <div className="flex gap-2 border-b border-gray-200 pb-2 overflow-x-auto">
         {TABS.map((tabId) => (
           <button
             key={tabId}
@@ -200,12 +220,20 @@ export default function CashierPage() {
 
       {tab === "Pending" && (
         <div className="bg-white p-4 rounded-lg border border-gray-200">
-          <h2 className="font-semibold text-gray-800 mb-3">{t("cashier.pendingTitle")}</h2>
+          <h2 className="font-semibold text-gray-800 mb-3">
+            {t("cashier.pendingTitle")}
+          </h2>
           <div className="flex flex-wrap items-center gap-2 mb-3">
-            <select value={pendingWaiter} onChange={(e) => setPendingWaiter(e.target.value)} className="border border-gray-300 rounded p-2 text-sm">
+            <select
+              value={pendingWaiter}
+              onChange={(e) => setPendingWaiter(e.target.value)}
+              className="border border-gray-300 rounded p-2 text-sm"
+            >
               <option value="">{t("cashier.allWaiters")}</option>
               {staff.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
               ))}
             </select>
             <DateFilter
@@ -217,7 +245,9 @@ export default function CashierPage() {
               onEndDateChange={setPendingTo}
             />
           </div>
-          {pending.length === 0 && <p className="text-gray-400 text-sm">{t("cashier.noPending")}</p>}
+          {pending.length === 0 && (
+            <p className="text-gray-400 text-sm">{t("cashier.noPending")}</p>
+          )}
           {/* Facility day-pass payments carry no order → no fiscal receipt, so they
               render outside the consolidated fiscal groups below. */}
           {pending.some((p) => p.kind === "FACILITY") && (
@@ -225,21 +255,31 @@ export default function CashierPage() {
               {pending
                 .filter((p) => p.kind === "FACILITY")
                 .map((p) => (
-                  <li key={`${p.kind}-${p.id}`} className="py-2 flex items-center justify-between gap-2">
+                  <li
+                    key={`${p.kind}-${p.id}`}
+                    className="py-2 flex items-center justify-between gap-2"
+                  >
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-800">
-                        {p.facilityVisit?.customer?.name ?? t("facility.guest")} — {p.notes ?? t("facility.dayPassLabel")} · {money(p.amount)}
+                        {p.facilityVisit?.customer?.name ?? t("facility.guest")}{" "}
+                        — {p.notes ?? t("facility.dayPassLabel")} ·{" "}
+                        {money(p.amount)}
                       </p>
                       <p className="text-xs text-gray-400">
                         <span className="bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded text-[10px] font-medium mr-1">
                           {t("hospitalityServices.facility")}
                         </span>
                         {p.paymentMethod?.name ?? "—"}
-                        {p.collectedByName ? ` · Collected: ${p.collectedByName}` : ""}
+                        {p.collectedByName
+                          ? ` · Collected: ${p.collectedByName}`
+                          : ""}
                       </p>
                     </div>
                     {canConfirm && (
-                      <button onClick={() => confirm(p)} className="bg-green-600 text-white rounded px-3 py-1.5 text-xs font-medium shrink-0">
+                      <button
+                        onClick={() => confirm(p)}
+                        className="bg-green-600 text-white rounded px-3 py-1.5 text-xs font-medium shrink-0"
+                      >
                         {t("cashier.confirm")}
                       </button>
                     )}
@@ -250,17 +290,29 @@ export default function CashierPage() {
           {groups.map((g) => {
             const printable = g.payments.filter(
               (p) =>
-                p.order?.status === "PAID" && p.order?.fiscalStatus !== "PRINTED",
+                p.order?.status === "PAID" &&
+                p.order?.fiscalStatus !== "PRINTED",
             );
             const printableIds = [...new Set(printable.map((p) => p.order.id))];
             const total = g.payments.reduce((s, p) => s + (p.amount ?? 0), 0);
             return (
-              <div key={g.key} className="border border-gray-200 rounded-lg p-3 mb-3">
+              <div
+                key={g.key}
+                className="border border-gray-200 rounded-lg p-3 mb-3"
+              >
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <div>
-                    <p className="text-sm font-semibold text-gray-800">{g.label}</p>
+                    <p className="text-sm font-semibold text-gray-800">
+                      {g.label}
+                    </p>
                     <p className="text-xs text-gray-400">
-                      {t(g.payments.length === 1 ? "cashier.orderCount" : "cashier.orderCountPlural", { count: g.payments.length })} · {money(total)}
+                      {t(
+                        g.payments.length === 1
+                          ? "cashier.orderCount"
+                          : "cashier.orderCountPlural",
+                        { count: g.payments.length },
+                      )}{" "}
+                      · {money(total)}
                     </p>
                   </div>
                   {printableIds.length > 0 && (
@@ -269,24 +321,35 @@ export default function CashierPage() {
                       disabled={batchPrinting}
                       className="text-xs bg-gray-800 text-white rounded px-3 py-1.5 font-medium shrink-0 disabled:opacity-40"
                     >
-                      🖨 {t("orders.printFiscalInvoice")} ({printableIds.length})
+                      🖨 {t("orders.printFiscalInvoice")} ({printableIds.length}
+                      )
                     </button>
                   )}
                 </div>
                 <ul className="divide-y divide-gray-100">
                   {g.payments.map((p) => (
-                    <li key={p.id} className="py-2 flex items-center justify-between gap-2">
+                    <li
+                      key={p.id}
+                      className="py-2 flex items-center justify-between gap-2"
+                    >
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-gray-800">
-                          {p.order?.orderNumber} {p.order?.table ? `· ${p.order.table.name}` : ""} — {money(p.amount)}
+                          {p.order?.orderNumber}{" "}
+                          {p.order?.table ? `· ${p.order.table.name}` : ""} —{" "}
+                          {money(p.amount)}
                         </p>
                         <p className="text-xs text-gray-400">
                           {p.paymentMethod?.name ?? "—"}
-                          {p.collectedByName ? ` · ${t("cashier.waiterLabel")}: ${p.collectedByName}` : ""}
+                          {p.collectedByName
+                            ? ` · ${t("cashier.waiterLabel")}: ${p.collectedByName}`
+                            : ""}
                         </p>
                       </div>
                       {canConfirm && (
-                        <button onClick={() => confirm(p.id)} className="bg-green-600 text-white rounded px-3 py-1.5 text-xs font-medium shrink-0">
+                        <button
+                          onClick={() => confirm(p.id)}
+                          className="bg-green-600 text-white rounded px-3 py-1.5 text-xs font-medium shrink-0"
+                        >
                           {t("cashier.confirm")}
                         </button>
                       )}
@@ -320,35 +383,53 @@ export default function CashierPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white p-4 rounded-lg border border-gray-200">
               <p className="text-xs text-gray-400">{t("cashier.totalSales")}</p>
-              <p className="text-lg font-bold text-gray-800">{money(summary.totals.sales)}</p>
+              <p className="text-lg font-bold text-gray-800">
+                {money(summary.totals.sales)}
+              </p>
             </div>
             <div className="bg-white p-4 rounded-lg border border-gray-200">
               <p className="text-xs text-gray-400">{t("cashier.cashSales")}</p>
-              <p className="text-lg font-bold text-gray-800">{money(summary.totals.cashSales)}</p>
+              <p className="text-lg font-bold text-gray-800">
+                {money(summary.totals.cashSales)}
+              </p>
             </div>
             <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <p className="text-xs text-gray-400">{t("cashier.digitalSales")}</p>
-              <p className="text-lg font-bold text-gray-800">{money(summary.totals.digitalSales)}</p>
+              <p className="text-xs text-gray-400">
+                {t("cashier.digitalSales")}
+              </p>
+              <p className="text-lg font-bold text-gray-800">
+                {money(summary.totals.digitalSales)}
+              </p>
             </div>
             <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <p className="text-xs text-gray-400">{t("cashier.expectedCash")}</p>
-              <p className="text-lg font-bold text-green-700">{money(summary.totals.expectedPhysicalCash)}</p>
+              <p className="text-xs text-gray-400">
+                {t("cashier.expectedCash")}
+              </p>
+              <p className="text-lg font-bold text-green-700">
+                {money(summary.totals.expectedPhysicalCash)}
+              </p>
             </div>
           </div>
           <div className="bg-white p-4 rounded-lg border border-gray-200">
-            <h3 className="font-semibold text-gray-800 mb-2">{t("cashier.byCollector")}</h3>
+            <h3 className="font-semibold text-gray-800 mb-2">
+              {t("cashier.byCollector")}
+            </h3>
             <ul className="divide-y divide-gray-100 text-sm">
               {summary.collectors.map((c: any) => (
                 <li key={c.userId} className="py-1.5 flex justify-between">
                   <span>{c.name}</span>
-                  <span>{t("cashier.expected")} {money(c.expectedPhysicalCash)}</span>
+                  <span>
+                    {t("cashier.expected")} {money(c.expectedPhysicalCash)}
+                  </span>
                 </li>
               ))}
             </ul>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <h3 className="font-semibold text-gray-800 mb-2">{t("cashier.byMethod")}</h3>
+              <h3 className="font-semibold text-gray-800 mb-2">
+                {t("cashier.byMethod")}
+              </h3>
               <ul className="text-sm space-y-1">
                 {summary.methods.map((m: any) => (
                   <li key={m.method} className="flex justify-between">
@@ -359,7 +440,9 @@ export default function CashierPage() {
               </ul>
             </div>
             <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <h3 className="font-semibold text-gray-800 mb-2">{t("cashier.byStation")}</h3>
+              <h3 className="font-semibold text-gray-800 mb-2">
+                {t("cashier.byStation")}
+              </h3>
               <ul className="text-sm space-y-1">
                 {summary.categories.map((c: any) => (
                   <li key={c.station} className="flex justify-between">
@@ -375,65 +458,137 @@ export default function CashierPage() {
 
       {tab === "Floats" && (
         <div className="bg-white p-4 rounded-lg border border-gray-200">
-          <h2 className="font-semibold text-gray-800 mb-3">{t("cashier.floatsTitle")}</h2>
+          <h2 className="font-semibold text-gray-800 mb-3">
+            {t("cashier.floatsTitle")}
+          </h2>
           {canManageFloat && (
             <form onSubmit={recordFloat} className="flex gap-2 mb-3">
-              <select value={floatForm.recipientId} onChange={(e) => setFloatForm({ ...floatForm, recipientId: e.target.value })} className="border border-gray-300 rounded p-2 text-sm flex-1" required>
+              <select
+                value={floatForm.recipientId}
+                onChange={(e) =>
+                  setFloatForm({ ...floatForm, recipientId: e.target.value })
+                }
+                className="border border-gray-300 rounded p-2 text-sm flex-1"
+                required
+              >
                 <option value="">{t("cashier.recipient")}</option>
                 {staff.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
                 ))}
               </select>
-              <input type="number" placeholder={t("orders.amount")} value={floatForm.amount} onChange={(e) => setFloatForm({ ...floatForm, amount: e.target.value })} className="border border-gray-300 rounded p-2 text-sm w-28" required />
-              <button type="submit" className="bg-gray-800 text-white rounded px-3 text-sm">{t("cashier.give")}</button>
+              <input
+                type="number"
+                placeholder={t("orders.amount")}
+                value={floatForm.amount}
+                onChange={(e) =>
+                  setFloatForm({ ...floatForm, amount: e.target.value })
+                }
+                className="border border-gray-300 rounded p-2 text-sm w-28"
+                required
+              />
+              <button
+                type="submit"
+                className="bg-gray-800 text-white rounded px-3 text-sm"
+              >
+                {t("cashier.give")}
+              </button>
             </form>
           )}
           <ul className="text-sm text-gray-700 space-y-1">
             {floats.map((f) => (
               <li key={f.id} className="flex justify-between">
-                <span>{staff.find((s) => s.id === f.recipientId)?.name ?? f.recipientId}</span>
+                <span>
+                  {staff.find((s) => s.id === f.recipientId)?.name ??
+                    f.recipientId}
+                </span>
                 <span>{money(f.amount)}</span>
               </li>
             ))}
-            {floats.length === 0 && <li className="text-gray-400">{t("cashier.noFloats")}</li>}
+            {floats.length === 0 && (
+              <li className="text-gray-400">{t("cashier.noFloats")}</li>
+            )}
           </ul>
         </div>
       )}
 
       {tab === "Collections" && (
         <div className="bg-white p-4 rounded-lg border border-gray-200">
-          <h2 className="font-semibold text-gray-800 mb-3">{t("cashier.collectionsTitle")}</h2>
+          <h2 className="font-semibold text-gray-800 mb-3">
+            {t("cashier.collectionsTitle")}
+          </h2>
           {canManageFloat && (
-            <form onSubmit={recordCollection} className="flex flex-wrap gap-2 mb-3">
+            <form
+              onSubmit={recordCollection}
+              className="flex flex-wrap gap-2 mb-3"
+            >
               <select
                 value={collectionForm.fromUserId}
                 onChange={(e) => {
                   const id = e.target.value;
-                  const expected = summary?.collectors?.find((c: any) => String(c.userId) === id)?.expectedPhysicalCash ?? 0;
-                  setCollectionForm({ fromUserId: id, amount: expected > 0 ? String(expected) : "" });
+                  const expected =
+                    summary?.collectors?.find(
+                      (c: any) => String(c.userId) === id,
+                    )?.expectedPhysicalCash ?? 0;
+                  setCollectionForm({
+                    fromUserId: id,
+                    amount: expected > 0 ? String(expected) : "",
+                  });
                 }}
                 className="border border-gray-300 rounded p-2 text-sm flex-1"
                 required
               >
                 <option value="">{t("cashier.from")}</option>
                 {staff.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
                 ))}
               </select>
-              <input type="number" placeholder={t("cashier.amountAuto")} value={collectionForm.amount} onChange={(e) => setCollectionForm({ ...collectionForm, amount: e.target.value })} className="border border-gray-300 rounded p-2 text-sm w-28" required />
-              <button type="submit" className="bg-blue-600 text-white rounded px-3 text-sm">{t("cashier.collect")}</button>
+              <input
+                type="number"
+                placeholder={t("cashier.amountAuto")}
+                value={collectionForm.amount}
+                onChange={(e) =>
+                  setCollectionForm({
+                    ...collectionForm,
+                    amount: e.target.value,
+                  })
+                }
+                className="border border-gray-300 rounded p-2 text-sm w-28"
+                required
+              />
+              <button
+                type="submit"
+                className="bg-blue-600 text-white rounded px-3 text-sm"
+              >
+                {t("cashier.collect")}
+              </button>
             </form>
           )}
 
           {summary?.collectors?.length > 0 && (
             <ul className="divide-y divide-gray-100 text-sm mb-3">
               {summary.collectors.map((c: any) => (
-                <li key={c.userId} className="py-1.5 flex items-center justify-between gap-2">
+                <li
+                  key={c.userId}
+                  className="py-1.5 flex items-center justify-between gap-2"
+                >
                   <span>{c.name}</span>
-                  <span className="text-gray-500">{t("cashier.expected")} {money(c.expectedPhysicalCash)}</span>
+                  <span className="text-gray-500">
+                    {t("cashier.expected")} {money(c.expectedPhysicalCash)}
+                  </span>
                   {canManageFloat && c.expectedPhysicalCash > 0 && (
                     <button
-                      onClick={() => api.post("/cashier/collections", { fromUserId: c.userId, amount: c.expectedPhysicalCash }).then(load)}
+                      onClick={() =>
+                        api
+                          .post("/cashier/collections", {
+                            fromUserId: c.userId,
+                            amount: c.expectedPhysicalCash,
+                          })
+                          .then(load)
+                      }
                       className="text-xs bg-blue-600 text-white rounded px-2 py-1 shrink-0"
                     >
                       {t("cashier.collect")}
@@ -446,11 +601,16 @@ export default function CashierPage() {
           <ul className="text-sm text-gray-700 space-y-1">
             {collections.map((c) => (
               <li key={c.id} className="flex justify-between">
-                <span>{staff.find((s) => s.id === c.fromUserId)?.name ?? c.fromUserId}</span>
+                <span>
+                  {staff.find((s) => s.id === c.fromUserId)?.name ??
+                    c.fromUserId}
+                </span>
                 <span>{money(c.amount)}</span>
               </li>
             ))}
-            {collections.length === 0 && <li className="text-gray-400">{t("cashier.noCollections")}</li>}
+            {collections.length === 0 && (
+              <li className="text-gray-400">{t("cashier.noCollections")}</li>
+            )}
           </ul>
         </div>
       )}

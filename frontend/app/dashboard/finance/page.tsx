@@ -1,26 +1,34 @@
 "use client";
 
-import api from "@/lib/api";
+import { useConfirm } from "@/app/components/ConfirmProvider";
 import DateFilter, { getDateRange } from "@/app/components/DateFilter";
-import FinancialBreakdown from "@/app/components/FinancialBreakdown";
-import FinanceComparison from "@/app/components/FinanceComparison";
-import ItemizedPerformanceTable from "@/app/components/ItemizedPerformanceTable";
 import DualExpenseModal from "@/app/components/DualExpenseModal";
+import FinanceComparison from "@/app/components/FinanceComparison";
+import FinancialBreakdown from "@/app/components/FinancialBreakdown";
+import ItemizedPerformanceTable from "@/app/components/ItemizedPerformanceTable";
 import SearchableSelect from "@/app/components/SearchableSelect";
 import { useAuth } from "@/context/AuthContext";
-import { useConfirm } from "@/app/components/ConfirmProvider";
+import api from "@/lib/api";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-const TABS = ["Overview", "Breakdown", "Comparison", "Expenses", "Income", "Itemized"];
+const TABS = [
+  "Overview",
+  "Breakdown",
+  "Comparison",
+  "Expenses",
+  "Income",
+  "Itemized",
+];
 
 export default function FinancePage() {
   const { hasPermission, activeMembership, user } = useAuth();
   const confirm = useConfirm();
   const { t } = useTranslation();
   const canManage = hasPermission("finance.manage");
-  const businessType = activeMembership?.businessType ?? user?.businessType ?? "";
+  const businessType =
+    activeMembership?.businessType ?? user?.businessType ?? "";
   const bizKey: Record<string, string> = {
     MANUFACTURING: "fin.bizManufacturing",
     HOSPITALITY: "fin.bizHospitality",
@@ -40,7 +48,9 @@ export default function FinancePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
-  const [datePreset, setDatePreset] = useState<"today" | "week" | "month" | "year">("month");
+  const [datePreset, setDatePreset] = useState<
+    "today" | "week" | "month" | "year"
+  >("month");
   const [startDate, setStartDate] = useState(() => getDateRange("month").start);
   const [endDate, setEndDate] = useState(() => getDateRange("month").end);
 
@@ -54,21 +64,34 @@ export default function FinancePage() {
 
   const load = useCallback(async () => {
     try {
-      const [plRes, accRes, ledRes, incRes, opsRes, mapRes] = await Promise.all([
-        api.get(`/finance/profit-loss?startDate=${startDate}&endDate=${endDate}`),
-        api.get("/finance/accounts"),
-        api.get(`/finance/expense-ledger?startDate=${startDate}&endDate=${endDate}`),
-        api.get(`/finance/incomes?startDate=${startDate}&endDate=${endDate}`),
-        api.get(`/finance/operational-summary?startDate=${startDate}&endDate=${endDate}`).catch(() => ({ data: null })),
-        api.get("/finance/account-mappings").catch(() => ({ data: [] })),
-      ]);
+      const [plRes, accRes, ledRes, incRes, opsRes, mapRes] = await Promise.all(
+        [
+          api.get(
+            `/finance/profit-loss?startDate=${startDate}&endDate=${endDate}`,
+          ),
+          api.get("/finance/accounts"),
+          api.get(
+            `/finance/expense-ledger?startDate=${startDate}&endDate=${endDate}`,
+          ),
+          api.get(`/finance/incomes?startDate=${startDate}&endDate=${endDate}`),
+          api
+            .get(
+              `/finance/operational-summary?startDate=${startDate}&endDate=${endDate}`,
+            )
+            .catch(() => ({ data: null })),
+          api.get("/finance/account-mappings").catch(() => ({ data: [] })),
+        ],
+      );
       setPl(plRes.data);
       setAccounts(accRes.data);
-      setExpenseLedger(ledRes.data ?? { overhead: [], procurements: [], totals: {} });
+      setExpenseLedger(
+        ledRes.data ?? { overhead: [], procurements: [], totals: {} },
+      );
       setIncomes(incRes.data);
       setOpsSummary(opsRes.data);
       setIncomeMapping(
-        (mapRes.data ?? []).find((m: any) => m.transactionType === "INCOME")?.mapping ?? null,
+        (mapRes.data ?? []).find((m: any) => m.transactionType === "INCOME")
+          ?.mapping ?? null,
       );
     } catch (e: any) {
       setError(e?.response?.data?.message ?? t("fin.loadFailed"));
@@ -98,7 +121,13 @@ export default function FinancePage() {
 
   // --- Expenses ---
   const openNewExpense = () =>
-    setExpForm({ id: null, accountId: expenseAccounts[0]?.id ? String(expenseAccounts[0].id) : "", amount: "", vendor: "", notes: "" });
+    setExpForm({
+      id: null,
+      accountId: expenseAccounts[0]?.id ? String(expenseAccounts[0].id) : "",
+      amount: "",
+      vendor: "",
+      notes: "",
+    });
   const openEditExpense = (x: any) =>
     setExpForm({
       id: x.id,
@@ -122,12 +151,22 @@ export default function FinancePage() {
   const openNewIncome = () => {
     setShowNewIncomeCat(false);
     setNewIncomeCatName("");
-    setIncForm({ id: null, accountId: incomeAccounts[0]?.id ? String(incomeAccounts[0].id) : "", description: "", amount: "" });
+    setIncForm({
+      id: null,
+      accountId: incomeAccounts[0]?.id ? String(incomeAccounts[0].id) : "",
+      description: "",
+      amount: "",
+    });
   };
   const openEditIncome = (x: any) => {
     setShowNewIncomeCat(false);
     setNewIncomeCatName("");
-    setIncForm({ id: x.id, accountId: x.accountId ? String(x.accountId) : "", description: x.description ?? "", amount: String(x.amount) });
+    setIncForm({
+      id: x.id,
+      accountId: x.accountId ? String(x.accountId) : "",
+      description: x.description ?? "",
+      amount: String(x.amount),
+    });
   };
   const addIncomeCategory = async () => {
     if (!newIncomeCatName.trim()) {
@@ -140,7 +179,9 @@ export default function FinancePage() {
         type: "INCOME",
       });
       setExtraIncome((prev) => [...prev, res.data]);
-      setIncForm((f: any) => (f ? { ...f, accountId: String(res.data.id) } : f));
+      setIncForm((f: any) =>
+        f ? { ...f, accountId: String(res.data.id) } : f,
+      );
       setShowNewIncomeCat(false);
       setNewIncomeCatName("");
       flash(t("fin.categoryCreated"));
@@ -157,7 +198,8 @@ export default function FinancePage() {
         amount: Number(incForm.amount),
         description: incForm.description || undefined,
       };
-      if (incForm.id) await api.patch(`/finance/incomes/${incForm.id}`, payload);
+      if (incForm.id)
+        await api.patch(`/finance/incomes/${incForm.id}`, payload);
       else await api.post("/finance/incomes", payload);
       setIncForm(null);
       flash(t("fin.incomeSaved"));
@@ -179,7 +221,8 @@ export default function FinancePage() {
 
   if (loading) return <p className="text-gray-500 p-6">{t("fin.loading")}</p>;
 
-  const money = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const money = (n: number) =>
+    n.toLocaleString(undefined, { maximumFractionDigits: 2 });
   const totalMoneyOut = expenseLedger.totals?.totalMoneyOut ?? 0;
   const totalIncomes = incomes.reduce((s, x) => s + x.amount, 0);
 
@@ -202,28 +245,95 @@ export default function FinancePage() {
   const verticalCards = (() => {
     if (businessType === "MANUFACTURING")
       return [
-        { label: t("fin.cardProductionRevenue"), value: incomeCard(["Production Revenue"], ["4010"]), tone: "gray" },
-        { label: t("fin.cardRawMaterialsLabor"), value: expenseCard(["Raw Materials Cost", "Direct Labor"], ["5020", "5030"]), tone: "red" },
-        { label: t("fin.cardSpoilageScrap"), value: expenseCard(["Spoilage & Wastage"], ["7100"]), tone: "red" },
-        { label: t("fin.cardFinishedCogs"), value: expenseCard(["Cost of Goods Sold"], ["5000"]), tone: "red" },
+        {
+          label: t("fin.cardProductionRevenue"),
+          value: incomeCard(["Production Revenue"], ["4010"]),
+          tone: "gray",
+        },
+        {
+          label: t("fin.cardRawMaterialsLabor"),
+          value: expenseCard(
+            ["Raw Materials Cost", "Direct Labor"],
+            ["5020", "5030"],
+          ),
+          tone: "red",
+        },
+        {
+          label: t("fin.cardSpoilageScrap"),
+          value: expenseCard(["Spoilage & Wastage"], ["7100"]),
+          tone: "red",
+        },
+        {
+          label: t("fin.cardFinishedCogs"),
+          value: expenseCard(["Cost of Goods Sold"], ["5000"]),
+          tone: "red",
+        },
       ];
     if (businessType === "HOSPITALITY")
       return [
-        { label: t("fin.cardRoomRevenue"), value: incomeCard(["Room Revenue"], ["4030"]), tone: "gray" },
-        { label: t("fin.cardFoodSales"), value: incomeCard(["Food Sales"], ["4010"]), tone: "gray" },
-        { label: t("fin.cardBeverageSales"), value: incomeCard(["Beverage Sales"], ["4020"]), tone: "gray" },
-        { label: t("fin.cardFoodBeverageCost"), value: expenseCard(["Food Cost", "Beverage Cost"], ["5020", "5030"]), tone: "red" },
+        {
+          label: t("fin.cardRoomRevenue"),
+          value: incomeCard(["Room Revenue"], ["4030"]),
+          tone: "gray",
+        },
+        {
+          label: t("fin.cardFoodSales"),
+          value: incomeCard(["Food Sales"], ["4010"]),
+          tone: "gray",
+        },
+        {
+          label: t("fin.cardBeverageSales"),
+          value: incomeCard(["Beverage Sales"], ["4020"]),
+          tone: "gray",
+        },
+        {
+          label: t("fin.cardFoodBeverageCost"),
+          value: expenseCard(["Food Cost", "Beverage Cost"], ["5020", "5030"]),
+          tone: "red",
+        },
       ];
     if (businessType === "SERVICE")
       return [
-        { label: t("fin.cardServiceRevenue"), value: incomeCard(["Service Revenue", "Sales Revenue"], ["4000", "4010"]), tone: "gray" },
-        { label: t("fin.cardServiceCost"), value: expenseCard(["Cost of Service"], ["5010"]), tone: "red" },
+        {
+          label: t("fin.cardServiceRevenue"),
+          value: incomeCard(
+            ["Service Revenue", "Sales Revenue"],
+            ["4000", "4010"],
+          ),
+          tone: "gray",
+        },
+        {
+          label: t("fin.cardServiceCost"),
+          value: expenseCard(["Cost of Service"], ["5010"]),
+          tone: "red",
+        },
       ];
     // Retail & Distribution (default)
     return [
-      { label: t("fin.cardRetailRevenue"), value: incomeCard(["Sales Revenue", "Production Revenue"], ["4000", "4010"]), tone: "gray" },
-      { label: t("fin.cardCogs"), value: expenseCard(["Cost of Goods Sold", "Raw Materials Cost"], ["5000", "5020"]), tone: "red" },
-      { label: t("fin.cardStockVariance"), value: expenseCard(["Spoilage & Wastage", "Inventory Adjustment"], ["7100", "7200"]), tone: "red" },
+      {
+        label: t("fin.cardRetailRevenue"),
+        value: incomeCard(
+          ["Sales Revenue", "Production Revenue"],
+          ["4000", "4010"],
+        ),
+        tone: "gray",
+      },
+      {
+        label: t("fin.cardCogs"),
+        value: expenseCard(
+          ["Cost of Goods Sold", "Raw Materials Cost"],
+          ["5000", "5020"],
+        ),
+        tone: "red",
+      },
+      {
+        label: t("fin.cardStockVariance"),
+        value: expenseCard(
+          ["Spoilage & Wastage", "Inventory Adjustment"],
+          ["7100", "7200"],
+        ),
+        tone: "red",
+      },
     ];
   })();
 
@@ -231,20 +341,33 @@ export default function FinancePage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-800">{t("nav.finance")}</h1>
-        <Link href="/dashboard/accounts" className="text-sm text-blue-600 hover:underline font-medium">
+        <Link
+          href="/dashboard/accounts"
+          className="text-sm text-blue-600 hover:underline font-medium"
+        >
           {t("accounts.title")} →
         </Link>
       </div>
-      {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
-      {msg && <div className="bg-green-50 text-green-700 p-3 rounded text-sm">{msg}</div>}
+      {error && (
+        <div className="bg-red-50 text-red-600 p-3 rounded text-sm">
+          {error}
+        </div>
+      )}
+      {msg && (
+        <div className="bg-green-50 text-green-700 p-3 rounded text-sm">
+          {msg}
+        </div>
+      )}
 
-      <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-2">
+      <div className="flex gap-2 border-b border-gray-200 pb-2 overflow-x-auto">
         {TABS.map((tb) => (
           <button
             key={tb}
             onClick={() => setTab(tb)}
             className={`px-3 py-1.5 rounded text-sm font-medium ${
-              tab === tb ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-100"
+              tab === tb
+                ? "bg-blue-600 text-white"
+                : "text-gray-600 hover:bg-gray-100"
             }`}
           >
             {t(`fin.tab${tb}`)}
@@ -265,49 +388,68 @@ export default function FinancePage() {
 
       {tab === "Overview" && pl && (
         <>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          <div className="bg-white p-4 rounded-lg border border-gray-200">
-            <p className="text-xs text-gray-400">{t("fin.colRevenue")}</p>
-            <p className="text-lg font-bold text-gray-800">{money(pl.totalRevenue)}</p>
-          </div>
-          <div className="bg-white p-4 rounded-lg border border-gray-200">
-            <p className="text-xs text-gray-400">{t("fin.cogsExpense")}</p>
-            <p className="text-lg font-bold text-red-600">{money(pl.costOfGoodsSold)}</p>
-          </div>
-          <div className="bg-white p-4 rounded-lg border border-gray-200">
-            <p className="text-xs text-gray-400">{t("fin.opExpenses")}</p>
-            <p className="text-lg font-bold text-red-600">{money(pl.expenses)}</p>
-          </div>
-          <div className="bg-white p-4 rounded-lg border border-gray-200">
-            <p className="text-xs text-gray-400">{t("fin.totalExpenses")}</p>
-            <p className="text-lg font-bold text-red-600">{money(pl.totalCosts)}</p>
-          </div>
-          <div className="bg-white p-4 rounded-lg border border-gray-200">
-            <p className="text-xs text-gray-400">{t("fin.grossProfit")}</p>
-            <p className="text-lg font-bold text-gray-800">{money(pl.grossProfit)}</p>
-          </div>
-          <div className="bg-white p-4 rounded-lg border border-gray-200">
-            <p className="text-xs text-gray-400">{t("fin.chartNetProfit")}</p>
-            <p className={`text-lg font-bold ${(pl.netProfit ?? 0) >= 0 ? "text-green-700" : "text-red-600"}`}>{money(pl.netProfit)}</p>
-          </div>
-        </div>
-        {verticalCards.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <div className="col-span-full">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                {t("fin.pulseHeading", { type: bizLabel })}
+            <div className="bg-white p-4 rounded-lg border border-gray-200">
+              <p className="text-xs text-gray-400">{t("fin.colRevenue")}</p>
+              <p className="text-lg font-bold text-gray-800">
+                {money(pl.totalRevenue)}
               </p>
             </div>
-            {verticalCards.map((c) => (
-              <div key={c.label} className="bg-gradient-to-b from-white to-gray-50 p-4 rounded-lg border border-gray-200">
-                <p className="text-xs text-gray-400">{c.label}</p>
-                <p className={`text-lg font-bold ${c.tone === "red" ? "text-red-600" : "text-gray-800"}`}>
-                  {c.value ? money(c.value) : "—"}
+            <div className="bg-white p-4 rounded-lg border border-gray-200">
+              <p className="text-xs text-gray-400">{t("fin.cogsExpense")}</p>
+              <p className="text-lg font-bold text-red-600">
+                {money(pl.costOfGoodsSold)}
+              </p>
+            </div>
+            <div className="bg-white p-4 rounded-lg border border-gray-200">
+              <p className="text-xs text-gray-400">{t("fin.opExpenses")}</p>
+              <p className="text-lg font-bold text-red-600">
+                {money(pl.expenses)}
+              </p>
+            </div>
+            <div className="bg-white p-4 rounded-lg border border-gray-200">
+              <p className="text-xs text-gray-400">{t("fin.totalExpenses")}</p>
+              <p className="text-lg font-bold text-red-600">
+                {money(pl.totalCosts)}
+              </p>
+            </div>
+            <div className="bg-white p-4 rounded-lg border border-gray-200">
+              <p className="text-xs text-gray-400">{t("fin.grossProfit")}</p>
+              <p className="text-lg font-bold text-gray-800">
+                {money(pl.grossProfit)}
+              </p>
+            </div>
+            <div className="bg-white p-4 rounded-lg border border-gray-200">
+              <p className="text-xs text-gray-400">{t("fin.chartNetProfit")}</p>
+              <p
+                className={`text-lg font-bold ${(pl.netProfit ?? 0) >= 0 ? "text-green-700" : "text-red-600"}`}
+              >
+                {money(pl.netProfit)}
+              </p>
+            </div>
+          </div>
+          {verticalCards.length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <div className="col-span-full">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                  {t("fin.pulseHeading", { type: bizLabel })}
                 </p>
               </div>
-            ))}
-          </div>
-        )}
+              {verticalCards.map((c) => (
+                <div
+                  key={c.label}
+                  className="bg-gradient-to-b from-white to-gray-50 p-4 rounded-lg border border-gray-200"
+                >
+                  <p className="text-xs text-gray-400">{c.label}</p>
+                  <p
+                    className={`text-lg font-bold ${c.tone === "red" ? "text-red-600" : "text-gray-800"}`}
+                  >
+                    {c.value ? money(c.value) : "—"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
 
@@ -323,26 +465,38 @@ export default function FinancePage() {
         <FinanceComparison startDate={startDate} endDate={endDate} />
       )}
 
-
       {tab === "Expenses" && (
         <div className="space-y-4">
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="font-semibold text-gray-800">{t("fin.expensesOutgoings")}</h2>
+              <h2 className="font-semibold text-gray-800">
+                {t("fin.expensesOutgoings")}
+              </h2>
               {canManage && (
-                <button onClick={openNewExpense} className="text-sm text-blue-600 hover:underline">
+                <button
+                  onClick={openNewExpense}
+                  className="text-sm text-blue-600 hover:underline"
+                >
                   {t("fin.addExpense")}
                 </button>
               )}
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="bg-gray-50 rounded p-3">
-                <p className="text-xs text-gray-400">{t("fin.totalMoneyOut")}</p>
-                <p className="font-semibold text-gray-800">{money(totalMoneyOut)} ETB</p>
+                <p className="text-xs text-gray-400">
+                  {t("fin.totalMoneyOut")}
+                </p>
+                <p className="font-semibold text-gray-800">
+                  {money(totalMoneyOut)} ETB
+                </p>
               </div>
               <div className="bg-gray-50 rounded p-3">
-                <p className="text-xs text-gray-400">{t("fin.plOverheadImpact")}</p>
-                <p className="font-semibold text-gray-800">{money(expenseLedger.totals?.overheadTotal ?? 0)} ETB</p>
+                <p className="text-xs text-gray-400">
+                  {t("fin.plOverheadImpact")}
+                </p>
+                <p className="font-semibold text-gray-800">
+                  {money(expenseLedger.totals?.overheadTotal ?? 0)} ETB
+                </p>
               </div>
             </div>
           </div>
@@ -350,20 +504,40 @@ export default function FinancePage() {
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <ul className="divide-y divide-gray-100 text-sm">
               {[
-                ...(expenseLedger.overhead ?? []).map((x: any) => ({ ...x, badge: "OPERATIONAL" })),
-                ...(expenseLedger.procurements ?? []).map((x: any) => ({ ...x, badge: "INVENTORY_RESTOCK" })),
+                ...(expenseLedger.overhead ?? []).map((x: any) => ({
+                  ...x,
+                  badge: "OPERATIONAL",
+                })),
+                ...(expenseLedger.procurements ?? []).map((x: any) => ({
+                  ...x,
+                  badge: "INVENTORY_RESTOCK",
+                })),
               ]
-                .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                .sort(
+                  (a: any, b: any) =>
+                    new Date(b.date).getTime() - new Date(a.date).getTime(),
+                )
                 .map((x: any) => (
-                  <li key={`${x.kind}-${x.id}`} className="py-2 flex items-center justify-between gap-2">
+                  <li
+                    key={`${x.kind}-${x.id}`}
+                    className="py-2 flex items-center justify-between gap-2"
+                  >
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         {x.badge === "INVENTORY_RESTOCK" ? (
-                          <span className="text-[10px] font-semibold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">{t("fin.badgeInventoryRestock")}</span>
+                          <span className="text-[10px] font-semibold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">
+                            {t("fin.badgeInventoryRestock")}
+                          </span>
                         ) : (
-                          <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded">{t("fin.badgeOperationalExpense")}</span>
+                          <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded">
+                            {t("fin.badgeOperationalExpense")}
+                          </span>
                         )}
-                        <p className="text-gray-800 truncate">{x.categoryName ?? x.description ?? t("status.expense")}</p>
+                        <p className="text-gray-800 truncate">
+                          {x.categoryName ??
+                            x.description ??
+                            t("status.expense")}
+                        </p>
                       </div>
                       <p className="text-xs text-gray-400">
                         {x.vendor ? `${x.vendor} · ` : ""}
@@ -371,17 +545,31 @@ export default function FinancePage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-red-600 font-medium">-{money(x.amount)}</span>
+                      <span className="text-red-600 font-medium">
+                        -{money(x.amount)}
+                      </span>
                       {x.badge === "OPERATIONAL" && canManage && (
                         <>
-                          <button onClick={() => openEditExpense(x)} className="text-xs text-blue-600 hover:underline">{t("common.edit")}</button>
-                          <button onClick={() => deleteExpense(x)} className="text-xs text-red-600 hover:underline">{t("common.del")}</button>
+                          <button
+                            onClick={() => openEditExpense(x)}
+                            className="text-xs text-blue-600 hover:underline"
+                          >
+                            {t("common.edit")}
+                          </button>
+                          <button
+                            onClick={() => deleteExpense(x)}
+                            className="text-xs text-red-600 hover:underline"
+                          >
+                            {t("common.del")}
+                          </button>
                         </>
                       )}
                     </div>
                   </li>
                 ))}
-              {(expenseLedger.overhead?.length ?? 0) + (expenseLedger.procurements?.length ?? 0) === 0 && (
+              {(expenseLedger.overhead?.length ?? 0) +
+                (expenseLedger.procurements?.length ?? 0) ===
+                0 && (
                 <li className="text-gray-400 py-2">{t("fin.noOutgoings")}</li>
               )}
             </ul>
@@ -392,32 +580,61 @@ export default function FinancePage() {
       {tab === "Income" && (
         <div className="bg-white rounded-lg border border-gray-200 p-4">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-gray-800">{t("status.income")} <span className="text-green-600 font-normal">· {money(totalIncomes)}</span></h2>
+            <h2 className="font-semibold text-gray-800">
+              {t("status.income")}{" "}
+              <span className="text-green-600 font-normal">
+                · {money(totalIncomes)}
+              </span>
+            </h2>
             {canManage && (
-              <button onClick={openNewIncome} className="text-sm text-blue-600 hover:underline">
+              <button
+                onClick={openNewIncome}
+                className="text-sm text-blue-600 hover:underline"
+              >
                 {t("fin.addIncome")}
               </button>
             )}
           </div>
           <ul className="divide-y divide-gray-100 text-sm">
             {incomes.map((x) => (
-              <li key={x.id} className="py-2 flex items-center justify-between gap-2">
+              <li
+                key={x.id}
+                className="py-2 flex items-center justify-between gap-2"
+              >
                 <div className="min-w-0">
-                  <p className="text-gray-800 truncate">{x.description ?? x.account?.name}</p>
-                  <p className="text-xs text-gray-400">{new Date(x.incomeDate).toLocaleDateString()}</p>
+                  <p className="text-gray-800 truncate">
+                    {x.description ?? x.account?.name}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {new Date(x.incomeDate).toLocaleDateString()}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-green-600 font-medium">+{money(x.amount)}</span>
+                  <span className="text-green-600 font-medium">
+                    +{money(x.amount)}
+                  </span>
                   {canManage && (
                     <>
-                      <button onClick={() => openEditIncome(x)} className="text-xs text-blue-600 hover:underline">{t("common.edit")}</button>
-                      <button onClick={() => deleteIncome(x)} className="text-xs text-red-600 hover:underline">{t("common.del")}</button>
+                      <button
+                        onClick={() => openEditIncome(x)}
+                        className="text-xs text-blue-600 hover:underline"
+                      >
+                        {t("common.edit")}
+                      </button>
+                      <button
+                        onClick={() => deleteIncome(x)}
+                        className="text-xs text-red-600 hover:underline"
+                      >
+                        {t("common.del")}
+                      </button>
                     </>
                   )}
                 </div>
               </li>
             ))}
-            {incomes.length === 0 && <li className="text-gray-400 py-2">{t("fin.noIncome")}</li>}
+            {incomes.length === 0 && (
+              <li className="text-gray-400 py-2">{t("fin.noIncome")}</li>
+            )}
           </ul>
         </div>
       )}
@@ -445,19 +662,27 @@ export default function FinancePage() {
       {incForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-5 w-full max-w-sm shadow-xl">
-            <h2 className="font-semibold text-gray-800 mb-3">{incForm.id ? t("fin.editIncome") : t("fin.newIncome")}</h2>
+            <h2 className="font-semibold text-gray-800 mb-3">
+              {incForm.id ? t("fin.editIncome") : t("fin.newIncome")}
+            </h2>
             <form onSubmit={saveIncome} className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">{t("fin.categoryRequired")}</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  {t("fin.categoryRequired")}
+                </label>
                 {!showNewIncomeCat ? (
                   <SearchableSelect
-                    options={[...incomeAccounts, ...extraIncome].map((a: any) => ({
-                      value: String(a.id),
-                      label: a.code ? `${a.name} (${a.code})` : a.name,
-                      searchText: `${a.name} ${a.code ?? ""}`,
-                    }))}
+                    options={[...incomeAccounts, ...extraIncome].map(
+                      (a: any) => ({
+                        value: String(a.id),
+                        label: a.code ? `${a.name} (${a.code})` : a.name,
+                        searchText: `${a.name} ${a.code ?? ""}`,
+                      }),
+                    )}
                     value={incForm.accountId}
-                    onChange={(v: string) => setIncForm({ ...incForm, accountId: v })}
+                    onChange={(v: string) =>
+                      setIncForm({ ...incForm, accountId: v })
+                    }
                     placeholder={t("fin.selectCategory")}
                     className="w-full"
                   />
@@ -493,31 +718,66 @@ export default function FinancePage() {
                     const sel = [...incomeAccounts, ...extraIncome].find(
                       (a: any) => String(a.id) === incForm.accountId,
                     );
-                    const debitName = incomeMapping?.debitAccount?.name ?? t("fin.cash");
+                    const debitName =
+                      incomeMapping?.debitAccount?.name ?? t("fin.cash");
                     return sel ? (
                       <p className="text-[11px] text-gray-400 mt-1">
-                        {t("fin.postsHint", { debit: debitName, credit: sel.name })}
+                        {t("fin.postsHint", {
+                          debit: debitName,
+                          credit: sel.name,
+                        })}
                       </p>
                     ) : null;
                   })()}
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">{t("fin.amountEtb")}</label>
-                <input type="number" step="0.01" value={incForm.amount} onChange={(e) => setIncForm({ ...incForm, amount: e.target.value })} placeholder={t("common.amount")} className="border border-gray-300 rounded p-2 text-sm w-full" required />
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  {t("fin.amountEtb")}
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={incForm.amount}
+                  onChange={(e) =>
+                    setIncForm({ ...incForm, amount: e.target.value })
+                  }
+                  placeholder={t("common.amount")}
+                  className="border border-gray-300 rounded p-2 text-sm w-full"
+                  required
+                />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">{t("common.description")}</label>
-                <input value={incForm.description} onChange={(e) => setIncForm({ ...incForm, description: e.target.value })} placeholder={t("fin.descriptionPh")} className="border border-gray-300 rounded p-2 text-sm w-full" />
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  {t("common.description")}
+                </label>
+                <input
+                  value={incForm.description}
+                  onChange={(e) =>
+                    setIncForm({ ...incForm, description: e.target.value })
+                  }
+                  placeholder={t("fin.descriptionPh")}
+                  className="border border-gray-300 rounded p-2 text-sm w-full"
+                />
               </div>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setIncForm(null)} className="px-3 py-2 text-sm text-gray-600">{t("common.cancel")}</button>
-                <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm font-medium">{t("common.save")}</button>
+                <button
+                  type="button"
+                  onClick={() => setIncForm(null)}
+                  className="px-3 py-2 text-sm text-gray-600"
+                >
+                  {t("common.cancel")}
+                </button>
+                <button
+                  type="submit"
+                  className="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm font-medium"
+                >
+                  {t("common.save")}
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
     </div>
   );
 }

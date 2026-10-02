@@ -44,7 +44,7 @@ export default function Pagination({
     "min-w-8 h-8 px-2 rounded-lg text-sm border transition disabled:opacity-40 disabled:cursor-not-allowed";
 
   return (
-    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-2 py-3">
+    <div className="flex sm:flex-row items-center justify-between gap-3 px-2 py-3 mb-6 pb-[20px]">
       <p className="text-xs text-gray-500 whitespace-nowrap">
         {t("pg.showing", { from: rangeStart, to: rangeEnd, total })}
       </p>

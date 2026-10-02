@@ -1,31 +1,31 @@
 "use client";
-import BarcodeScanner from "@/app/components/BarcodeScanner";
 import AiPhotoPicker from "@/app/components/AiPhotoPicker";
-import { useSingleLocationAutofill } from "@/lib/singleLocation";
+import BarcodeScanner from "@/app/components/BarcodeScanner";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import FilterRow, { FilterField } from "@/app/components/FilterRow";
-import Modal from "@/app/components/Modal";
 import Loading from "@/app/components/Loading";
+import Modal from "@/app/components/Modal";
+import Pagination from "@/app/components/Pagination";
 import RowActionsMenu from "@/app/components/RowActionsMenu";
 import SearchableSelect from "@/app/components/SearchableSelect";
 import { useToast } from "@/app/components/ToastProvider";
-import { useAuth } from "@/context/AuthContext";
-import api, { markHandled } from "@/lib/api";
-import { batchLabel, variantLabel } from "@/lib/variantLabel";
-import { formatBusinessNumber } from "@/lib/bizNumber";
 import VariantLinesEditor, {
   addOrBumpVariantLine,
   VariantSaleLine,
 } from "@/app/components/VariantLinesEditor";
-import { formatDateTime } from "@/lib/datetime";
-import { statusLabel } from "@/lib/statusLabel";
+import { useAuth } from "@/context/AuthContext";
+import api, { markHandled } from "@/lib/api";
+import { formatBusinessNumber } from "@/lib/bizNumber";
 import { fmtCurrency } from "@/lib/currency";
+import { formatDateTime } from "@/lib/datetime";
+import { useSingleLocationAutofill } from "@/lib/singleLocation";
+import { statusLabel } from "@/lib/statusLabel";
+import useServerPaging from "@/lib/useServerPaging";
+import { batchLabel, variantLabel } from "@/lib/variantLabel";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import useServerPaging from "@/lib/useServerPaging";
-import Pagination from "@/app/components/Pagination";
 
 export default function RequestsPage() {
   const { t } = useTranslation();
@@ -67,9 +67,7 @@ export default function RequestsPage() {
         const ex = res.data.extracted ?? {};
         const nm = [ex.brand, ex.baseName].filter(Boolean).join(" ");
         toast.error(
-          nm
-            ? t("sales.noAiMatch", { name: nm })
-            : t("sales.noAiMatchGeneric"),
+          nm ? t("sales.noAiMatch", { name: nm }) : t("sales.noAiMatchGeneric"),
         );
         return;
       }
@@ -100,9 +98,7 @@ export default function RequestsPage() {
       toast.success(t("sales.matchedProduct", { name: productName }));
     } catch (err: any) {
       markHandled(err);
-      toast.error(
-        err?.response?.data?.message || t("sales.aiReadFailed"),
-      );
+      toast.error(err?.response?.data?.message || t("sales.aiReadFailed"));
     } finally {
       setScanBusyIndex(null);
     }
@@ -181,9 +177,9 @@ export default function RequestsPage() {
   const [storeStockMap, setStoreStockMap] = useState<Record<number, number>>(
     {},
   );
-  const [variantStockMap, setVariantStockMap] = useState<Record<number, number>>(
-    {},
-  );
+  const [variantStockMap, setVariantStockMap] = useState<
+    Record<number, number>
+  >({});
 
   const [loading, setLoading] = useState(true);
 
@@ -195,7 +191,9 @@ export default function RequestsPage() {
       const body = res.data;
       const rows = Array.isArray(body) ? body : (body?.data ?? []);
       setRequests(rows);
-      reqPaged.setTotal(Array.isArray(body) ? rows.length : (body?.total ?? rows.length));
+      reqPaged.setTotal(
+        Array.isArray(body) ? rows.length : (body?.total ?? rows.length),
+      );
     } finally {
       if (!silent) setLoading(false);
     }
@@ -302,11 +300,12 @@ export default function RequestsPage() {
       .catch(() => {});
   };
 
-  const updateSaleItem = (id: number, patch: Partial<typeof saleItems[number]>) =>
+  const updateSaleItem = (
+    id: number,
+    patch: Partial<(typeof saleItems)[number]>,
+  ) =>
     setSaleItems((prev) =>
-      prev.map((it) =>
-        it.requestItemId === id ? { ...it, ...patch } : it,
-      ),
+      prev.map((it) => (it.requestItemId === id ? { ...it, ...patch } : it)),
     );
 
   /** Barcode/QR scan on a received line: adds 1 to its sell quantity when the
@@ -346,7 +345,9 @@ export default function RequestsPage() {
     for (const i of items) {
       if (i.quantity < 0 || i.quantity > i.quantityReceived) {
         toast.error(
-          t("requests.cannotSellMoreReceived", { name: i.name || t("requests.itemFallback") }),
+          t("requests.cannotSellMoreReceived", {
+            name: i.name || t("requests.itemFallback"),
+          }),
         );
         return;
       }
@@ -419,7 +420,9 @@ export default function RequestsPage() {
       fetchRequests();
     } catch (err: any) {
       markHandled(err);
-      toast.error(err.response?.data?.message || t("requests.failedRecordSale"));
+      toast.error(
+        err.response?.data?.message || t("requests.failedRecordSale"),
+      );
     } finally {
       setSavingSale(false);
     }
@@ -493,7 +496,8 @@ export default function RequestsPage() {
           );
           for (const inv of p.inventory ?? []) {
             if (inv.variantId != null) {
-              vmap[inv.variantId] = (vmap[inv.variantId] ?? 0) + (inv.quantity ?? 0);
+              vmap[inv.variantId] =
+                (vmap[inv.variantId] ?? 0) + (inv.quantity ?? 0);
             }
           }
         }
@@ -558,7 +562,9 @@ export default function RequestsPage() {
       fetchRequests();
     } catch (err: any) {
       markHandled(err);
-      toast.error(err.response?.data?.message || t("requests.failedCreateRequest"));
+      toast.error(
+        err.response?.data?.message || t("requests.failedCreateRequest"),
+      );
     }
   };
 
@@ -714,7 +720,9 @@ export default function RequestsPage() {
       fetchRequests();
     } catch (err: any) {
       markHandled(err);
-      toast.error(err.response?.data?.message || t("requests.failedUpdateApprovals"));
+      toast.error(
+        err.response?.data?.message || t("requests.failedUpdateApprovals"),
+      );
     }
   };
 
@@ -726,7 +734,12 @@ export default function RequestsPage() {
     for (const d of items) {
       const item = selectedReq?.items.find((i: any) => i.id === d.id);
       if (!item) continue;
-      const name = (String(item.product?.brand ?? "") + " " + String(item.product?.baseName ?? "")).trim() || ("Item #" + item.id);
+      const name =
+        (
+          String(item.product?.brand ?? "") +
+          " " +
+          String(item.product?.baseName ?? "")
+        ).trim() || "Item #" + item.id;
       const requested = item.quantityRequested ?? d.quantityDispatched;
       const already = item.quantityDispatched || 0;
       if (d.quantityDispatched < 1) {
@@ -753,10 +766,7 @@ export default function RequestsPage() {
       fetchRequests();
     } catch (err: any) {
       markHandled(err);
-      toast.error(
-        err.response?.data?.message ||
-          t("requests.failedDispatch"),
-      );
+      toast.error(err.response?.data?.message || t("requests.failedDispatch"));
     }
   };
 
@@ -796,9 +806,13 @@ export default function RequestsPage() {
       "PARTIALLY_FULFILLED",
     ].includes(item.status) && outstandingFor(req, item) > 0;
   const isDispatchableItem = (req: any, item: any) =>
-    ["APPROVED", "DISPATCHED", "STORED", "PARTIALLY_RECEIVED", "PARTIALLY_FULFILLED"].includes(
-      item.status,
-    ) && remainingFor(req, item) > 0;
+    [
+      "APPROVED",
+      "DISPATCHED",
+      "STORED",
+      "PARTIALLY_RECEIVED",
+      "PARTIALLY_FULFILLED",
+    ].includes(item.status) && remainingFor(req, item) > 0;
 
   const handleConfirmReceipt = async () => {
     if (!selectedReq) return;
@@ -821,7 +835,9 @@ export default function RequestsPage() {
       setSelectedReq(null);
     } catch (err: any) {
       markHandled(err);
-      toast.error(err.response?.data?.message || t("requests.failedConfirmation"));
+      toast.error(
+        err.response?.data?.message || t("requests.failedConfirmation"),
+      );
     }
   };
 
@@ -926,14 +942,14 @@ export default function RequestsPage() {
       fetchRequests();
     } catch (err: any) {
       markHandled(err);
-      toast.error(
-        err.response?.data?.message || t("requests.failedSendBack"),
-      );
+      toast.error(err.response?.data?.message || t("requests.failedSendBack"));
     }
   };
 
   const handleDeleteRequest = async (req: any) => {
-    const ok = await confirm(t("requests.deleteRequestConfirm", { id: req.id }));
+    const ok = await confirm(
+      t("requests.deleteRequestConfirm", { id: req.id }),
+    );
     if (!ok) return;
     try {
       await api.delete(`/requests/${req.id}`);
@@ -941,7 +957,9 @@ export default function RequestsPage() {
       fetchRequests();
     } catch (err: any) {
       markHandled(err);
-      toast.error(err.response?.data?.message || t("requests.failedDeleteRequest"));
+      toast.error(
+        err.response?.data?.message || t("requests.failedDeleteRequest"),
+      );
     }
   };
 
@@ -1059,7 +1077,8 @@ export default function RequestsPage() {
         total: String(items.length),
       });
     const dispatched = items.filter(
-      (i: any) => (i.quantityDispatched || 0) > 0 || (i.quantityStored || 0) > 0,
+      (i: any) =>
+        (i.quantityDispatched || 0) > 0 || (i.quantityStored || 0) > 0,
     ).length;
     if (dispatched > 0 && dispatched < items.length)
       return t("requests.progressDispatched", {
@@ -1134,11 +1153,17 @@ export default function RequestsPage() {
         </h1>
         <p className="text-sm text-gray-500 leading-relaxed">
           {t("requests.noTeamHintBefore")}{" "}
-          <Link href="/dashboard/users" className="text-blue-600 hover:underline">
+          <Link
+            href="/dashboard/users"
+            className="text-blue-600 hover:underline"
+          >
             {t("nav.users")}
           </Link>{" "}
           {t("requests.noTeamHintAfter")}{" "}
-          <Link href="/dashboard/restock" className="text-blue-600 hover:underline">
+          <Link
+            href="/dashboard/restock"
+            className="text-blue-600 hover:underline"
+          >
             {t("nav.restock")}
           </Link>{" "}
           {t("requests.noTeamHintEnd")}
@@ -1149,7 +1174,7 @@ export default function RequestsPage() {
 
   return (
     <div>
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+      <div className="flex md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">
           {t("requests.title")}
         </h1>
@@ -1250,19 +1275,33 @@ export default function RequestsPage() {
         <table className="w-full text-left min-w-[600px] sm:min-w-[700px] text-xs sm:text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="p-2 sm:p-3 md:p-4 whitespace-nowrap">{t("requests.idHeader")}</th>
-              <th className="p-2 sm:p-3 md:p-4 whitespace-nowrap">{t("requests.typeHeader")}</th>
-              <th className="p-2 sm:p-3 md:p-4 whitespace-nowrap">{t("requests.fromHeader")}</th>
-              <th className="p-2 sm:p-3 md:p-4 whitespace-nowrap">{t("requests.toHeader")}</th>
+              <th className="p-2 sm:p-3 md:p-4 whitespace-nowrap">
+                {t("requests.idHeader")}
+              </th>
+              <th className="p-2 sm:p-3 md:p-4 whitespace-nowrap">
+                {t("requests.typeHeader")}
+              </th>
+              <th className="p-2 sm:p-3 md:p-4 whitespace-nowrap">
+                {t("requests.fromHeader")}
+              </th>
+              <th className="p-2 sm:p-3 md:p-4 whitespace-nowrap">
+                {t("requests.toHeader")}
+              </th>
               <th className="p-2 sm:p-3 md:p-4 whitespace-nowrap">
                 <span className="block">{t("requests.itemsSummary")}</span>
                 <span className="mt-0.5 flex text-[10px] uppercase font-medium text-gray-400">
-                  <span className="flex-1 text-center">{t("products.name")}</span>
+                  <span className="flex-1 text-center">
+                    {t("products.name")}
+                  </span>
                   <span className="w-10 text-center">{t("common.qty")}</span>
                 </span>
               </th>
-              <th className="p-2 sm:p-3 md:p-4 whitespace-nowrap">{t("common.status")}</th>
-              <th className="p-2 sm:p-3 md:p-4 whitespace-nowrap">{t("requests.actionHeader")}</th>
+              <th className="p-2 sm:p-3 md:p-4 whitespace-nowrap">
+                {t("common.status")}
+              </th>
+              <th className="p-2 sm:p-3 md:p-4 whitespace-nowrap">
+                {t("requests.actionHeader")}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -1319,7 +1358,8 @@ export default function RequestsPage() {
                               {i.product?.baseName}
                               {i.variant && (
                                 <span className="text-gray-400">
-                                  {" "}• {variantLabel(i.variant)}
+                                  {" "}
+                                  • {variantLabel(i.variant)}
                                 </span>
                               )}
                               {i.batch && (
@@ -1340,7 +1380,8 @@ export default function RequestsPage() {
                             colSpan={2}
                             className="py-1 text-blue-600 font-medium"
                           >
-                            +{t("requests.moreItems", { n: r.items.length - 2 })}
+                            +
+                            {t("requests.moreItems", { n: r.items.length - 2 })}
                           </td>
                         </tr>
                       )}
@@ -1382,12 +1423,23 @@ export default function RequestsPage() {
                     {nextActorForRequest(r)}
                   </div>
                 </td>
-                <td className="p-2 sm:p-3 md:p-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                <td
+                  className="p-2 sm:p-3 md:p-4 whitespace-nowrap"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <RowActionsMenu
                     items={[
-                      { label: t("requests.manageAction"), onClick: () => openManageModal(r) },
+                      {
+                        label: t("requests.manageAction"),
+                        onClick: () => openManageModal(r),
+                      },
                       ...(canEditRequest(r)
-                        ? [{ label: t("common.edit"), onClick: () => openEditModal(r) }]
+                        ? [
+                            {
+                              label: t("common.edit"),
+                              onClick: () => openEditModal(r),
+                            },
+                          ]
                         : []),
                       ...(canSendBack(r)
                         ? [
@@ -1451,11 +1503,15 @@ export default function RequestsPage() {
               {/* Request summary */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-700 border-b pb-3">
                 <div>
-                  <span className="text-gray-400">{t("requests.typeColon")}</span>{" "}
+                  <span className="text-gray-400">
+                    {t("requests.typeColon")}
+                  </span>{" "}
                   {typeLabel(selectedReq)}
                 </div>
                 <div>
-                  <span className="text-gray-400">{t("requests.statusColon")}</span>{" "}
+                  <span className="text-gray-400">
+                    {t("requests.statusColon")}
+                  </span>{" "}
                   <span className="font-medium">
                     {statusLabel(resolveStatus(selectedReq))}
                   </span>
@@ -1466,7 +1522,9 @@ export default function RequestsPage() {
                   )}
                 </div>
                 <div>
-                  <span className="text-gray-400">{t("requests.fromColon")}</span>{" "}
+                  <span className="text-gray-400">
+                    {t("requests.fromColon")}
+                  </span>{" "}
                   {fromLabel(selectedReq)}
                 </div>
                 <div>
@@ -1474,11 +1532,15 @@ export default function RequestsPage() {
                   {toLabel(selectedReq)}
                 </div>
                 <div>
-                  <span className="text-gray-400">{t("requests.createdByLabel")}</span>{" "}
+                  <span className="text-gray-400">
+                    {t("requests.createdByLabel")}
+                  </span>{" "}
                   {selectedReq.createdByName || "—"}
                 </div>
                 <div>
-                  <span className="text-gray-400">{t("requests.createdAtLabel")}</span>{" "}
+                  <span className="text-gray-400">
+                    {t("requests.createdAtLabel")}
+                  </span>{" "}
                   {formatDateTime(selectedReq.createdAt)}
                 </div>
               </div>
@@ -1486,17 +1548,29 @@ export default function RequestsPage() {
               {/* All items */}
               <div>
                 <p className="text-sm font-semibold text-gray-600 mb-1">
-                  {t("requests.itemsCount", { count: selectedReq.items.length })}
+                  {t("requests.itemsCount", {
+                    count: selectedReq.items.length,
+                  })}
                 </p>
                 <div className="border rounded-lg overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="p-2 text-left">{t("requests.productCol")}</th>
-                        <th className="p-2 text-right whitespace-nowrap">{t("requests.requested")}</th>
-                        <th className="p-2 text-right whitespace-nowrap">{t("requests.dispatched")}</th>
-                        <th className="p-2 text-right whitespace-nowrap">{t("requests.stored")}</th>
-                        <th className="p-2 text-right whitespace-nowrap">{t("requests.received")}</th>
+                        <th className="p-2 text-left">
+                          {t("requests.productCol")}
+                        </th>
+                        <th className="p-2 text-right whitespace-nowrap">
+                          {t("requests.requested")}
+                        </th>
+                        <th className="p-2 text-right whitespace-nowrap">
+                          {t("requests.dispatched")}
+                        </th>
+                        <th className="p-2 text-right whitespace-nowrap">
+                          {t("requests.stored")}
+                        </th>
+                        <th className="p-2 text-right whitespace-nowrap">
+                          {t("requests.received")}
+                        </th>
                         <th className="p-2 text-left">{t("common.status")}</th>
                       </tr>
                     </thead>
@@ -1507,7 +1581,8 @@ export default function RequestsPage() {
                             {item.product?.brand} {item.product?.baseName}
                             {item.variant && (
                               <span className="text-gray-500">
-                                {" "}• {variantLabel(item.variant)}
+                                {" "}
+                                • {variantLabel(item.variant)}
                               </span>
                             )}
                             {item.batch && (
@@ -1587,7 +1662,8 @@ export default function RequestsPage() {
                     {item.product?.brand} {item.product?.baseName}
                     {item.variant && (
                       <span className="text-gray-500 text-sm font-normal">
-                        {" "}• {variantLabel(item.variant)}
+                        {" "}
+                        • {variantLabel(item.variant)}
                       </span>
                     )}
                     {item.batch && (
@@ -1657,31 +1733,33 @@ export default function RequestsPage() {
                 </div>
 
                 {/* Owner - Shop→Store: Approve/Reject */}
-                {!isClosed && hasPermission("requests.approve") && !isStoreToOwner && (
-                  <select
-                    value={update?.status || item.status}
-                    onChange={(e) =>
-                      setItemUpdates(
-                        itemUpdates.map((u) =>
-                          u.id === item.id
-                            ? { ...u, status: e.target.value }
-                            : u,
-                        ),
-                      )
-                    }
-                    className="border p-2 rounded-lg bg-white"
-                    disabled={[
-                      "DISPATCHED",
-                      "STORED",
-                      "RECEIVED",
-                      "PARTIALLY_RECEIVED",
-                    ].includes(item.status)}
-                  >
-                    <option value="PENDING">{t("status.pending")}</option>
-                    <option value="APPROVED">{t("requests.approve")}</option>
-                    <option value="REJECTED">{t("requests.reject")}</option>
-                  </select>
-                )}
+                {!isClosed &&
+                  hasPermission("requests.approve") &&
+                  !isStoreToOwner && (
+                    <select
+                      value={update?.status || item.status}
+                      onChange={(e) =>
+                        setItemUpdates(
+                          itemUpdates.map((u) =>
+                            u.id === item.id
+                              ? { ...u, status: e.target.value }
+                              : u,
+                          ),
+                        )
+                      }
+                      className="border p-2 rounded-lg bg-white"
+                      disabled={[
+                        "DISPATCHED",
+                        "STORED",
+                        "RECEIVED",
+                        "PARTIALLY_RECEIVED",
+                      ].includes(item.status)}
+                    >
+                      <option value="PENDING">{t("status.pending")}</option>
+                      <option value="APPROVED">{t("requests.approve")}</option>
+                      <option value="REJECTED">{t("requests.reject")}</option>
+                    </select>
+                  )}
 
                 {/* Owner - Store→Owner: Store/Reject with qty + prices */}
                 {!isClosed &&
@@ -1785,7 +1863,9 @@ export default function RequestsPage() {
                   isDispatchableItem(selectedReq, item) &&
                   !isStoreToOwner && (
                     <div className="flex items-center gap-2">
-                      <span className="text-sm">{t("requests.dispatchQtyLabel")}</span>
+                      <span className="text-sm">
+                        {t("requests.dispatchQtyLabel")}
+                      </span>
                       <input
                         type="number"
                         min="1"
@@ -1813,7 +1893,9 @@ export default function RequestsPage() {
                   canConfirmReceipt(selectedReq) &&
                   isConfirmableItem(selectedReq, item) && (
                     <div className="flex items-center gap-2">
-                      <span className="text-sm">{t("requests.receivedQtyLabel")}</span>
+                      <span className="text-sm">
+                        {t("requests.receivedQtyLabel")}
+                      </span>
                       <input
                         type="number"
                         min="1"
@@ -2043,8 +2125,7 @@ export default function RequestsPage() {
                           label: `${p.brand} ${p.baseName}`.trim(),
                           searchText: `${p.brand} ${p.baseName} ${p.sku}`,
                           disabled: reqItems.some(
-                            (r, i) =>
-                              r.productId === String(p.id) && i !== idx,
+                            (r, i) => r.productId === String(p.id) && i !== idx,
                           ),
                         }))}
                         value={item.productId}
@@ -2159,7 +2240,9 @@ export default function RequestsPage() {
             type="submit"
             className="bg-green-600 text-white p-2 rounded-lg mt-2 font-medium"
           >
-            {editingReq ? t("requests.updateRequestTitle") : t("requests.submitRequest")}
+            {editingReq
+              ? t("requests.updateRequestTitle")
+              : t("requests.submitRequest")}
           </button>
         </form>
       </Modal>
@@ -2173,9 +2256,7 @@ export default function RequestsPage() {
         <div className="space-y-4">
           {saleReq && (
             <>
-              <p className="text-sm text-gray-500">
-                {t("requests.sellIntro")}
-              </p>
+              <p className="text-sm text-gray-500">{t("requests.sellIntro")}</p>
 
               <div className="space-y-2">
                 <p className="text-[11px] text-gray-400">{t("sv.sellZero")}</p>
@@ -2216,7 +2297,8 @@ export default function RequestsPage() {
                                 • {item.variantLabel}
                                 {item.variantSku ? (
                                   <span className="text-[10px] text-gray-400">
-                                    {" "}· {item.variantSku}
+                                    {" "}
+                                    · {item.variantSku}
                                   </span>
                                 ) : null}
                               </p>
@@ -2231,15 +2313,21 @@ export default function RequestsPage() {
                             />
                           </div>
                           <p className="text-[10px] text-gray-400">
-                            {t("requests.dispatchedInline")} {item.dispatched ?? 0}
+                            {t("requests.dispatchedInline")}{" "}
+                            {item.dispatched ?? 0}
                             {item.quantityReceived < (item.dispatched ?? 0)
                               ? ` ${t("requests.shortageInline", {
-                                  n: String((item.dispatched ?? 0) - item.quantityReceived),
+                                  n: String(
+                                    (item.dispatched ?? 0) -
+                                      item.quantityReceived,
+                                  ),
                                 })}`
                               : ""}
                           </p>
                           <div className="flex items-center gap-2 flex-wrap mt-1">
-                            <label className="text-xs text-gray-500">{t("requests.receivedInline")}</label>
+                            <label className="text-xs text-gray-500">
+                              {t("requests.receivedInline")}
+                            </label>
                             <input
                               type="number"
                               min="1"
@@ -2257,7 +2345,9 @@ export default function RequestsPage() {
                               }}
                               className="border p-1.5 rounded-lg w-20 text-sm"
                             />
-                            <label className="text-xs text-gray-500">{t("requests.sellInline")}</label>
+                            <label className="text-xs text-gray-500">
+                              {t("requests.sellInline")}
+                            </label>
                             <input
                               type="number"
                               min="0"
@@ -2277,12 +2367,18 @@ export default function RequestsPage() {
                               }}
                               className="border p-1.5 rounded-lg w-20 text-sm"
                             />
-                            <label className="text-xs text-gray-500">{t("requests.priceInline")}</label>
+                            <label className="text-xs text-gray-500">
+                              {t("requests.priceInline")}
+                            </label>
                             <input
                               type="number"
                               step="0.01"
                               min="0"
-                              value={item.unitSellPrice === 0 ? "" : item.unitSellPrice}
+                              value={
+                                item.unitSellPrice === 0
+                                  ? ""
+                                  : item.unitSellPrice
+                              }
                               onChange={(e) => {
                                 updateSaleItem(item.requestItemId, {
                                   unitSellPrice:
@@ -2291,9 +2387,11 @@ export default function RequestsPage() {
                                       : Number(e.target.value),
                                 });
                               }}
-                              placeholder={item.suggestedPrice
-                                ? `${item.suggestedPrice.toFixed(2)}${t("requests.defaultSuffix")}`
-                                : `0.00${t("requests.defaultSuffix")}`}
+                              placeholder={
+                                item.suggestedPrice
+                                  ? `${item.suggestedPrice.toFixed(2)}${t("requests.defaultSuffix")}`
+                                  : `0.00${t("requests.defaultSuffix")}`
+                              }
                               className="border p-1.5 rounded-lg w-24 text-sm"
                             />
                           </div>
@@ -2309,11 +2407,14 @@ export default function RequestsPage() {
                 )}
               </div>
               <div className="flex items-center justify-between border-t pt-2">
-                <span className="text-sm font-medium text-gray-600">{t("requests.totalLabelSell")}</span>
+                <span className="text-sm font-medium text-gray-600">
+                  {t("requests.totalLabelSell")}
+                </span>
                 <span className="text-lg font-bold text-gray-900">
                   {fmtCurrency(
                     saleItems.reduce(
-                      (sum, i) => sum + (i.quantity || 0) * (i.unitSellPrice || 0),
+                      (sum, i) =>
+                        sum + (i.quantity || 0) * (i.unitSellPrice || 0),
                       0,
                     ),
                   )}
@@ -2358,7 +2459,9 @@ export default function RequestsPage() {
                     onChange={(e) => setPaymentMethodId(e.target.value)}
                     className="border p-2 rounded-lg w-full bg-white text-sm"
                   >
-                    {!cashMethod && <option value="">{t("requests.selectPayment")}</option>}
+                    {!cashMethod && (
+                      <option value="">{t("requests.selectPayment")}</option>
+                    )}
                     {paymentMethods.map((m: any) => (
                       <option key={m.id} value={m.id}>
                         {m.name}
@@ -2465,7 +2568,9 @@ export default function RequestsPage() {
                   className="bg-indigo-600 text-white px-4 py-2 rounded-lg flex-1 flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {savingSale && <Loading size="sm" />}
-                  {savingSale ? t("purchases.saving") : t("requests.confirmAndSell")}
+                  {savingSale
+                    ? t("purchases.saving")
+                    : t("requests.confirmAndSell")}
                 </button>
                 <button
                   onClick={() => setSaleReq(null)}
@@ -2477,7 +2582,6 @@ export default function RequestsPage() {
             </>
           )}
         </div>
-
       </Modal>
     </div>
   );
