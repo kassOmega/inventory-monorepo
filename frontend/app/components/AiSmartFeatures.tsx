@@ -3,9 +3,10 @@
 // and Automated PO Drafts, surfaced on the AI Forecast page.
 import { useToast } from "@/app/components/ToastProvider";
 import Loading from "@/app/components/Loading";
+import Link from "next/link";
 import api, { markHandled } from "@/lib/api";
 import { fmtCurrency } from "@/lib/currency";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 interface CashFlowBucket {
@@ -119,6 +120,12 @@ export default function AiSmartFeatures() {
 
   const loadDrafts = () =>
     api.get("/ai/po-drafts").then((r) => setDrafts(r.data ?? []));
+
+  // The daily sweep files drafts in the background, so read them on mount too:
+  // the panel used to stay empty until the button was pressed.
+  useEffect(() => {
+    loadDrafts().catch(markHandled);
+  }, []);
 
   const generateCashFlow = () =>
     run("cashflow", async () => {
@@ -406,6 +413,14 @@ export default function AiSmartFeatures() {
               ))}
             </ul>
           )}
+          <div className="mt-3">
+            <Link
+              href="/dashboard/purchase-orders"
+              className="text-xs font-medium text-blue-600 hover:text-blue-700"
+            >
+              {t("ai.poOpenPage")} →
+            </Link>
+          </div>
         </Panel>
       </div>
     </div>

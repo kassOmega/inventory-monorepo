@@ -192,6 +192,7 @@ export const routePermissionMap: Record<string, string> = {
   "/dashboard/finance/ledger": "finance.view",
   "/dashboard/finance/settings/mappings": "finance.view",
   "/dashboard/forecast": "ai.view",
+  "/dashboard/purchase-orders": "ai.view",
   "/dashboard/agent": "agent.manage",
 };
 
@@ -358,6 +359,7 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
       { href: "/dashboard/roles", label: t("nav.rolesPermissions"), permission: "roles.manage" },
       { href: "/dashboard/reports", label: t("nav.reports"), permission: "reports.view" },
       { href: "/dashboard/forecast", label: t("nav.aiForecast"), permission: "ai.view" },
+      { href: "/dashboard/purchase-orders", label: t("nav.purchaseOrders"), permission: "ai.view" },
       { href: "/dashboard/agent", label: t("nav.aiAgent"), permission: "agent.manage" },
     );
   }

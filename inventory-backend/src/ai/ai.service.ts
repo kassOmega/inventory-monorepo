@@ -659,6 +659,7 @@ export class AiService {
         tenantId,
         '📦 Purchase order draft ready',
         `A draft PO for ${reorder.length} item(s) totaling ${built.estimatedTotal} ETB is ready for review (projected cash ${finance.netCashPosition} ETB).`,
+        '/dashboard/purchase-orders',
       );
     }
 
@@ -753,6 +754,7 @@ export class AiService {
           org.id,
           '📦 Purchase order draft ready',
           `A draft PO for ${reorder.length} item(s) totaling ${built.estimatedTotal} ETB was auto-generated (reorder threshold hit).`,
+          '/dashboard/purchase-orders',
         );
       } catch (err) {
         this.logger.warn(
@@ -860,6 +862,7 @@ export class AiService {
     tenantId: number | null,
     title: string,
     message: string,
+    link?: string,
   ): Promise<void> {
     if (tenantId == null) return;
     const ownerRole = await this.prisma.role.findFirst({
@@ -881,6 +884,7 @@ export class AiService {
           type: 'PO_DRAFT',
           title,
           message,
+          ...(link ? { link } : {}),
           targetRoleId: ownerRole?.id ?? null,
           targetUserId: t.targetUserId,
         },
@@ -892,7 +896,11 @@ export class AiService {
     // not awaiting it keeps the AI request latency unchanged.
     if (ownerRole) {
       this.push
-        .sendToRoleId({ title, body: message }, ownerRole.id, tenantId)
+        .sendToRoleId(
+          { title, body: message, ...(link ? { url: link } : {}) },
+          ownerRole.id,
+          tenantId,
+        )
         .catch(() => {});
     }
   }

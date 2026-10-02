@@ -11,7 +11,7 @@ export interface LinkableNotification {
 }
 
 /** Types that stay pinned in the alert bar until the user reads them. */
-export const STICKY_TYPES = ["LOW_STOCK", "REQUEST_STATUS", "ORDER_STATUS"];
+export const STICKY_TYPES = ["LOW_STOCK", "REQUEST_STATUS", "ORDER_STATUS", "PO_DRAFT"];
 
 export function notificationIcon(type: string): string {
   switch (type) {
@@ -19,6 +19,8 @@ export function notificationIcon(type: string): string {
       return "⚠️";
     case "REQUEST_STATUS":
       return "📦";
+    case "PO_DRAFT":
+      return "🧾";
     case "ORDER_STATUS":
       return "🍽️";
     default:
@@ -33,6 +35,8 @@ export function notificationLink(n: LinkableNotification): string | null {
   switch (n.type) {
     case "REQUEST_STATUS":
       return "/dashboard/requests";
+    case "PO_DRAFT":
+      return "/dashboard/purchase-orders";
     case "LOW_STOCK":
       return "/dashboard/reports?tab=low-stock";
     case "ORDER_STATUS":

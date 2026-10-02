@@ -168,4 +168,60 @@ table td {
     font-size: 8pt;
     color: #6b7280;
   }
+  /* PO draft sheet: the page portals one order into #print-root and calls
+     window.print(); the generic body:has(#print-root) rules above hide the app
+     so only the order reaches the paper. */
+  .po-print-body {
+    background: #ffffff;
+    color: #111827;
+    padding: 6mm;
+  }
+  .po-print-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    border-bottom: 1px solid #d1d5db;
+    padding-bottom: 3mm;
+    margin-bottom: 4mm;
+  }
+  .po-print-title {
+    font-size: 16pt;
+    font-weight: 700;
+  }
+  .po-print-meta {
+    font-size: 9pt;
+    color: #6b7280;
+  }
+  .po-print-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10pt;
+  }
+  .po-print-table th {
+    text-align: left;
+    border-bottom: 1px solid #d1d5db;
+    padding: 1.5mm 2mm;
+    font-weight: 600;
+    color: #374151;
+  }
+  .po-print-table td {
+    border-bottom: 1px solid #f3f4f6;
+    padding: 1.5mm 2mm;
+    vertical-align: top;
+  }
+  .po-print-num {
+    text-align: right;
+    white-space: nowrap;
+  }
+  .po-print-total {
+    margin-top: 4mm;
+    text-align: right;
+    font-size: 11pt;
+    font-weight: 700;
+  }
+  .po-print-note {
+    margin-top: 4mm;
+    font-size: 8.5pt;
+    color: #6b7280;
+  }
 }
