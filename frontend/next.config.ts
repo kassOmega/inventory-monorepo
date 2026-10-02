@@ -92,6 +92,17 @@ const nextConfig = {
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },
+  // Roles & Permissions is now the "Roles" tab of the Users page; keep the old
+  // route working for bookmarks. 307 (not 308) keeps the move reversible.
+  async redirects() {
+    return [
+      {
+        source: "/dashboard/roles",
+        destination: "/dashboard/users?tab=roles",
+        permanent: false,
+      },
+    ];
+  },
 };
 
 module.exports = withPWA(nextConfig);

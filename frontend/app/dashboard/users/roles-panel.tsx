@@ -34,7 +34,12 @@ function groupPermissions(permissions: { permission: Permission }[]) {
   return Object.entries(map);
 }
 
-export default function RolesPage() {
+/**
+ * "Roles & Permissions" tab of the combined Users & Roles page
+ * (/dashboard/users?tab=roles). The page heading and the permission-filtered
+ * tab bar live in the container (app/dashboard/users/page.tsx).
+ */
+export default function RolesPanel() {
   const { hasPermission } = useAuth();
   const toast = useToast();
   const { t } = useTranslation();
@@ -181,10 +186,8 @@ export default function RolesPage() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">
-          {t("roles.pageTitle")}
-        </h1>
+      {/* Heading + tab bar live in the container (users/page.tsx). */}
+      <div className="flex justify-end items-center mb-4">
         <button
           onClick={openCreate}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700"

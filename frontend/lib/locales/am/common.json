@@ -21,6 +21,7 @@
     "credits": "ዕዳዎች",
     "locations": "ቦታዎች",
     "users": "ተጠቃሚዎች",
+    "usersAndRoles": "ተጠቃሚዎች እና ሚናዎች",
     "prices": "የዋጋ ታሪክ",
     "stockCount": "የክምችት ቆጠራ",
     "purchases": "ፈጣን ግዢዎች",
@@ -67,7 +68,6 @@
     "accounts": "ሒሳቦች",
     "generalLedger": "አጠቃላይ መዝገብ",
     "accountMappings": "የሂሳብ ማዛመጃዎች",
-    "manageUsers": "ተጠቃሚዎች አስተዳድር",
     "rolesPermissions": "ሚናዎች እና ፈቃዶች",
     "aiForecast": "ኤአይ ትንበያ",
     "aiAgent": "ኤአይ ወኪል",
@@ -782,7 +782,6 @@
     "sessionExpired": "ክፍለ ጊዜዎ አልቋል። እባክዎ እንደገና ይግቡ።"
   },
   "roles": {
-    "pageTitle": "ሚናዎች እና ፍቃዶች",
     "addRoleBtn": "+ ሚና ያክሉ",
     "addRole": "ሚና ያክሉ",
     "editRoleTitle": "ሚና አርትዕ — {{name}}",
@@ -2283,7 +2282,6 @@
     "categoryCreated": "ምድብ ተፈጥሯል"
   },
   "users": {
-    "manageUsers": "ተጠቃሚዎችን ያስተዳድሩ",
     "addUserBtn": "+ ተጠቃሚ ያክሉ",
     "addUser": "ተጠቃሚ ያክሉ",
     "editUser": "ተጠቃሚ አርትዕ",

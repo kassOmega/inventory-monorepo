@@ -21,6 +21,7 @@
     "credits": "Credits",
     "locations": "Locations",
     "users": "Users",
+    "usersAndRoles": "Users & Roles",
     "prices": "Price History",
     "stockCount": "Stock Count",
     "purchases": "Quick Purchases",
@@ -67,7 +68,6 @@
     "accounts": "Accounts",
     "generalLedger": "General Ledger",
     "accountMappings": "Account Mappings",
-    "manageUsers": "Manage Users",
     "rolesPermissions": "Roles & Permissions",
     "aiForecast": "AI Forecast",
     "aiAgent": "AI Agent",
@@ -782,7 +782,6 @@
     "sessionExpired": "Your session has expired. Please log in again."
   },
   "roles": {
-    "pageTitle": "Roles & Permissions",
     "addRoleBtn": "+ Add Role",
     "addRole": "Add Role",
     "editRoleTitle": "Edit Role — {{name}}",
@@ -2283,7 +2282,6 @@
     "categoryCreated": "Category created"
   },
   "users": {
-    "manageUsers": "Manage Users",
     "addUserBtn": "+ Add User",
     "addUser": "Add User",
     "editUser": "Edit User",

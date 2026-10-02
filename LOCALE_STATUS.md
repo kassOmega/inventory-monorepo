@@ -8,9 +8,9 @@ section 0.
 
 | Gate | Command | Baseline |
 | --- | --- | --- |
-| Catalog (frontend) | `cd frontend && node scripts/i18n-check.mjs` | **all gates clean** — parity 3778/3778 ✓, no identical-value misses, 0 glossary violations |
+| Catalog (frontend) | `cd frontend && node scripts/i18n-check.mjs` | **all gates clean** — parity 3814/3814 ✓, no identical-value misses, 0 glossary violations |
 | Catalog (backend) | `cd inventory-backend && node scripts/i18n-check.mjs` | **all gates clean** — parity 218/218 ✓, no identical-value misses, 0 glossary violations |
-| Frontend UI | `cd frontend && node scripts/i18n-audit.mjs [--list --file X --strict]` | **178 files scanned, 0 dirty, 0 hits** |
+| Frontend UI | `cd frontend && node scripts/i18n-audit.mjs [--list --file X --strict]` | **180 files scanned, 0 dirty, 0 hits** |
 | Backend messages | `cd inventory-backend && node scripts/i18n-audit.mjs [--list --strict]` | 667 `throw` sites, 424 localized, 243 remaining (243 static + **0 interpolated**) |
 
 - `docs/i18n-glossary.md` is the single source of truth for terminology; `i18n-check.mjs`
@@ -48,6 +48,19 @@ section 0.
 - `i18n-check.mjs` gained two allowlist entries for the catalogue: `mfg.catalog.skuLabel`
   ("SKU") and `mfg.catalog.mediaPlaceholder` (a placeholder URL) — both stay Latin on purpose.
 - Open: imperative register (77 values) and Delete-vs-Cancel wording — see the glossary.
+
+- **Users & Roles consolidation (Administration batch).** "Manage Users" and "Roles &
+  Permissions" were two dashboard pages behind two nav entries; they are now two tabs of one
+  page (`/dashboard/users` with `?tab=users` | `?tab=roles`), the nav entry reads **Users &
+  Roles**, and `/dashboard/roles` 307-redirects to `/dashboard/users?tab=roles`
+  (`next.config.ts`). The route guard now accepts a list of keys (`routePermissionMap` is
+  `string | string[]`, any-of, mirroring the backend `PermissionsGuard`):
+  `users.view | users.manage | roles.manage`. Each tab keeps its own gate — the Users tab
+  renders for `users.view`/`users.manage` and hides its Add/Edit/activate/delete actions
+  without `users.manage`, the Roles tab renders for `roles.manage` only — and the container
+  falls back to the first permitted tab when the URL asks for one the user cannot see.
+  Catalog: `nav.usersAndRoles` added, `nav.manageUsers`, `users.manageUsers` and
+  `roles.pageTitle` dropped (3816 → 3814 in both locales); gates re-measured below.
 
 ## 1. Architecture (working)
 
@@ -303,7 +316,7 @@ Language: use the 🇪🇹/🇬🇧 pill in the top-right of the dashboard (and 
 
 ## 4. Immediate next steps (recommended order)
 1. ~~Convert remaining FE pages module-by-module~~ — **done**: `scripts/i18n-audit.mjs` is clean
-   across all 178 frontend files. Keep it green (`--strict` in CI) and re-run `i18n-check.mjs`
+   across all 180 frontend files. Keep it green (`--strict` in CI) and re-run `i18n-check.mjs`
    after every catalog edit.
 2. Catalog + convert the remaining **243 static** backend throws, module by module
    (manufacturing 40, hotel 34, restock 18, finance 17, packages 14, products 13, sales 12,

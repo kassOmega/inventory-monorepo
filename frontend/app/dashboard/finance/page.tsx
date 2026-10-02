@@ -13,13 +13,16 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+// Tab *ids* — internal identifiers, not labels: the visible text is
+// `fin.tab<Id>`, translated at the call site below. Silenced for the i18n audit
+// with the per-line ignore it documents for non-prose literals.
 const TABS = [
-  "Overview",
-  "Breakdown",
-  "Comparison",
-  "Expenses",
-  "Income",
-  "Itemized",
+  "Overview", // i18n-ignore
+  "Breakdown", // i18n-ignore
+  "Comparison", // i18n-ignore
+  "Expenses", // i18n-ignore
+  "Income", // i18n-ignore
+  "Itemized", // i18n-ignore
 ];
 
 export default function FinancePage() {

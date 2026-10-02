@@ -152,7 +152,11 @@ export default function DashboardLayout({
     const customServiceRoute = /^\/dashboard\/hospitality\/service\/[^/]+$/.test(
       pathname,
     );
-    let required =
+    // A route may accept any of several permissions (e.g. /dashboard/users is
+    // opened by users.view, users.manage or roles.manage because Users & Roles
+    // share one tabbed page) — mirroring the backend PermissionsGuard, which
+    // passes when any of the required keys is held.
+    let required: string | string[] | undefined =
       routePermissionMap[pathname] ??
       (customServiceRoute ? "facility.view" : undefined);
     if (!required && stationMatch) {
@@ -164,7 +168,8 @@ export default function DashboardLayout({
     if (user.isSuperuser) return;
     // Managers can open any station board (matches the backend check).
     if (isStationRoute && user.permissions?.includes("restaurant.manage")) return;
-    if (!user.permissions?.includes(required)) {
+    const needed = Array.isArray(required) ? required : [required];
+    if (!needed.some((key) => user.permissions?.includes(key))) {
       router.replace("/dashboard");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

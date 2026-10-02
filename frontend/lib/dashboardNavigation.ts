@@ -2,7 +2,9 @@
 // This file owns:
 //   - the dashboard menu model (groups + loose links),
 //   - every visibility condition that decides which links a user sees,
-//   - the route->feature and route->permission guard maps used by the layout.
+//   - the route->feature and route->permission guard maps used by the layout
+//     (a route may list several permissions; holding any one of them grants
+//     access, mirroring the backend PermissionsGuard).
 //
 // Grouping is deliberately incremental: Overview / Inventory / Sales &
 // Payments / Finance / Administration are expandable dropdown groups; every
@@ -144,7 +146,10 @@ export const routeFeatureMap: Record<
 };
 
 /** Routes that require a specific permission (checked on top of the feature map). */
-export const routePermissionMap: Record<string, string> = {
+// A value may be one permission key or a list of them, where holding any one
+// key grants access — e.g. /dashboard/users hosts the Users & Roles tabs
+// (users.view | users.manage | roles.manage), the union the backend allows.
+export const routePermissionMap: Record<string, string | string[]> = {
   // Retail / shared
   "/dashboard/products": "products.view",
   "/dashboard/adjust-stock": "products.adjust-stock",
@@ -156,8 +161,7 @@ export const routePermissionMap: Record<string, string> = {
   "/dashboard/prices": "prices.view",
   "/dashboard/credits": "credits.view",
   "/dashboard/locations": "locations.manage",
-  "/dashboard/users": "users.view",
-  "/dashboard/roles": "roles.manage",
+  "/dashboard/users": ["users.view", "users.manage", "roles.manage"],
   "/dashboard/reports": "reports.view",
   "/dashboard/finance": "finance.view",
   "/dashboard/food/orders": "restaurant.take-orders",
@@ -355,8 +359,13 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
 
   if (ctx.hasBusiness) {
     administration.items.push(
-      { href: "/dashboard/users", label: t("nav.manageUsers"), permission: "users.view" },
-      { href: "/dashboard/roles", label: t("nav.rolesPermissions"), permission: "roles.manage" },
+      // Users & Roles are two tabs of one page, so a single entry opens
+      // both; the page hides the tab the user cannot see.
+      {
+        href: "/dashboard/users",
+        label: t("nav.usersAndRoles"),
+        permission: ["users.view", "users.manage", "roles.manage"],
+      },
       { href: "/dashboard/reports", label: t("nav.reports"), permission: "reports.view" },
       { href: "/dashboard/forecast", label: t("nav.aiForecast"), permission: "ai.view" },
       { href: "/dashboard/purchase-orders", label: t("nav.purchaseOrders"), permission: "ai.view" },

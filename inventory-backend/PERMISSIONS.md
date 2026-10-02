@@ -111,9 +111,10 @@ direction for spas.
 ## 2. Default roles
 
 Roles are cloned per organization at creation with an immutable `systemKey`
-(so renames and notifications survive) and are fully editable through
-`/dashboard/roles` afterwards. `DEFAULT_ROLE_PERMISSIONS` in the same file is the
-baseline.
+(so renames and notifications survive) and are fully editable through the
+"Roles & Permissions" tab of `/dashboard/users` (`?tab=roles`) afterwards — the old
+`/dashboard/roles` route 307-redirects there (`next.config.ts`).
+`DEFAULT_ROLE_PERMISSIONS` in the same file is the baseline.
 
 **Hospitality** (`HOSPITALITY_ROLES` in `src/common/verticals.ts`):
 
@@ -320,7 +321,7 @@ Counts at audit time (non-spec sources):
 | `verification.service.ts:926` | owner-role membership (business document upload) | `verification.manage` (new key) |
 | `auth.service.ts:117` | `role.isSystem && !caller.isSuperuser` (register a user with a system role) | `users.manage` (exists) |
 | `push.controller.ts:30,42` | `isSuperuser` only (subscription count / purge diagnostics) | `system.diagnostics` (new key) or keep owner-only by policy |
-| Frontend action gates | `isOwnerAccount` / `isSuperuser` guarding buttons on `/dashboard/verification`, `/dashboard/businesses`, `/dashboard/users` | the matching `hasPermission('…')` |
+| Frontend action gates | `isOwnerAccount` / `isSuperuser` guarding buttons on `/dashboard/verification`, `/dashboard/businesses` (`/dashboard/users` is converted: user writes require `users.manage` and the Roles tab requires `roles.manage`; reset-password stays superuser-only by policy) | the matching `hasPermission('…')` |
 
 New keys must be rolled out with a backfill (see the
 `backfill-hospitality-role-permissions.ts` precedent) **and** exposed in the Roles
