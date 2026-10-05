@@ -49,10 +49,24 @@ interface JournalLineInput {
 
 @Injectable()
 export class FinanceService {
-  /** Tenants whose default AccountMapping rows have been ensured this boot. */
-  private _mappingEnsured = new Set<number>();
-  /** Tenants whose default chart accounts have been ensured this boot. */
-  private _accountsEnsured = new Set<number>();
+  /**
+   * Bumped whenever DEFAULT_POSTING_MAPS / DEFAULT_CHART_OF_ACCOUNTS gains new
+   * entries, so a long-running process that already ran the lazy backfill for a
+   * tenant (e.g. the new ADJUSTMENT_GAIN / "Inventory Adjustment Gain" 4200
+   * account) picks the additions up instead of caching the pre-change state
+   * forever.
+   */
+  private static readonly SEED_VERSION = 'v2-adjustment-gain';
+
+  /** `<tenantId>:<SEED_VERSION>` keys whose default AccountMapping rows are ensured. */
+  private _mappingEnsured = new Set<string>();
+  /** `<tenantId>:<SEED_VERSION>` keys whose default chart accounts are ensured. */
+  private _accountsEnsured = new Set<string>();
+
+  /** Cache key for the lazy chart/mapping backfills, versioned per seed revision. */
+  private seedKey(tenantId: number): string {
+    return `${tenantId}:${FinanceService.SEED_VERSION}`;
+  }
 
   constructor(private prisma: PrismaService) {}
 
@@ -161,9 +175,12 @@ export class FinanceService {
   private async ensureMappings(db?: any, tenantIdOverride?: number | null): Promise<void> {
     try {
       const tenantId = tenantIdOverride != null ? tenantIdOverride : this.tenant();
-      if (tenantId == null || this._mappingEnsured.has(tenantId)) return;
+      if (tenantId == null || this._mappingEnsured.has(this.seedKey(tenantId))) return;
+      // Chart first: seedAccountMappings resolves account *names* to ids, so the
+      // default accounts must exist before the mapping rows can resolve them.
+      await this.ensureDefaultAccounts(db, tenantId);
       await seedAccountMappings(db ?? this.prisma, tenantId);
-      this._mappingEnsured.add(tenantId);
+      this._mappingEnsured.add(this.seedKey(tenantId));
     } catch {
       // Ignored — posting helpers fall back to the classic name lookups.
     }
@@ -181,7 +198,7 @@ export class FinanceService {
     tenantIdOverride?: number | null,
   ): Promise<void> {
     const tenantId = tenantIdOverride != null ? tenantIdOverride : this.tenant();
-    if (tenantId == null || this._accountsEnsured.has(tenantId)) return;
+    if (tenantId == null || this._accountsEnsured.has(this.seedKey(tenantId))) return;
     try {
       const dao = db ?? this.prisma;
       const [existing, org] = await Promise.all([
@@ -215,7 +232,7 @@ export class FinanceService {
       // Only cache the result for non-transactional calls. Inside a sale
       // transaction the created rows roll back with the tx on any later error,
       // so the next attempt must be allowed to backfill again.
-      if (dao === this.prisma) this._accountsEnsured.add(tenantId);
+      if (dao === this.prisma) this._accountsEnsured.add(this.seedKey(tenantId));
     } catch {
       // Best-effort — posting helpers fall back to the classic name lookups.
     }
@@ -257,7 +274,7 @@ export class FinanceService {
       include: { debitAccount: true, creditAccount: true },
     });
     const byType = new Map(rows.map((r) => [r.transactionType, r]));
-    return DEFAULT_POSTING_MAPS.map((def) => ({
+    return DEFAULT_POSTING_MAPS.filter((def) => !def.legacy).map((def) => ({
       transactionType: def.type,
       label: def.label,
       description: def.description,
@@ -1793,11 +1810,15 @@ export class FinanceService {
   /**
    * Inventory reconciliation / stock-adjustment posting. Books the value
    * difference between the counted and system stock:
-   *   - surplus  (signedAmount > 0): Debit Inventory Asset ↔ Credit Inventory Adjustment
-   *   - shortage (signedAmount < 0): Debit Inventory Adjustment ↔ Credit Inventory Asset
-   * Idempotent per reference (e.g. "ADJ-..."). Best-effort: a missing
-   * "Inventory Adjustment" account is auto-created; otherwise it falls back to
-   * Spoilage & Wastage.
+   *   - surplus  (signedAmount > 0): Debit Inventory Asset ↔ Credit Inventory Adjustment Gain (income)
+   *   - shortage (signedAmount < 0): Debit Inventory Adjustment (expense) ↔ Credit Inventory Asset
+   *
+   * The two directions post against *different* accounts: a count gain is real
+   * income and a count loss is a real expense, so a surplus can no longer be
+   * credited to an EXPENSE account (which understated expenses and inflated
+   * profit). Idempotent per reference (e.g. "ADJ-..."). Best-effort: a missing
+   * "Inventory Adjustment Gain" (4200) / "Inventory Adjustment" (7200) account
+   * is auto-created; a missing shortage account falls back to Spoilage & Wastage.
    */
   async postInventoryAdjustment(args: {
     ref: string;
@@ -1806,6 +1827,9 @@ export class FinanceService {
     entryDate?: Date;
     createdById?: number | null;
     tenantId: number | null;
+    locationId?: number | null;
+    /** Free-form origin tag stored on the journal entry (e.g. "inventory"). */
+    sourceModule?: string;
     tx?: Prisma.TransactionClient;
   }): Promise<boolean> {
     if (!args.signedAmount || Math.abs(args.signedAmount) <= 0) return false;
@@ -1815,6 +1839,14 @@ export class FinanceService {
     });
     if (existing) return false;
 
+    const surplus = args.signedAmount > 0;
+
+    // Chart + mapping rows first: seedAccountMappings resolves account *names*
+    // to ids, so a mapping seeded before the 4200 account exists would resolve
+    // to a null credit side and silently fall through.
+    await this.ensureDefaultAccounts(db, args.tenantId);
+    await this.ensureMappings(db, args.tenantId);
+
     const accounts = await db.account.findMany({
       where: { tenantId: args.tenantId },
     });
@@ -1822,30 +1854,55 @@ export class FinanceService {
       accounts.find((a) => a.name === name && a.type === type);
     const inventory = find('Inventory Asset', AccountType.ASSET);
 
-    let adjustment =
-      find('Inventory Adjustment', AccountType.EXPENSE) ??
-      find('Spoilage & Wastage', AccountType.EXPENSE);
-    if (!adjustment) {
+    // A tenant-mapped pair wins; otherwise the chart names decide the sides.
+    const pair = await this.mappingOverride(
+      surplus ? 'ADJUSTMENT_GAIN' : 'ADJUSTMENT_LOSS',
+      db,
+      args.tenantId,
+    );
+
+    // Each direction owns its variance account: gains are income, losses are
+    // expense. (Spoilage & Wastage remains a last-resort shortage fallback.)
+    // Resolution is lazy — a tenant whose mapping already supplies both sides
+    // needs no chart row, so we must not create one behind its back.
+    const varianceName = surplus
+      ? 'Inventory Adjustment Gain'
+      : 'Inventory Adjustment';
+    const varianceType = surplus ? AccountType.INCOME : AccountType.EXPENSE;
+    const varianceCode = surplus ? '4200' : '7200';
+    let varianceResolved = false;
+    let varianceId: number | null = null;
+    const resolveVariance = async (): Promise<number | null> => {
+      if (varianceResolved) return varianceId;
+      varianceResolved = true;
+      const existing =
+        find(varianceName, varianceType) ??
+        (surplus ? undefined : find('Spoilage & Wastage', AccountType.EXPENSE));
+      if (existing) {
+        varianceId = existing.id;
+        return varianceId;
+      }
       const created = await db.account.create({
         data: {
           tenantId: args.tenantId,
-          name: 'Inventory Adjustment',
-          code: '7200',
-          type: AccountType.EXPENSE,
+          name: varianceName,
+          code: varianceCode,
+          type: varianceType,
           isSystem: true,
         },
       });
-      adjustment = created;
-    }
+      varianceId = created.id;
+      return varianceId;
+    };
 
-    // The mapping pair defines the two accounts that participate in a count
-    // variance; the engine keeps the direction (surplus debits the asset,
-    // shortage debits the expense). Sides fall back to the chart names.
-    await this.ensureMappings(db, args.tenantId);
-    const pair = await this.mappingOverride('ADJUSTMENT', db, args.tenantId);
-    const assetSide = pair.debitAccountId ?? inventory?.id ?? null;
-    const varianceSide = pair.creditAccountId ?? adjustment?.id ?? null;
-    if (!assetSide || !varianceSide) return false;
+    // Surplus: debit asset / credit gain. Shortage: debit loss / credit asset.
+    const debitAccountId = surplus
+      ? pair.debitAccountId ?? inventory?.id ?? null
+      : pair.debitAccountId ?? (await resolveVariance());
+    const creditAccountId = surplus
+      ? pair.creditAccountId ?? (await resolveVariance())
+      : pair.creditAccountId ?? inventory?.id ?? null;
+    if (!debitAccountId || !creditAccountId) return false;
 
     const amount = round2(Math.abs(args.signedAmount));
     const entry = await db.journalEntry.create({
@@ -1855,43 +1912,28 @@ export class FinanceService {
         description: args.description,
         entryDate: args.entryDate ?? new Date(),
         createdById: args.createdById ?? null,
+        locationId: args.locationId ?? null,
+        sourceModule: args.sourceModule ?? null,
       },
     });
+    // Two legs, always balanced: the resolved debit side and credit side.
     await db.journalLine.createMany({
-      data:
-        args.signedAmount > 0
-          ? [
-              {
-                tenantId: args.tenantId,
-                journalEntryId: entry.id,
-                accountId: assetSide,
-                debit: amount,
-                credit: 0,
-              },
-              {
-                tenantId: args.tenantId,
-                journalEntryId: entry.id,
-                accountId: varianceSide,
-                debit: 0,
-                credit: amount,
-              },
-            ]
-          : [
-              {
-                tenantId: args.tenantId,
-                journalEntryId: entry.id,
-                accountId: varianceSide,
-                debit: amount,
-                credit: 0,
-              },
-              {
-                tenantId: args.tenantId,
-                journalEntryId: entry.id,
-                accountId: assetSide,
-                debit: 0,
-                credit: amount,
-              },
-            ],
+      data: [
+        {
+          tenantId: args.tenantId,
+          journalEntryId: entry.id,
+          accountId: debitAccountId,
+          debit: amount,
+          credit: 0,
+        },
+        {
+          tenantId: args.tenantId,
+          journalEntryId: entry.id,
+          accountId: creditAccountId,
+          debit: 0,
+          credit: amount,
+        },
+      ],
     });
     return true;
   }

@@ -949,16 +949,16 @@ describe('FinanceService universal auto-posting engine', () => {
     expect(debit).toBeCloseTo(credit);
   });
 
-  it('postInventoryAdjustment books surplus/shortage against Inventory Asset', async () => {
+  it('postInventoryAdjustment books a surplus as a gain (income) and a shortage as a loss (expense)', async () => {
     const prisma = makePrisma({
       account: {
-        findMany: jest.fn(async () => accounts), // no adjustment account → auto-created
+        findMany: jest.fn(async () => accounts), // no variance accounts → auto-created
         create: jest.fn(async (args: any) => ({ id: 90, ...args.data })),
       },
     });
     const service = new FinanceService(prisma as any);
 
-    // Surplus: Debit Inventory Asset (3) ↔ Credit Inventory Adjustment (90).
+    // Surplus: Debit Inventory Asset (3) ↔ Credit Inventory Adjustment Gain (90).
     await service.postInventoryAdjustment({
       ref: 'ADJ-1',
       description: 'Count found +5',
@@ -973,13 +973,19 @@ describe('FinanceService universal auto-posting engine', () => {
     expect(lines[1]).toEqual(
       expect.objectContaining({ accountId: 90, debit: 0, credit: 500 }),
     );
+    // A count gain is INCOME — crediting an expense account would understate
+    // expenses and inflate profit.
     expect(prisma.account.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ name: 'Inventory Adjustment', type: 'EXPENSE' }),
+        data: expect.objectContaining({
+          name: 'Inventory Adjustment Gain',
+          code: '4200',
+          type: 'INCOME',
+        }),
       }),
     );
 
-    // Shortage: Debit Inventory Adjustment (90) ↔ Credit Inventory Asset (3).
+    // Shortage: Debit Inventory Adjustment (90, EXPENSE) ↔ Credit Inventory Asset (3).
     await service.postInventoryAdjustment({
       ref: 'ADJ-2',
       description: 'Count short -3',
@@ -994,6 +1000,168 @@ describe('FinanceService universal auto-posting engine', () => {
     expect(lines[1]).toEqual(
       expect.objectContaining({ accountId: 3, debit: 0, credit: 300 }),
     );
+    expect(prisma.account.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          name: 'Inventory Adjustment',
+          code: '7200',
+          type: 'EXPENSE',
+        }),
+      }),
+    );
+  });
+
+  it('postInventoryAdjustment always posts balanced legs and carries location/source', async () => {
+    const prisma = makePrisma({
+      account: {
+        findMany: jest.fn(async () => accounts),
+        create: jest.fn(async (args: any) => ({ id: 90, ...args.data })),
+      },
+    });
+    const service = new FinanceService(prisma as any);
+    await service.postInventoryAdjustment({
+      ref: 'ADJ-LOC',
+      description: 'Count at Store 26',
+      signedAmount: 125.5,
+      tenantId: 1,
+      locationId: 26,
+      sourceModule: 'inventory',
+    });
+    expect(prisma.journalEntry.create.mock.calls[0][0].data).toEqual(
+      expect.objectContaining({ locationId: 26, sourceModule: 'inventory' }),
+    );
+    const lines = prisma.journalLine.createMany.mock.calls[0][0].data;
+    const debit = lines.reduce((s: number, l: any) => s + l.debit, 0);
+    const credit = lines.reduce((s: number, l: any) => s + l.credit, 0);
+    expect(debit).toBe(125.5);
+    expect(credit).toBe(125.5);
+  });
+  it('postInventoryAdjustment prefers a tenant-mapped pair over the chart', async () => {
+    const prisma = makePrisma({
+      account: {
+        findMany: jest.fn(async () => accounts),
+        create: jest.fn(async (args: any) => ({ id: 90, ...args.data })),
+      },
+      accountMapping: {
+        findUnique: jest.fn(async () => ({
+          debitAccountId: 55,
+          creditAccountId: 66,
+        })),
+      },
+    });
+    const service = new FinanceService(prisma as any);
+    await service.postInventoryAdjustment({
+      ref: 'ADJ-MAP',
+      description: 'Count found +1',
+      signedAmount: 10,
+      tenantId: 1,
+    });
+    // The surplus resolves the gain action, never the superseded ADJUSTMENT key.
+    expect(prisma.accountMapping.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId_transactionType: { tenantId: 1, transactionType: 'ADJUSTMENT_GAIN' },
+        },
+      }),
+    );
+    const lines = prisma.journalLine.createMany.mock.calls[0][0].data;
+    expect(lines[0]).toEqual(
+      expect.objectContaining({ accountId: 55, debit: 10, credit: 0 }),
+    );
+    expect(lines[1]).toEqual(
+      expect.objectContaining({ accountId: 66, debit: 0, credit: 10 }),
+    );
+    // The mapped pair is authoritative → no chart account needs creating.
+    expect(prisma.account.create).not.toHaveBeenCalled();
+  });
+
+  it('postInventoryAdjustment is idempotent per reference and skips zero variances', async () => {
+    const prisma = makePrisma({
+      account: {
+        findMany: jest.fn(async () => accounts),
+        create: jest.fn(async (args: any) => ({ id: 90, ...args.data })),
+      },
+    });
+    const service = new FinanceService(prisma as any);
+
+    // Replaying a reference that already posted books nothing.
+    prisma.journalEntry.findFirst = jest.fn(async () => ({ id: 5 }));
+    expect(
+      await service.postInventoryAdjustment({
+        ref: 'ADJ-1',
+        description: 'replay',
+        signedAmount: 500,
+        tenantId: 1,
+      }),
+    ).toBe(false);
+    expect(prisma.journalEntry.create).not.toHaveBeenCalled();
+
+    // A zero variance is a no-op — there is nothing to book.
+    prisma.journalEntry.findFirst = jest.fn(async () => null);
+    expect(
+      await service.postInventoryAdjustment({
+        ref: 'ADJ-0',
+        description: 'count unchanged',
+        signedAmount: 0,
+        tenantId: 1,
+      }),
+    ).toBe(false);
+    expect(prisma.journalEntry.create).not.toHaveBeenCalled();
+    expect(prisma.journalLine.createMany).not.toHaveBeenCalled();
+  });
+  it('postInventoryAdjustment falls back to the chart on unresolved mapping sides and skips without Inventory Asset', async () => {
+    // The mapping row exists but both sides are null (e.g. seeded before the
+    // 4200 account existed): the chart lookup must still decide the sides.
+    const prisma = makePrisma({
+      accountMapping: {
+        findUnique: jest.fn(async () => ({
+          debitAccountId: null,
+          creditAccountId: null,
+        })),
+      },
+      account: {
+        findMany: jest.fn(async () => [
+          ...accounts,
+          { id: 7, name: 'Inventory Adjustment Gain', type: 'INCOME' },
+          { id: 8, name: 'Inventory Adjustment', type: 'EXPENSE' },
+        ]),
+        create: jest.fn(async (args: any) => ({ id: 90, ...args.data })),
+      },
+    });
+    const service = new FinanceService(prisma as any);
+    await service.postInventoryAdjustment({
+      ref: 'ADJ-NULLSIDE',
+      description: 'Count found +2',
+      signedAmount: 20,
+      tenantId: 1,
+    });
+    const lines = prisma.journalLine.createMany.mock.calls[0][0].data;
+    expect(lines[0]).toEqual(
+      expect.objectContaining({ accountId: 3, debit: 20, credit: 0 }),
+    );
+    expect(lines[1]).toEqual(
+      expect.objectContaining({ accountId: 7, debit: 0, credit: 20 }),
+    );
+    expect(prisma.account.create).not.toHaveBeenCalled();
+
+    // Without Inventory Asset the entry cannot balance → nothing is written.
+    const bare = makePrisma({
+      account: {
+        findMany: jest.fn(async () => []),
+        create: jest.fn(async (args: any) => ({ id: 90, ...args.data })),
+      },
+    });
+    const bareService = new FinanceService(bare as any);
+    expect(
+      await bareService.postInventoryAdjustment({
+        ref: 'ADJ-BARE',
+        description: 'no chart',
+        signedAmount: 5,
+        tenantId: 1,
+      }),
+    ).toBe(false);
+    expect(bare.journalEntry.create).not.toHaveBeenCalled();
+    expect(bare.journalLine.createMany).not.toHaveBeenCalled();
   });
 });
 
@@ -1032,9 +1200,9 @@ describe('FinanceService General Ledger views', () => {
     expect(tb.totals.credit).toBe(500);
     expect(tb.balanced).toBe(true);
     const cashRow = tb.rows.find((r: any) => r.accountId === 1);
-    expect(cashRow.balance).toBe(500);
+    expect(cashRow!.balance).toBe(500);
     const revRow = tb.rows.find((r: any) => r.accountId === 5);
-    expect(revRow.balance).toBe(500);
+    expect(revRow!.balance).toBe(500);
   });
   it('getGlAccountLedger computes opening, running and closing balances', async () => {
     const prisma: any = {
@@ -1068,12 +1236,12 @@ describe('FinanceService General Ledger views', () => {
     expect(cov.totals.journalEntries).toBe(2);
     expect(cov.totals.balanced).toBe(true);
     const sale = cov.sources.find((s: any) => s.key === 'sale');
-    expect(sale.status).toBe('ok');
-    expect(sale.incomeAmount).toBe(500);
-    expect(sale.expectedAmount).toBe(500);
+    expect(sale!.status).toBe('ok');
+    expect(sale!.incomeAmount).toBe(500);
+    expect(sale!.expectedAmount).toBe(500);
     const ret = cov.sources.find((s: any) => s.key === 'return');
-    expect(ret.status).toBe('ok');
-    expect(cov.byReference.find((b: any) => b.key === 'SALE').count).toBe(1);
+    expect(ret!.status).toBe('ok');
+    expect(cov.byReference.find((b: any) => b.key === 'SALE')!.count).toBe(1);
   });
 });
 

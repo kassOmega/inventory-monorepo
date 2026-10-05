@@ -17,6 +17,7 @@ describe('Account mapping engine', () => {
           { id: 12, name: 'Cash' },
           { id: 13, name: 'Spoilage & Wastage' },
           { id: 14, name: 'Inventory Adjustment' },
+          { id: 15, name: 'Inventory Adjustment Gain' },
         ]),
       },
       accountMapping: { createMany: jest.fn(async () => ({})) },
@@ -29,6 +30,9 @@ describe('Account mapping engine', () => {
         expect.objectContaining({ transactionType: 'CREDIT_NOTE', debitAccountId: 11, creditAccountId: 10 }),
         expect.objectContaining({ transactionType: 'WASTAGE', debitAccountId: 13, creditAccountId: 10 }),
         expect.objectContaining({ transactionType: 'ADJUSTMENT', debitAccountId: 10, creditAccountId: 14 }),
+        // Count surplus → income gain (4200); count shortage → expense loss (7200).
+        expect.objectContaining({ transactionType: 'ADJUSTMENT_GAIN', debitAccountId: 10, creditAccountId: 15 }),
+        expect.objectContaining({ transactionType: 'ADJUSTMENT_LOSS', debitAccountId: 14, creditAccountId: 10 }),
       ]),
       skipDuplicates: true,
     });
@@ -37,6 +41,34 @@ describe('Account mapping engine', () => {
     expect(data.find((d: any) => d.transactionType === 'EXPENSE')).toEqual(
       expect.objectContaining({ transactionType: 'EXPENSE', debitAccountId: null, creditAccountId: 12 }),
     );
+  });
+
+  it('settings list gain/loss adjustment actions and hides the legacy ADJUSTMENT key', async () => {
+    const prisma = {
+      account: {
+        findMany: jest.fn(async () => []),
+        createMany: jest.fn(async () => ({})),
+      },
+      organization: {
+        findUnique: jest.fn(async () => ({ businessType: 'RETAIL' })),
+      },
+      accountMapping: {
+        createMany: jest.fn(async () => ({})),
+        findMany: jest.fn(async () => []),
+      },
+    };
+    const service = new FinanceService(prisma as any);
+    const rows = await service.getAccountMappings();
+    const types = rows.map((r: any) => r.transactionType);
+    // Direction-specific actions are configurable...
+    expect(types).toContain('ADJUSTMENT_GAIN');
+    expect(types).toContain('ADJUSTMENT_LOSS');
+    // ...while the superseded key stays seeded for old tenants but is not shown.
+    expect(types).not.toContain('ADJUSTMENT');
+    const gain = rows.find((r: any) => r.transactionType === 'ADJUSTMENT_GAIN');
+    expect(gain).toMatchObject({ creditTypes: ['INCOME'], debitTypes: ['ASSET'] });
+    const loss = rows.find((r: any) => r.transactionType === 'ADJUSTMENT_LOSS');
+    expect(loss).toMatchObject({ creditTypes: ['ASSET'], debitTypes: ['EXPENSE'] });
   });
 
   it('createExpense routes the credit side through the tenant mapping', async () => {
@@ -119,7 +151,7 @@ describe('Account mapping engine', () => {
     expect(res.totals).toEqual({ revenue: 500, expense: 300 });
     const sale = res.rows.find((r: any) => r.accountId === 40);
     const rent = res.rows.find((r: any) => r.accountId === 41);
-    expect(sale.amount).toBe(500);
-    expect(rent.amount).toBe(300);
+    expect(sale!.amount).toBe(500);
+    expect(rent!.amount).toBe(300);
   });
 });

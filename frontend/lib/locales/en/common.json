@@ -1837,6 +1837,7 @@
     "cardRetailRevenue": "Retail Sales Revenue",
     "cardCogs": "Cost of Goods Sold",
     "cardStockVariance": "Spoilage / Stock Variance",
+    "cardStockGain": "Inventory Adjustment Gain",
     "expensesOutgoings": "Expenses & Outgoings",
     "totalMoneyOut": "Total Money Out",
     "plOverheadImpact": "P&L Overhead Impact",

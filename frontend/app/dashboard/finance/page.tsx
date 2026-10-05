@@ -337,6 +337,12 @@ export default function FinancePage() {
         ),
         tone: "red",
       },
+      {
+        // Count surpluses are a gain (income 4200), not a negative expense.
+        label: t("fin.cardStockGain"),
+        value: incomeCard(["Inventory Adjustment Gain"], ["4200"]),
+        tone: "green",
+      },
     ];
   })();
 
@@ -445,7 +451,13 @@ export default function FinancePage() {
                 >
                   <p className="text-xs text-gray-400">{c.label}</p>
                   <p
-                    className={`text-lg font-bold ${c.tone === "red" ? "text-red-600" : "text-gray-800"}`}
+                    className={`text-lg font-bold ${
+                      c.tone === "red"
+                        ? "text-red-600"
+                        : c.tone === "green"
+                          ? "text-green-600"
+                          : "text-gray-800"
+                    }`}
                   >
                     {c.value ? money(c.value) : "—"}
                   </p>

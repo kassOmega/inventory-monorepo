@@ -26,6 +26,12 @@ export interface PostingMapDef {
   creditTypes?: string[];
   /** Optional vertical restriction for display purposes (default all). */
   applicable?: BusinessType[];
+  /**
+   * Superseded key kept for backwards compatibility: it stays *seeded* (so
+   * existing tenants keep their row and historical lookups resolve) but is
+   * hidden from the Account Mappings settings list.
+   */
+  legacy?: boolean;
 }
 
 export const DEFAULT_POSTING_MAPS: PostingMapDef[] = [
@@ -100,13 +106,38 @@ export const DEFAULT_POSTING_MAPS: PostingMapDef[] = [
     creditTypes: ['ASSET'],
   },
   {
+    // Superseded by ADJUSTMENT_GAIN / ADJUSTMENT_LOSS. A single direction-agnostic
+    // pair cannot route a surplus to income and a shortage to expense, so the
+    // engine no longer posts against it. Kept for existing tenant rows only.
     type: 'ADJUSTMENT',
-    label: 'Inventory adjustment / count variance',
-    description: 'Surplus debits Inventory and credits Inventory Adjustment; shortages do the reverse.',
+    label: 'Inventory adjustment / count variance (legacy)',
+    description:
+      'Superseded — split into separate surplus (gain) and shortage (loss) actions.',
     debitName: 'Inventory Asset',
     creditName: 'Inventory Adjustment',
     debitTypes: ['ASSET', 'EXPENSE'],
     creditTypes: ['ASSET', 'EXPENSE'],
+    legacy: true,
+  },
+  {
+    type: 'ADJUSTMENT_GAIN',
+    label: 'Inventory adjustment — surplus (count gain)',
+    description:
+      'The count found MORE stock than the system: debit Inventory Asset, credit Inventory Adjustment Gain (income).',
+    debitName: 'Inventory Asset',
+    creditName: 'Inventory Adjustment Gain',
+    debitTypes: ['ASSET'],
+    creditTypes: ['INCOME'],
+  },
+  {
+    type: 'ADJUSTMENT_LOSS',
+    label: 'Inventory adjustment — shortage (count loss)',
+    description:
+      'The count found LESS stock than the system: debit Inventory Adjustment (expense), credit Inventory Asset.',
+    debitName: 'Inventory Adjustment',
+    creditName: 'Inventory Asset',
+    debitTypes: ['EXPENSE'],
+    creditTypes: ['ASSET'],
   },
   {
     type: 'SALE',

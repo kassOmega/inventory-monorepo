@@ -23,6 +23,15 @@ export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
   { name: 'Owner Equity', code: '3000', type: AccountType.EQUITY },
   { name: 'Sales Revenue', code: '4000', type: AccountType.INCOME, isSystem: true },
   { name: 'Other Income', code: '4100', type: AccountType.INCOME, isSystem: true },
+  // Count surpluses are a *gain*, not a negative expense: crediting an EXPENSE
+  // account here would understate expenses and overstate profit. This income
+  // account is the credit side of a positive count variance (see ADJUSTMENT_GAIN).
+  {
+    name: 'Inventory Adjustment Gain',
+    code: '4200',
+    type: AccountType.INCOME,
+    isSystem: true,
+  },
   { name: 'Cost of Goods Sold', code: '5000', type: AccountType.EXPENSE, isSystem: true },
   { name: 'Cost of Service', code: '5010', type: AccountType.EXPENSE, isSystem: true },
   { name: 'Rent', code: '6000', type: AccountType.EXPENSE },
