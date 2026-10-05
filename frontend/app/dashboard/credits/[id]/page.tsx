@@ -1,5 +1,5 @@
 "use client";
-import CreditSaleForm from "@/app/components/CreditSaleForm";
+import SaleForm from "@/app/components/SaleForm";
 import Modal from "@/app/components/Modal";
 import Loading from "@/app/components/Loading";
 import RowActionsMenu from "@/app/components/RowActionsMenu";
@@ -824,18 +824,19 @@ export default function CustomerDetailPage() {
         </form>
       </Modal>
 
-      <Modal
+      <SaleForm
         isOpen={showSaleModal}
         onClose={() => setShowSaleModal(false)}
         title={t("credits.addCreditSale")}
-      >
-        <CreditSaleForm
-          customerId={Number(id)}
-          customerName={customer?.name || ""}
-          onCreated={() => { setShowSaleModal(false); fetchCustomer(); }}
-          onCancel={() => setShowSaleModal(false)}
-        />
-      </Modal>
+        defaultSaleType="CREDITED"
+        defaultCustomerId={Number(id)}
+        defaultCustomerName={customer?.name ?? ""}
+        creditCustomersOnly
+        onSaved={() => {
+          setShowSaleModal(false);
+          fetchCustomer();
+        }}
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 "use client";
-import CreditSaleForm from "@/app/components/CreditSaleForm";
+import SaleForm from "@/app/components/SaleForm";
 import { useSingleLocationAutofill } from "@/lib/singleLocation";
 import CustomerForm from "@/app/components/CustomerForm";
 import Modal from "@/app/components/Modal";
@@ -315,20 +315,23 @@ export default function CreditsPage() {
         />
       </Modal>
 
-      <Modal
-        isOpen={showSaleModal}
-        onClose={() => { setShowSaleModal(false); setSaleCustomer(null); }}
+      <SaleForm
+        isOpen={showSaleModal && !!saleCustomer}
+        onClose={() => {
+          setShowSaleModal(false);
+          setSaleCustomer(null);
+        }}
         title={t("credits.addCreditSale")}
-      >
-        {saleCustomer && (
-          <CreditSaleForm
-            customerId={saleCustomer.id}
-            customerName={saleCustomer.name}
-            onCreated={() => { setShowSaleModal(false); setSaleCustomer(null); fetchCustomers(); }}
-            onCancel={() => { setShowSaleModal(false); setSaleCustomer(null); }}
-          />
-        )}
-      </Modal>
+        defaultSaleType="CREDITED"
+        defaultCustomerId={saleCustomer?.id ?? null}
+        defaultCustomerName={saleCustomer?.name ?? ""}
+        creditCustomersOnly
+        onSaved={() => {
+          setShowSaleModal(false);
+          setSaleCustomer(null);
+          fetchCustomers();
+        }}
+      />
     </div>
   );
 }
