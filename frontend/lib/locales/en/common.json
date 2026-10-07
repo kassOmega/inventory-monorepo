@@ -744,7 +744,8 @@
     "aiScanTitle": "AI scan product (photo or barcode)",
     "aiScanAria": "AI scan product",
     "aiReading": "AI is reading the photo(s)…",
-    "takePhoto": "Take Photo"
+    "takePhoto": "Take Photo",
+    "aiPhotoError": "AI couldn't read the photo. Try again."
   },
   "auth": {
     "language": "Language",
@@ -1203,7 +1204,9 @@
     "noWashTypes": "No wash types yet",
     "vehicleTypes": "Vehicle types",
     "addVehicleType": "Add vehicle type",
-    "noVehicleTypes": "No vehicle types yet"
+    "noVehicleTypes": "No vehicle types yet",
+    "price": "Price",
+    "addCustomer": "Add customer"
   },
   "verticals": {
     "retail": "Retail & Distribution",

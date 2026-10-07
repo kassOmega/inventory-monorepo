@@ -239,11 +239,6 @@ export class CreateWashDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(30)
-  color?: string;
-
-  @IsOptional()
-  @IsString()
   @MaxLength(80)
   makeModel?: string;
 }

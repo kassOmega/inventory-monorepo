@@ -42,14 +42,22 @@ export const CAR_WASH_ROLE_KEYS = [
   'CASHIER',
 ] as const;
 
+// Customer lookup/creation is needed on the Record Wash form (customer dropdown +
+// inline "+"), so every car-wash role gets the two CRM permissions regardless of
+// their default role grants.
+const CAR_WASH_EXTRA_ROLE_KEYS = ['customers.view', 'customers.manage'];
+
 export const CAR_WASH_ROLE_GRANTS: Record<string, string[]> =
   Object.fromEntries(
     CAR_WASH_ROLE_KEYS.map((key) => [
       key,
-      (key === 'OWNER'
-        ? ALL_PERMISSION_KEYS
-        : (DEFAULT_ROLE_PERMISSIONS[key] ?? [])
-      ).filter((k) => CAR_WASH_KEY_SET.has(k)),
+      [
+        ...(key === 'OWNER'
+          ? ALL_PERMISSION_KEYS
+          : (DEFAULT_ROLE_PERMISSIONS[key] ?? [])
+        ).filter((k) => CAR_WASH_KEY_SET.has(k)),
+        ...CAR_WASH_EXTRA_ROLE_KEYS,
+      ],
     ]),
   );
 

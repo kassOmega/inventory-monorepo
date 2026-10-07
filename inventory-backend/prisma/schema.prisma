@@ -3554,7 +3554,6 @@ model CarWash {
   completedAt        DateTime?
   notes              String?
   plateNumber        String?
-  color              String?
   makeModel          String?
   recordedById       Int?
   recordedBy         User?           @relation("CarWashRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)

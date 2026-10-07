@@ -7,7 +7,7 @@ import { variantLabel } from "@/lib/variantLabel";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus } from "lucide-react";
-import AiPhotoPicker from "./AiPhotoPicker";
+import AiAutofillCapture from "./AiAutofillCapture";
 import BarcodeScanner from "./BarcodeScanner";
 import Modal from "./Modal";
 
@@ -111,7 +111,6 @@ export default function ProductForm({
     !isEdit &&
     activeMembership?.aiEnabled === true &&
     hasPermission("ai.product-assist");
-  const [aiBusy, setAiBusy] = useState(false);
   const [aiSuggestBusy, setAiSuggestBusy] = useState(false);
 
   const [categories, setCategories] = useState<any[]>([]);
@@ -394,30 +393,6 @@ export default function ProductForm({
       }));
     }
     toast.success(t("pf.aiApplied"));
-  };
-
-  const handleAiPhoto = async (images: string[]) => {
-    if (images.length === 0) return;
-    setAiBusy(true);
-    try {
-      // Two photos give the AI much more to read (label + details + variants).
-      const res = await api.post(
-        "/ai/product/analyze-photo",
-        {
-          base64Image: images[0],
-          ...(images[1] ? { base64Image2: images[1] } : {}),
-        },
-        { timeout: 60000 },
-      );
-      applyAiSuggestion(res.data);
-    } catch (err: any) {
-      markHandled(err);
-      toast.error(
-        err?.response?.data?.message || t("pf.aiPhotoError"),
-      );
-    } finally {
-      setAiBusy(false);
-    }
   };
 
   const handleSuggestVariants = async () => {
@@ -711,14 +686,24 @@ export default function ProductForm({
       onSubmit={handleSubmit}
       className="grid grid-cols-2 gap-3"
     >
-      {canUseAi && (
-        <div className="col-span-2">
-          <AiPhotoPicker onImages={handleAiPhoto} busy={aiBusy} />
-          <p className="text-[11px] text-gray-400 mt-1">
-            {t("pf.aiBanner")}
-          </p>
-        </div>
-      )}
+      <AiAutofillCapture
+        enabled={canUseAi}
+        className="col-span-2"
+        analyze={async (images) => {
+          const res = await api.post(
+            "/ai/product/analyze-photo",
+            {
+              base64Image: images[0],
+              ...(images[1] ? { base64Image2: images[1] } : {}),
+            },
+            { timeout: 60000 },
+          );
+          return res.data;
+        }}
+        onResult={applyAiSuggestion}
+        banner={t("pf.aiBanner")}
+        errorMessage={t("pf.aiPhotoError")}
+      />
 
       {duplicate && (
         <div className="col-span-2 border border-amber-300 bg-amber-50 rounded-lg p-3 text-sm text-amber-800">

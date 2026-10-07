@@ -300,29 +300,38 @@ const IDENTIFY_SYSTEM_INSTRUCTION = [
 export interface AiVehicleSuggestion {
   vehicleType: string | null;
   plateNumber: string | null;
-  color: string | null;
   makeModel: string | null;
 }
 
-const VEHICLE_ASSIST_SYSTEM_INSTRUCTION = [
-  'You are the AI assistant for a car wash business.',
-  'You look at a photograph of a vehicle that just arrived for a wash and describe it as structured vehicle data.',
-  'Identify the vehicle body type: one of Car, SUV, Pickup, Van, Truck, Bus, Motorcycle, Tricycle, or Other.',
-  'Read the license/number plate ONLY if it is clearly legible in the photo; otherwise return null. Never guess it.',
-  'Identify the primary color and a short make/model description when they are visible.',
-  'Return concise values only.',
-].join('\n');
+function vehicleAssistSystemInstruction(typeNames: string[]): string {
+  const typeLine =
+    typeNames.length > 0
+      ? `Identify the vehicle body type as EXACTLY one of: ${typeNames.join(', ')}.`
+      : 'Identify the vehicle body type.';
+  return [
+    'You are the AI assistant for a car wash business.',
+    'You look at a photograph of a vehicle that just arrived for a wash and describe it as structured vehicle data.',
+    typeLine,
+    'Read the license/number plate ONLY if it is clearly legible in the photo; otherwise return null. Never guess it.',
+    'Identify a short make/model description when it is visible.',
+    'Return concise values only.',
+  ].join('\n');
+}
 
-const VEHICLE_AI_SCHEMA = {
-  type: 'object',
-  properties: {
-    vehicleType: { type: ['string', 'null'] },
-    plateNumber: { type: ['string', 'null'] },
-    color: { type: ['string', 'null'] },
-    makeModel: { type: ['string', 'null'] },
-  },
-  required: ['vehicleType'],
-};
+function vehicleAiSchema(typeNames: string[]): object {
+  return {
+    type: 'object',
+    properties: {
+      vehicleType:
+        typeNames.length > 0
+          ? { type: 'string', enum: typeNames }
+          : { type: 'string' },
+      plateNumber: { type: ['string', 'null'] },
+      makeModel: { type: ['string', 'null'] },
+    },
+    required: ['vehicleType'],
+  };
+}
 
 const IDENTIFY_SCHEMA = {
   type: 'object',
@@ -734,10 +743,14 @@ export class AiProductService {
 
   /**
    * AI car-wash assistant: analyze a vehicle photo and return the fields the
-   * "Record Wash" form needs (vehicle type, plate, color, make/model). The
-   * image is decoded in-memory and never persisted.
+   * "Record Wash" form needs (vehicle type, plate, make/model). The vehicle
+   * type is constrained to the business's registered vehicle types. The image
+   * is decoded in-memory and never persisted.
    */
-  async analyzeVehiclePhoto(base64Image: string): Promise<AiVehicleSuggestion> {
+  async analyzeVehiclePhoto(
+    base64Image: string,
+    tenantId: number | null,
+  ): Promise<AiVehicleSuggestion> {
     const { mimeType, data } = this.decodeBase64(base64Image);
     if (!ALLOWED_IMAGE_TYPES.has(mimeType)) {
       throw new BadRequestException(
@@ -754,19 +767,42 @@ export class AiProductService {
       );
     }
 
+    // Load the tenant's registered vehicle types so the AI only ever suggests a
+    // valid one (constrained via both the enum schema and the instruction).
+    const vehicleTypes =
+      tenantId != null
+        ? await this.prisma.carWashVehicleType.findMany({
+            where: { tenantId },
+            select: { id: true, name: true },
+            orderBy: { name: 'asc' },
+          })
+        : [];
+    const typeNames = vehicleTypes.map((v) => v.name);
+
     const suggestion = await this.gemini.analyzeImage<AiVehicleSuggestion>({
-      systemInstruction: VEHICLE_ASSIST_SYSTEM_INSTRUCTION,
+      systemInstruction: vehicleAssistSystemInstruction(typeNames),
       prompt:
-        'Analyze this vehicle photo and return its body type, plate number (only if clearly legible), color, and make/model.',
+        'Analyze this vehicle photo and return its body type, plate number (only if clearly legible), and make/model.',
       imageMimeType: mimeType,
       imageBase64: data,
-      schema: VEHICLE_AI_SCHEMA,
+      schema: vehicleAiSchema(typeNames),
     });
 
+    // Map the suggested type onto an exact registered type (case-insensitive).
+    const vehicleType =
+      vehicleTypes.find(
+        (v) =>
+          v.name.toLowerCase() ===
+          (suggestion.vehicleType ?? '').trim().toLowerCase(),
+      )?.name ?? null;
+
+    this.logger.log(
+      `Vehicle AI: suggested="${suggestion.vehicleType}" mapped="${vehicleType}" (${typeNames.length} registered)`,
+    );
+
     return {
-      vehicleType: suggestion.vehicleType ?? null,
+      vehicleType,
       plateNumber: suggestion.plateNumber ?? null,
-      color: suggestion.color ?? null,
       makeModel: suggestion.makeModel ?? null,
     };
   }

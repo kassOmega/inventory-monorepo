@@ -744,7 +744,8 @@
     "aiScanTitle": "ምርትን በ AI ስካን ያድርጉ (ፎቶ ወይም ባርኮድ)",
     "aiScanAria": "ምርትን በ AI ስካን ያድርጉ",
     "aiReading": "AI ፎቶውን በማንበብ ላይ ነው…",
-    "takePhoto": "ፎቶ ያንሱ"
+    "takePhoto": "ፎቶ ያንሱ",
+    "aiPhotoError": "AI ፎቶውን ማንበብ አልቻለም። እንደገና ይሞክሩ።"
   },
   "auth": {
     "language": "ቋንቋ",
@@ -1203,7 +1204,9 @@
     "noWashTypes": "ገና የዕጥበት አይነቶች የሉም",
     "vehicleTypes": "የተሽከርካሪ አይነቶች",
     "addVehicleType": "የተሽከርካሪ አይነት ጨምር",
-    "noVehicleTypes": "ገና የተሽከርካሪ አይነቶች የሉም"
+    "noVehicleTypes": "ገና የተሽከርካሪ አይነቶች የሉም",
+    "price": "ዋጋ",
+    "addCustomer": "ደንበኛ ጨምር"
   },
   "verticals": {
     "retail": "ችርቻሮ እና ስርጭት",

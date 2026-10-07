@@ -4,7 +4,8 @@ import api from "@/lib/api";
 import { ListFilters, SearchField, SelectField } from "@/app/components/ListFilters";
 import Modal from "@/app/components/Modal";
 import SearchableSelect from "@/app/components/SearchableSelect";
-import AiPhotoPicker from "@/app/components/AiPhotoPicker";
+import AiAutofillCapture from "@/app/components/AiAutofillCapture";
+import CustomerForm from "@/app/components/CustomerForm";
 import { useAuth } from "@/context/AuthContext";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState } from "react";
@@ -17,13 +18,14 @@ export default function CarWashWashesPage() {
   const [washTypes, setWashTypes] = useState<any[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<any[]>([]);
   const [prices, setPrices] = useState<any[]>([]);
-  const [form, setForm] = useState({ washerId: "", participantIds: [] as number[], vehicleType: "", washTypeId: "", amount: "", notes: "", plateNumber: "", color: "", makeModel: "" });
+  const [form, setForm] = useState({ washerId: "", participantIds: [] as number[], customerId: "", vehicleType: "", washTypeId: "", amount: "", notes: "", plateNumber: "", makeModel: "" });
   const [open, setOpen] = useState(false);
   const [lastCommission, setLastCommission] = useState<{ ownerShare: number; totalCommission: number } | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [aiBusy, setAiBusy] = useState(false);
   const [aiDetected, setAiDetected] = useState<string | null>(null);
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [error, setError] = useState("");
 
   const canCreate = hasPermission("carwash.washes.create");
@@ -53,6 +55,10 @@ export default function CarWashWashesPage() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    api.get("/customers").then((r) => setCustomers(r.data)).catch(() => {});
+  }, []);
+
   const toggleParticipant = (id: number) => {
     setForm((f) => ({ ...f, participantIds: f.participantIds.includes(id) ? f.participantIds.filter((p) => p !== id) : [...f.participantIds, id] }));
   };
@@ -70,32 +76,45 @@ export default function CarWashWashesPage() {
     setForm((f) => ({ ...f, washTypeId, amount: priceFor(f.vehicleType, washTypeId) }));
   };
 
+  const initialForm = () => {
+    const vehicleType = vehicleTypes[0]?.name ?? "";
+    const washTypeId = washTypes[0] ? String(washTypes[0].id) : "";
+    return {
+      washerId: "",
+      participantIds: [] as number[],
+      customerId: "",
+      vehicleType,
+      washTypeId,
+      amount: priceFor(vehicleType, washTypeId),
+      notes: "",
+      plateNumber: "",
+      makeModel: "",
+    };
+  };
+
   const analyzeVehicle = async (images: string[]) => {
-    if (!images[0]) return;
-    setAiBusy(true);
-    setAiDetected(null);
-    try {
-      const r = await api.post("/ai/carwash/analyze-vehicle-photo", { base64Image: images[0] });
-      const d = r.data;
-      setForm((f) => {
-        const t = (d?.vehicleType ?? "").trim();
-        const matched = vehicleTypes.find((v) => v.name.toLowerCase() === t.toLowerCase());
-        const vehicleType = matched ? matched.name : f.vehicleType;
-        return {
-          ...f,
-          vehicleType,
-          amount: priceFor(vehicleType, f.washTypeId),
-          plateNumber: d?.plateNumber ?? f.plateNumber,
-          color: d?.color ?? f.color,
-          makeModel: d?.makeModel ?? f.makeModel,
-        };
-      });
-      setAiDetected([d?.vehicleType, d?.plateNumber, d?.color, d?.makeModel].filter(Boolean).join(" · "));
-    } catch (e: any) {
-      setError(e?.response?.data?.message ?? t("carwash.failedSave"));
-    } finally {
-      setAiBusy(false);
-    }
+    const r = await api.post(
+      "/ai/carwash/analyze-vehicle-photo",
+      { base64Image: images[0] },
+      { timeout: 60000 },
+    );
+    return r.data;
+  };
+
+  const applyVehicleResult = (d: any) => {
+    setForm((f) => {
+      const tv = (d?.vehicleType ?? "").trim();
+      const matched = vehicleTypes.find((v) => v.name.toLowerCase() === tv.toLowerCase());
+      const vehicleType = matched ? matched.name : f.vehicleType;
+      return {
+        ...f,
+        vehicleType,
+        amount: priceFor(vehicleType, f.washTypeId),
+        plateNumber: d?.plateNumber ?? f.plateNumber,
+        makeModel: d?.makeModel ?? f.makeModel,
+      };
+    });
+    setAiDetected([d?.vehicleType, d?.plateNumber, d?.makeModel].filter(Boolean).join(" · "));
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -103,6 +122,7 @@ export default function CarWashWashesPage() {
     setError("");
     try {
       const r = await api.post("/carwash/washes", {
+        customerId: form.customerId ? Number(form.customerId) : null,
         washerId: form.washerId ? Number(form.washerId) : null,
         participantWasherIds: form.participantIds,
         vehicleType: form.vehicleType.trim() || "Car",
@@ -110,12 +130,11 @@ export default function CarWashWashesPage() {
         amount: Number(form.amount) || 0,
         notes: form.notes.trim() || undefined,
         plateNumber: form.plateNumber.trim() || undefined,
-        color: form.color.trim() || undefined,
         makeModel: form.makeModel.trim() || undefined,
       });
       setLastCommission({ ownerShare: r.data.ownerShare, totalCommission: r.data.totalCommission });
       setOpen(false);
-      setForm({ washerId: "", participantIds: [], vehicleType: vehicleTypes[0]?.name ?? "", washTypeId: "", amount: "", notes: "", plateNumber: "", color: "", makeModel: "" });
+      setForm(initialForm());
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
@@ -159,7 +178,7 @@ export default function CarWashWashesPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-800">{t("carwash.washes")}</h1>
         {canCreate && (
-          <button onClick={() => { setForm({ washerId: "", participantIds: [], vehicleType: vehicleTypes[0]?.name ?? "", washTypeId: "", amount: "", notes: "", plateNumber: "", color: "", makeModel: "" }); setOpen(true); }} className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium">
+          <button onClick={() => { setForm(initialForm()); setOpen(true); }} className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium">
             + {t("carwash.recordWash")}
           </button>
         )}
@@ -221,13 +240,27 @@ export default function CarWashWashesPage() {
 
       <Modal isOpen={open} onClose={() => setOpen(false)} title={t("carwash.recordWash")}>
         <form onSubmit={submit} className="space-y-3">
+          <AiAutofillCapture
+            enabled={canCreate}
+            analyze={analyzeVehicle}
+            onResult={applyVehicleResult}
+            buttonLabel={t("carwash.aiCaptureVehicle")}
+          />
+          {aiDetected && <p className="text-xs text-indigo-600 mt-1">✨ {t("carwash.aiDetected")}: {aiDetected}</p>}
+
+          <div>
+            <label className="block text-sm text-gray-600">{t("carwash.customerOptional")}</label>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <SearchableSelect value={form.customerId} onChange={(v) => setForm({ ...form, customerId: v })} options={customers.map((c) => ({ value: String(c.id), label: c.name }))} placeholder={t("carwash.customerOptional")} />
+              </div>
+              <button type="button" onClick={() => setShowCustomerModal(true)} title={t("carwash.addCustomer")} className="border border-gray-300 rounded-lg px-3 text-gray-600 font-bold">+</button>
+            </div>
+          </div>
+
           <label className="block text-sm text-gray-600">{t("carwash.primaryWasher")}
             <SearchableSelect value={form.washerId} onChange={(v) => setForm({ ...form, washerId: v })} options={washers.map((w) => ({ value: String(w.id), label: `${w.name} (${w.commissionRate}%)` }))} placeholder={t("carwash.primaryWasher")} />
           </label>
-          <div>
-            <AiPhotoPicker busy={aiBusy} onImages={analyzeVehicle} buttonLabel={t("carwash.aiCaptureVehicle")} />
-            {aiDetected && <p className="text-xs text-indigo-600 mt-1">✨ {t("carwash.aiDetected")}: {aiDetected}</p>}
-          </div>
 
           <label className="block text-sm text-gray-600">{t("carwash.vehicleType")}
             <select value={form.vehicleType} onChange={(e) => updateVehicleType(e.target.value)} className="border border-gray-300 rounded p-2 text-sm w-full mt-1 bg-white">
@@ -246,16 +279,11 @@ export default function CarWashWashesPage() {
             <input value={form.plateNumber} onChange={(e) => setForm({ ...form, plateNumber: e.target.value })} placeholder={t("carwash.plateNumber")} className="border border-gray-300 rounded p-2 text-sm w-full mt-1" />
           </label>
 
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block text-sm text-gray-600">{t("carwash.color")}
-              <input value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} placeholder={t("carwash.color")} className="border border-gray-300 rounded p-2 text-sm w-full mt-1" />
-            </label>
-            <label className="block text-sm text-gray-600">{t("carwash.makeModel")}
-              <input value={form.makeModel} onChange={(e) => setForm({ ...form, makeModel: e.target.value })} placeholder={t("carwash.makeModel")} className="border border-gray-300 rounded p-2 text-sm w-full mt-1" />
-            </label>
-          </div>
-          <label className="block text-sm text-gray-600">{t("carwash.amount")}
-            <input value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder={t("carwash.amount")} type="number" min="0" className="border border-gray-300 rounded p-2 text-sm w-full mt-1" required />
+          <label className="block text-sm text-gray-600">{t("carwash.makeModel")}
+            <input value={form.makeModel} onChange={(e) => setForm({ ...form, makeModel: e.target.value })} placeholder={t("carwash.makeModel")} className="border border-gray-300 rounded p-2 text-sm w-full mt-1" />
+          </label>
+          <label className="block text-sm text-gray-600">{t("carwash.price")}
+            <input value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder={t("carwash.price")} type="number" min="0" className="border border-gray-300 rounded p-2 text-sm w-full mt-1" required />
           </label>
           <label className="block text-sm text-gray-600">{t("carwash.notes")}
             <input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder={t("carwash.notes")} className="border border-gray-300 rounded p-2 text-sm w-full mt-1" />
@@ -276,6 +304,17 @@ export default function CarWashWashesPage() {
             <button type="submit" className="bg-gray-800 text-white rounded px-4 py-2 text-sm font-medium">{t("carwash.recordWash")}</button>
           </div>
         </form>
+      </Modal>
+
+      <Modal isOpen={showCustomerModal} onClose={() => setShowCustomerModal(false)} title={t("carwash.addCustomer")}>
+        <CustomerForm
+          onCreated={(c) => {
+            setCustomers((prev) => [c, ...prev]);
+            setForm((f) => ({ ...f, customerId: String(c.id) }));
+            setShowCustomerModal(false);
+          }}
+          onCancel={() => setShowCustomerModal(false)}
+        />
       </Modal>
     </div>
   );

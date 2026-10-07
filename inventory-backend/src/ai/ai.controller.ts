@@ -91,7 +91,10 @@ export class AiController {
   ) {
     await this.usageService.assertAiEnabled(this.resolveTenant(req));
     await this.usageService.checkAndIncrement(req.user.sub);
-    return this.aiProductService.analyzeVehiclePhoto(dto.base64Image);
+    return this.aiProductService.analyzeVehiclePhoto(
+      dto.base64Image,
+      this.resolveTenant(req),
+    );
   }
 
 

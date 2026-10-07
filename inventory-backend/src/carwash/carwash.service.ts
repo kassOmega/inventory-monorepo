@@ -570,7 +570,6 @@ export class CarWashService {
         date: dto.date ? new Date(dto.date) : new Date(),
         notes: dto.notes,
         plateNumber: dto.plateNumber,
-        color: dto.color,
         makeModel: dto.makeModel,
         recordedById: userId,
       },
