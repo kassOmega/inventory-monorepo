@@ -23,6 +23,8 @@ export interface DashboardNavItem {
    * them even though its links have different paths.
    */
   match?: string[];
+  /** Optional sub-section heading rendered above this item (e.g. "Reports"). */
+  section?: string;
 }
 
 export interface DashboardNavGroup {
@@ -61,6 +63,7 @@ export function isNavItemActive(
  */
 export const PRIMARY_NAV_GROUP_KEYS = [
   "overview",
+  "carwash",
   "inventory",
   "salesPayments",
   "finance",
@@ -108,6 +111,7 @@ export interface NavBuildContext {
   isRetail: boolean;
   isHospitality: boolean;
   isService: boolean;
+  isCarWash: boolean;
   isManufacturing: boolean;
   hasFinance: boolean;
   standalone: boolean;
@@ -195,6 +199,20 @@ export const routePermissionMap: Record<string, string | string[]> = {
   "/dashboard/service/tickets": "service.view",
   "/dashboard/service/clients": "service.view",
   "/dashboard/service/settings": "service.manage",
+  // Car wash vertical — mirrors the backend's carwash.* gates on /carwash/*.
+  "/dashboard/carwash": "carwash.washes.view",
+  "/dashboard/carwash/washers": "carwash.washers.view",
+  "/dashboard/carwash/prices": "carwash.prices.view",
+  "/dashboard/carwash/vehicles": "carwash.vehicles.view",
+  "/dashboard/carwash/bookings": "carwash.bookings.view",
+  "/dashboard/carwash/washes": "carwash.washes.view",
+  "/dashboard/carwash/equipment": "carwash.equipment.view",
+  "/dashboard/carwash/store-items": "carwash.equipment.view",
+  "/dashboard/carwash/expenses": "carwash.expenses.view",
+  "/dashboard/carwash/reports": "carwash.reports.view",
+  "/dashboard/carwash/washer-reports": "carwash.reports.view",
+  "/dashboard/carwash/collection": "carwash.collections.view",
+  "/dashboard/carwash/settings": "carwash.settings.view",
   "/dashboard/payment-methods": "finance.view",
   "/dashboard/taxes": "finance.view",
   "/dashboard/accounts": "finance.view",
@@ -211,13 +229,14 @@ export const routePermissionMap: Record<string, string | string[]> = {
 // merely happens to hold the key — role templates are shared across verticals
 // (e.g. a hospitality Manager carries `service.*`, a retail Storekeeper carries
 // `manufacturing.*`). This mirrors the backend's @Vertical(...) enforcement.
-export type VerticalRouteOwner = "HOSPITALITY" | "MANUFACTURING" | "SERVICE";
+export type VerticalRouteOwner = "HOSPITALITY" | "MANUFACTURING" | "SERVICE" | "CAR_WASH";
 
 export const verticalRoutePrefixes: Array<{
   prefix: string;
   type: VerticalRouteOwner;
 }> = [
   { prefix: "/dashboard/service", type: "SERVICE" },
+  { prefix: "/dashboard/carwash", type: "CAR_WASH" },
   { prefix: "/dashboard/manufacturing", type: "MANUFACTURING" },
   { prefix: "/dashboard/hotel", type: "HOSPITALITY" },
   { prefix: "/dashboard/food", type: "HOSPITALITY" },
@@ -290,6 +309,12 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
     items: [],
     flat: true,
   };
+  const carWash: DashboardNavGroup = {
+    key: "carwash",
+    label: t("nav.groups.carwash"),
+    items: [],
+    flat: true,
+  };
 
 
   if (ctx.hasBusiness) {
@@ -356,7 +381,7 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
   // service bills clients and manufacturing bills dealers, so every vertical
   // that grants `customers.view` gets the directory. It sits in Sales &
   // Payments because that is the section it is read alongside (credits).
-  if (ctx.hasBusiness && !ctx.isRetail) {
+  if (ctx.hasBusiness && !ctx.isRetail && !ctx.isCarWash) {
     sales.items.push({
       href: "/dashboard/customers",
       label: t("nav.customers"),
@@ -411,7 +436,26 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
     );
   }
 
+  if (ctx.hasBusiness && ctx.isCarWash) {
+    carWash.items.push(
+      { href: "/dashboard/carwash/bookings", label: t("nav.carwashBookings"), permission: "carwash.bookings.view" },
+      { href: "/dashboard/carwash/washes", label: t("nav.carwashWashes"), permission: "carwash.washes.view" },
+      { href: "/dashboard/carwash/collection", label: t("nav.carwashCollection"), permission: "carwash.collections.view" },
+      { href: "/dashboard/carwash/washers", label: t("nav.carwashWashers"), permission: "carwash.washers.view" },
+      { href: "/dashboard/carwash/prices", label: t("nav.carwashPrices"), permission: "carwash.prices.view" },
+      { href: "/dashboard/carwash/vehicles", label: t("nav.carwashVehicles"), permission: "carwash.vehicles.view" },
+      { href: "/dashboard/carwash/store-items", label: t("nav.carwashStoreItems"), permission: "carwash.equipment.view" },
+      { href: "/dashboard/carwash/equipment", label: t("nav.carwashEquipment"), permission: "carwash.equipment.view" },
+      { href: "/dashboard/carwash/expenses", label: t("nav.carwashExpenses"), permission: "carwash.expenses.view" },
+      { href: "/dashboard/carwash/reports", label: t("nav.carwashReports"), permission: "carwash.reports.view" },
+      { href: "/dashboard/carwash/washer-reports", label: t("nav.carwashWasherReports"), permission: "carwash.reports.view" },
+      { href: "/dashboard/carwash/settings", label: t("nav.settings"), permission: "carwash.settings.view" },
+      { href: "/dashboard/customers", label: t("nav.customers"), permission: "customers.view" },
+    );
+  }
+
   const groupOrder = [overview];
+  if (ctx.hasBusiness && ctx.isCarWash) groupOrder.push(carWash);
   if (ctx.hasBusiness && ctx.isManufacturing) groupOrder.push(manufacturing);
   groupOrder.push(inventory, sales, finance, administration);
   let groups = groupOrder.filter((g) => g.items.length > 0);
@@ -517,8 +561,6 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
       { href: "/dashboard/service/settings", label: t("nav.settings"), permission: "service.manage" },
     );
   }
-
-
   /** An item shows when it declares no permission, or any one of them. */
   const isPermitted = (permission?: string | string[]) =>
     !permission ||

@@ -17,7 +17,7 @@ import {
   type DashboardNavGroup,
 } from "@/lib/dashboardNavigation";
 import useNavGroups from "@/lib/useNavGroups";
-import NavItemLink from "./NavItemLink";
+import SectionedNavItems from "./SectionedNavItems";
 
 /** Pages that pin their own action bar to the bottom of the mobile viewport. */
 const HIDDEN_PREFIXES = [
@@ -44,6 +44,9 @@ const itemClass = (active: boolean) =>
   (active
     ? "bg-blue-600 text-white"
     : "text-gray-300 hover:bg-gray-800 hover:text-white");
+
+const sectionHeaderClass =
+  "px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400";
 
 export default function MobileQuickNav({ nav, pathname }: Props) {
   const { t } = useTranslation();
@@ -146,15 +149,13 @@ export default function MobileQuickNav({ nav, pathname }: Props) {
             {shownGroup.label}
           </p>
           <div className="flex flex-col gap-0.5 p-2">
-            {shownGroup.items.map((item) => (
-              <NavItemLink
-                key={item.href}
-                item={item}
-                pathname={pathname}
-                onNavigate={pick}
-                className={itemClass}
-              />
-            ))}
+            <SectionedNavItems
+              items={shownGroup.items}
+              pathname={pathname}
+              onNavigate={pick}
+              className={itemClass}
+              headerClass={sectionHeaderClass}
+            />
           </div>
         </nav>
       )}

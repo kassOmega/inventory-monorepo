@@ -300,6 +300,7 @@ export default function DashboardLayout({
   const isRetail = businessType === "RETAIL";
   const isHospitality = businessType === "HOSPITALITY";
   const isService = businessType === "SERVICE";
+  const isCarWash = businessType === "CAR_WASH";
   const isManufacturing = businessType === "MANUFACTURING";
   // Owners + users with restaurant.manage can open any station board, so they
   // should see every station in the nav; station staff see only their own.
@@ -317,6 +318,7 @@ export default function DashboardLayout({
     isRetail,
     isHospitality,
     isService,
+    isCarWash,
     isManufacturing,
     hasFinance: !!vertical.finance,
     standalone: !!activeMembership?.standalone,

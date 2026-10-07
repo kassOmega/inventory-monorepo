@@ -73,6 +73,7 @@ const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
   [BusinessType.HOSPITALITY]: 'Hospitality (restaurant/hotel)',
   [BusinessType.MANUFACTURING]: 'Manufacturing',
   [BusinessType.SERVICE]: 'Service',
+  [BusinessType.CAR_WASH]: 'Car Wash',
 };
 
 export function buildPlatformFactsText(): string {

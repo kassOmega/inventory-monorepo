@@ -3,7 +3,7 @@
 // feature modules it uses, so the dashboard shell can show the right navigation.
 import i18n from "./i18n";
 
-export type BusinessType = "RETAIL" | "HOSPITALITY" | "MANUFACTURING" | "SERVICE";
+export type BusinessType = "RETAIL" | "HOSPITALITY" | "MANUFACTURING" | "SERVICE" | "CAR_WASH";
 
 export interface VerticalFeatures {
   inventory: boolean;
@@ -64,6 +64,17 @@ export const VERTICAL_FEATURES: Record<string, VerticalFeatures> = {
     folio: false,
     finance: true,
   },
+  CAR_WASH: {
+    inventory: true,
+    retail: false,
+    pos: false,
+    kitchen: false,
+    tables: false,
+    reservations: true,
+    rooms: false,
+    folio: false,
+    finance: true,
+  },
 };
 
 // Business type → i18n key under `verticals.*`. Resolve through
@@ -73,6 +84,7 @@ export const VERTICAL_LABELS: Record<string, string> = {
   HOSPITALITY: "verticals.hospitality",
   MANUFACTURING: "verticals.manufacturing",
   SERVICE: "verticals.service",
+  CAR_WASH: "verticals.car_wash",
 };
 
 /** Localized business-type name (falls back to the raw type value). */
@@ -178,8 +190,22 @@ const SERVICE_TERMS: VerticalTerminology = {
   customer: "terms.svc.customer",
 };
 
+const CAR_WASH_TERMS: VerticalTerminology = {
+  catalog: "terms.cw.catalog",
+  service: "terms.cw.service",
+  order: "terms.cw.order",
+  orders: "terms.cw.orders",
+  booking: "terms.cw.booking",
+  customer: "terms.cw.customer",
+};
+
 export function getVerticalTerminology(businessType?: string | null): VerticalTerminology {
-  const source = businessType === "SERVICE" ? SERVICE_TERMS : HOSPITALITY_TERMS;
+  const source =
+    businessType === "SERVICE"
+      ? SERVICE_TERMS
+      : businessType === "CAR_WASH"
+        ? CAR_WASH_TERMS
+        : HOSPITALITY_TERMS;
   const out: VerticalTerminology = {};
   for (const [k, key] of Object.entries(source)) out[k] = i18n.t(key);
   return out;

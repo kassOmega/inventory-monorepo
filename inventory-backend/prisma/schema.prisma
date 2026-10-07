@@ -75,6 +75,7 @@ enum BusinessType {
   HOSPITALITY
   MANUFACTURING
   SERVICE
+  CAR_WASH
 }
 
 enum ProductKind {
@@ -308,11 +309,23 @@ model Organization {
   shiftSessions          ShiftSession[]
   shiftAssignments       ShiftAssignment[]
 
+  // CAR WASH vertical
+  carWashWashers         CarWashWasher[]
+  carWashWashTypes       CarWashWashType[]
+  carWashVehicleTypes    CarWashVehicleType[]
+  carWashPrices          CarWashPrice[]
+  carWashVehicles        CarWashVehicle[]
+  carWashBookings        CarWashBooking[]
+  carWashes              CarWash[]
+  carWashEquipmentIssues CarWashEquipmentIssue[]
+  carWashCollections     CarWashCollection[]
+
   // Per-vertical settings (1:1 — only the row for the org's businessType is used).
   retailProfile        RetailProfile?
   hospitalityProfile   HospitalityProfile?
   manufacturingProfile ManufacturingProfile?
   serviceProfile       ServiceProfile?
+  carWashProfile       CarWashProfile?
 }
 
 // --- Per-vertical profile/settings (1:1 with Organization) ---
@@ -354,6 +367,14 @@ model ServiceProfile {
   hourlyBilling   Boolean      @default(false)
   appointmentSlot Int          @default(30) // in minutes
   updatedAt       DateTime     @updatedAt
+}
+
+model CarWashProfile {
+  id             Int          @id @default(autoincrement())
+  organizationId Int          @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  slotMinutes    Int          @default(30) // booking slot length in minutes
+  updatedAt      DateTime     @updatedAt
 }
 
 // Uploaded verification documents (national ID for user accounts; trade
@@ -499,6 +520,9 @@ model User {
   // CRM: authored timeline entries + loyalty adjustments.
   customerNotes          CustomerNote[]
   customerLoyaltyEntries CustomerLoyaltyEntry[]
+  carWashesRecorded      CarWash[]              @relation("CarWashRecordedBy")
+  carWashCollections     CarWashCollection[]    @relation("CarWashCollectedBy")
+  carWashWasher          CarWashWasher?         @relation("CarWashWasherUser")
 }
 
 model LocationCategory {
@@ -557,47 +581,48 @@ model Category {
 }
 
 model Product {
-  id                  Int                  @id @default(autoincrement())
-  tenantId            Int
-  organization        Organization         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  sku                 String // Auto-generated unique code
-  barcode             String? // EAN/UPC barcode scanner support
-  brand               String
-  baseName            String
+  id                     Int                     @id @default(autoincrement())
+  tenantId               Int
+  organization           Organization            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sku                    String // Auto-generated unique code
+  barcode                String? // EAN/UPC barcode scanner support
+  brand                  String
+  baseName               String
   // Localized display content (optional per language): { en, am }.
-  brandI18n           Json?
-  baseNameI18n        Json?
-  attributes          Json                 @default("{}")
-  hasVariants         Boolean              @default(false) // For clothing/shoes (size/color matrix)
-  isPerishable        Boolean              @default(false) // For pharmacy/groceries (expiry/batch tracking)
-  currentBuyPrice     Float
-  currentSellPrice    Float
-  categoryId          Int
-  category            Category             @relation(fields: [categoryId], references: [id])
-  inventory           Inventory[]
-  requestItems        RequestItem[]
-  saleItems           SaleItem[]
-  priceHistory        PriceHistory[]
-  menuItemIngredients MenuItemIngredient[]
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  notifications       Notification[]
-  bomFinishedProducts BillOfMaterials[]    @relation("BomFinishedProduct")
-  bomRawMaterialItems BomItem[]            @relation("BomRawMaterial")
-  producedWorkOrders  WorkOrder[]          @relation("WorkOrderFinishedProduct")
-  scrapLogs           ProductionScrapLog[] @relation("ProductionScrapProduct")
-  creditSaleItems     CreditSaleItem[]
-  returnItems         ReturnItem[]
-  unitId              Int?
-  unit                Unit?                @relation(fields: [unitId], references: [id])
-  kind                ProductKind          @default(GOODS)
-  reorderLevel        Int                  @default(0) // per-item low-stock alert threshold
-  reorderQty          Int? // suggested quantity to reorder when below reorderLevel
-  variants            ProductVariant[]
-  batches             ProductBatch[]
-  wastages            WastageEntry[]
-  otherIncomes        OtherIncome[]
-  cogsEntries         CogsEntry[]
+  brandI18n              Json?
+  baseNameI18n           Json?
+  attributes             Json                    @default("{}")
+  hasVariants            Boolean                 @default(false) // For clothing/shoes (size/color matrix)
+  isPerishable           Boolean                 @default(false) // For pharmacy/groceries (expiry/batch tracking)
+  currentBuyPrice        Float
+  currentSellPrice       Float
+  categoryId             Int
+  category               Category                @relation(fields: [categoryId], references: [id])
+  inventory              Inventory[]
+  requestItems           RequestItem[]
+  saleItems              SaleItem[]
+  priceHistory           PriceHistory[]
+  menuItemIngredients    MenuItemIngredient[]
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  notifications          Notification[]
+  bomFinishedProducts    BillOfMaterials[]       @relation("BomFinishedProduct")
+  bomRawMaterialItems    BomItem[]               @relation("BomRawMaterial")
+  producedWorkOrders     WorkOrder[]             @relation("WorkOrderFinishedProduct")
+  scrapLogs              ProductionScrapLog[]    @relation("ProductionScrapProduct")
+  creditSaleItems        CreditSaleItem[]
+  returnItems            ReturnItem[]
+  unitId                 Int?
+  unit                   Unit?                   @relation(fields: [unitId], references: [id])
+  kind                   ProductKind             @default(GOODS)
+  reorderLevel           Int                     @default(0) // per-item low-stock alert threshold
+  reorderQty             Int? // suggested quantity to reorder when below reorderLevel
+  variants               ProductVariant[]
+  batches                ProductBatch[]
+  wastages               WastageEntry[]
+  otherIncomes           OtherIncome[]
+  cogsEntries            CogsEntry[]
+  carWashEquipmentIssues CarWashEquipmentIssue[]
 
   @@unique([tenantId, sku])
   @@unique([tenantId, barcode])
@@ -822,34 +847,34 @@ model RequestActivity {
 
 // --- Sales & Profit Tracking ---
 model Sale {
-  id              Int                    @id @default(autoincrement())
-  tenantId        Int
-  organization    Organization           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  invoiceNumber   String
-  shopId          Int
-  shop            Location               @relation(fields: [shopId], references: [id])
-  totalAmount     Float
-  totalCost       Float
-  profit          Float
+  id                   Int                    @id @default(autoincrement())
+  tenantId             Int
+  organization         Organization           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoiceNumber        String
+  shopId               Int
+  shop                 Location               @relation(fields: [shopId], references: [id])
+  totalAmount          Float
+  totalCost            Float
+  profit               Float
   // Output VAT snapshot from the company's configured default rate at sale
   // time. totalAmount is the gross the customer pays; revenue = total - tax.
-  taxAmount       Float                  @default(0)
-  taxRateId       Int?
-  soldById        Int
-  soldBy          User                   @relation(fields: [soldById], references: [id])
-  paidAmount      Float                  @default(0)
-  remainingAmount Float                  @default(0)
-  saleType        SaleType               @default(FULLY_PAID)
-  paymentMethodId Int?
-  paymentMethod   PaymentMethod?         @relation(fields: [paymentMethodId], references: [id])
-  customerId      Int?
-  customer        Customer?              @relation(fields: [customerId], references: [id])
-  notes           String?
-  saleDate        DateTime               @default(now())
-  items           SaleItem[]
-  creditSale      CreditSale?
-  creditPayments  CreditPayment[]
-  returns         Return[]
+  taxAmount            Float                  @default(0)
+  taxRateId            Int?
+  soldById             Int
+  soldBy               User                   @relation(fields: [soldById], references: [id])
+  paidAmount           Float                  @default(0)
+  remainingAmount      Float                  @default(0)
+  saleType             SaleType               @default(FULLY_PAID)
+  paymentMethodId      Int?
+  paymentMethod        PaymentMethod?         @relation(fields: [paymentMethodId], references: [id])
+  customerId           Int?
+  customer             Customer?              @relation(fields: [customerId], references: [id])
+  notes                String?
+  saleDate             DateTime               @default(now())
+  items                SaleItem[]
+  creditSale           CreditSale?
+  creditPayments       CreditPayment[]
+  returns              Return[]
   // CRM loyalty entries earned by / reversed for this sale.
   loyaltyEntries  CustomerLoyaltyEntry[]
   fiscalReceipt   FiscalReceipt?
@@ -994,6 +1019,9 @@ model Customer {
   facilityVisits      FacilityVisit[]
   customerNotes       CustomerNote[]
   loyaltyEntries      CustomerLoyaltyEntry[]
+  carWashVehicles     CarWashVehicle[]
+  carWashBookings     CarWashBooking[]
+  carWashes           CarWash[]
 
   @@unique([organizationId, number])
   @@index([organizationId])
@@ -3380,4 +3408,203 @@ model MfgRejectedStock {
   @@index([grnId])
   @@index([vendorId])
   @@index([disposition])
+}
+
+// =============================================================================
+// CAR WASH vertical
+// =============================================================================
+
+enum CarWashBookingStatus {
+  PENDING
+  SERVING
+  COMPLETED
+  CANCELLED
+}
+
+enum CarWashStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+model CarWashWasher {
+  id             Int          @id @default(autoincrement())
+  tenantId       Int
+  organization   Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId         Int?         @unique
+  user           User?        @relation("CarWashWasherUser", fields: [userId], references: [id], onDelete: SetNull)
+  name           String
+  phone          String?
+  commissionRate Float        @default(50) // percentage of the washer's split
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  carWashes       CarWash[]               @relation("CarWashPrimaryWasher")
+  helpedWashes    CarWash[]               @relation("CarWashParticipantWashers")
+  bookings        CarWashBooking[]        @relation("CarWashBookingWasher")
+  equipmentIssues CarWashEquipmentIssue[]
+
+  @@index([tenantId, isActive])
+}
+
+model CarWashWashType {
+  id           Int          @id @default(autoincrement())
+  tenantId     Int
+  organization Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  prices CarWashPrice[]
+  washes CarWash[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model CarWashVehicleType {
+  id           Int          @id @default(autoincrement())
+  tenantId     Int
+  organization Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model CarWashPrice {
+  id           Int               @id @default(autoincrement())
+  tenantId     Int
+  organization Organization      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vehicleType  String
+  washTypeId   Int?
+  washType     CarWashWashType?  @relation(fields: [washTypeId], references: [id], onDelete: Cascade)
+  amount       Float             @default(0)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@unique([tenantId, vehicleType, washTypeId])
+  @@index([tenantId])
+  @@index([tenantId, washTypeId])
+}
+
+model CarWashVehicle {
+  id           Int          @id @default(autoincrement())
+  tenantId     Int
+  organization Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId   Int?
+  customer     Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  plateNumber  String
+  vehicleType  String       @default("Car")
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  bookings CarWashBooking[]
+  washes   CarWash[]
+
+  @@unique([tenantId, plateNumber])
+  @@index([tenantId])
+}
+
+model CarWashBooking {
+  id                Int                  @id @default(autoincrement())
+  tenantId          Int
+  organization      Organization         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId        Int?
+  customer          Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  vehicleId         Int?
+  vehicle           CarWashVehicle?      @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  washerId          Int?
+  washer            CarWashWasher?       @relation("CarWashBookingWasher", fields: [washerId], references: [id], onDelete: SetNull)
+  vehicleType       String               @default("Car")
+  amount            Float                @default(0)
+  isTimeSlotBooking Boolean              @default(false)
+  bookingDate       DateTime
+  startsAt          DateTime
+  endsAt            DateTime?
+  positionInQueue   Int?
+  status            CarWashBookingStatus @default(PENDING)
+  notes             String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([tenantId, bookingDate])
+  @@index([tenantId, status])
+}
+
+model CarWash {
+  id                 Int             @id @default(autoincrement())
+  tenantId           Int
+  organization       Organization    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId         Int?
+  customer           Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  vehicleId          Int?
+  vehicle            CarWashVehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  washerId           Int?
+  washer             CarWashWasher?  @relation("CarWashPrimaryWasher", fields: [washerId], references: [id], onDelete: SetNull)
+  participantWashers CarWashWasher[] @relation("CarWashParticipantWashers")
+  vehicleType        String          @default("Car")
+  washTypeId         Int?
+  washType           CarWashWashType? @relation(fields: [washTypeId], references: [id], onDelete: SetNull)
+  amount             Float           @default(0)
+  status             CarWashStatus   @default(IN_PROGRESS)
+  date               DateTime        @default(now())
+  completedAt        DateTime?
+  notes              String?
+  plateNumber        String?
+  color              String?
+  makeModel          String?
+  recordedById       Int?
+  recordedBy         User?           @relation("CarWashRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@index([tenantId, date])
+  @@index([tenantId, washerId])
+  @@index([tenantId, status])
+}
+
+model CarWashEquipmentIssue {
+  id           Int            @id @default(autoincrement())
+  tenantId     Int
+  organization Organization   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  washerId     Int?
+  washer       CarWashWasher? @relation(fields: [washerId], references: [id], onDelete: SetNull)
+  productId    Int?
+  product      Product?       @relation(fields: [productId], references: [id], onDelete: SetNull)
+  quantity     Float          @default(0)
+  unitPrice    Float          @default(0)
+  totalAmount  Float          @default(0)
+  isPaid       Boolean        @default(false)
+  paidAt       DateTime?
+  issuedAt     DateTime       @default(now())
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([tenantId, issuedAt])
+  @@index([tenantId, washerId])
+  @@index([tenantId, isPaid])
+}
+
+model CarWashCollection {
+  id               Int          @id @default(autoincrement())
+  tenantId         Int
+  organization     Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  collectedById    Int?
+  collectedBy      User?        @relation("CarWashCollectedBy", fields: [collectedById], references: [id], onDelete: SetNull)
+  totalAmount      Float        @default(0)
+  dailyOwnerShare  Float?
+  equipmentRevenue Float?
+  totalExpenses    Float?
+  netAmountDue     Float?
+  netProfit        Float?
+  remainingBalance Float?
+  collectionDate   DateTime     @default(now())
+  notes            String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([tenantId, collectionDate])
 }

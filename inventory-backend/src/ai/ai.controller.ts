@@ -29,6 +29,7 @@ import { ForecastDto } from './dto/forecast.dto';
 import { PoDraftDto } from './dto/po-draft.dto';
 import { PricingDto } from './dto/pricing.dto';
 import { AnalyzeProductPhotoDto } from './dto/analyze-product-photo.dto';
+import { AnalyzeVehiclePhotoDto } from './dto/analyze-vehicle-photo.dto';
 import { SuggestVariantsDto } from './dto/suggest-variants.dto';
 
 @Controller('ai')
@@ -74,6 +75,23 @@ export class AiController {
       this.resolveTenant(req),
       dto.base64Image2,
     );
+  }
+
+  /**
+   * POST /ai/carwash/analyze-vehicle-photo — AI car-wash assistant.
+   * body: { base64Image: "data:image/jpeg;base64,...." }.
+   * Returns vehicle fields (type, plate, color, make/model); never stored.
+   */
+  @Post('carwash/analyze-vehicle-photo')
+  @Permissions('carwash.washes.create', 'ai.product-assist')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  async analyzeVehiclePhoto(
+    @Body() dto: AnalyzeVehiclePhotoDto,
+    @Req() req: RequestWithUser,
+  ) {
+    await this.usageService.assertAiEnabled(this.resolveTenant(req));
+    await this.usageService.checkAndIncrement(req.user.sub);
+    return this.aiProductService.analyzeVehiclePhoto(dto.base64Image);
   }
 
 

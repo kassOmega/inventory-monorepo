@@ -19,7 +19,10 @@ import {
   PERMISSIONS,
 } from '../src/common/permissions';
 import { DEFAULT_GUEST_ID_TYPES } from '../src/common/hospitality-settings';
-import { getDefaultAccounts } from '../src/common/verticals';
+import {
+  DEFAULT_CAR_WASH_PRICES,
+  getDefaultAccounts,
+} from '../src/common/verticals';
 import { SHOPS } from './seed-shop-catalog';
 
 if (process.env.NODE_ENV === 'production') {
@@ -3082,6 +3085,83 @@ await prisma.productionScrapLog.deleteMany({});
     });
   }
 
+  // -------------------------------------------------------------------------
+  // Car wash vertical demo — Addis Car Wash (CAR_WASH)
+  // -------------------------------------------------------------------------
+  const carWashOwner = await prisma.user.create({
+    data: {
+      email: 'carwash@inventory.com',
+      password: hashedPassword,
+      name: 'Amanuel Bekele',
+      isOwnerAccount: true,
+      aiTrialEndsAt: aiTrialEnd,
+      verificationStatus: 'APPROVED',
+    },
+  });
+  const carWashOrg = await createOrg(
+    'Addis Car Wash',
+    'addis-car-wash',
+    BusinessType.CAR_WASH,
+  );
+  const carWashOwnerRole = await createOrgRole(
+    carWashOrg.id,
+    'Owner',
+    'Full access to everything',
+    true,
+    'OWNER',
+  );
+  const carWashManagerRole = await createOrgRole(
+    carWashOrg.id,
+    'Manager',
+    'Oversees operations, cash collection and reports',
+    false,
+    'MANAGER',
+  );
+  const carWashWasherRole = await createOrgRole(
+    carWashOrg.id,
+    'Washer',
+    'Performs washes and tracks equipment issued to them',
+    false,
+    'WASHER',
+  );
+  const carWashCashierRole = await createOrgRole(
+    carWashOrg.id,
+    'Cashier',
+    'Collects and confirms payments',
+    false,
+    'CASHIER',
+  );
+  await prisma.membership.create({
+    data: {
+      userId: carWashOwner.id,
+      organizationId: carWashOrg.id,
+      roleId: carWashOwnerRole.id,
+      status: 'ACTIVE',
+    },
+  });
+
+  // Default vehicle-type price list + a demo washer.
+  for (const p of DEFAULT_CAR_WASH_PRICES) {
+    await prisma.carWashPrice.create({
+      data: {
+        tenantId: carWashOrg.id,
+        vehicleType: p.vehicleType,
+        amount: p.amount,
+      },
+    });
+  }
+  await prisma.carWashWasher.create({
+    data: {
+      tenantId: carWashOrg.id,
+      name: 'Dawit Abebe',
+      phone: '0911223344',
+      commissionRate: 50,
+      isActive: true,
+    },
+  });
+
+  console.log('🚗 Addis Car Wash created.');
+
   // 16.6 Five standalone demo shops. Each shop is its own independent
   // standalone organization (single SHOP location, owner account, ACTIVE
   // membership) with a tenant-scoped catalog of 20 products (variants + stock).
@@ -3251,6 +3331,8 @@ await prisma.productionScrapLog.deleteMany({});
   console.log('  --- Addis Spa & Salon (SERVICE) ---');
   console.log('    Owner         : hanna@inventory.com (Liya Girma)');
   console.log('    Provider      : provider@inventory.com (Selam Tesfaye)');
+  console.log('  --- Addis Car Wash (CAR_WASH) ---');
+  console.log('    Owner         : carwash@inventory.com (Amanuel Bekele)');
 
   console.log('  --- Standalone Demo Shops (RETAIL) ---');
   console.log(

@@ -15,11 +15,13 @@ export default function AiPhotoPicker({
   busy = false,
   compact = false,
   buttonLabel,
+  capture = false,
 }: {
   onImages: (images: string[]) => void;
   busy?: boolean;
   compact?: boolean;
   buttonLabel?: string;
+  capture?: boolean;
 }) {
   const galleryRef = useRef<HTMLInputElement>(null);
   const { t } = useTranslation();
@@ -76,6 +78,7 @@ export default function AiPhotoPicker({
           type="file"
           accept="image/*"
           multiple
+          capture={capture ? "environment" : undefined}
           className="hidden"
           onChange={(e) => handleFiles(e.target.files)}
         />
@@ -100,6 +103,7 @@ export default function AiPhotoPicker({
         type="file"
         accept="image/*"
         multiple
+        capture={capture ? "environment" : undefined}
         className="hidden"
         onChange={(e) => handleFiles(e.target.files)}
       />

@@ -14,6 +14,7 @@ const PROFILE_DELEGATE: Record<BusinessType, string> = {
   [BusinessType.HOSPITALITY]: 'hospitalityProfile',
   [BusinessType.MANUFACTURING]: 'manufacturingProfile',
   [BusinessType.SERVICE]: 'serviceProfile',
+  [BusinessType.CAR_WASH]: 'carWashProfile',
 };
 
 // Scalar fields each profile table accepts when updating.
@@ -27,6 +28,7 @@ const PROFILE_FIELDS = new Set([
   'trackWorkOrders',
   'hourlyBilling',
   'appointmentSlot',
+  'slotMinutes',
 ]);
 
 @Injectable()

@@ -66,6 +66,16 @@ const TENANT_MODELS = new Set([
   'ServiceTicket',
   'ServiceTicketItem',
   'ServicePayment',
+  // CAR WASH vertical
+  'CarWashWasher',
+  'CarWashWashType',
+  'CarWashVehicleType',
+  'CarWashPrice',
+  'CarWashVehicle',
+  'CarWashBooking',
+  'CarWash',
+  'CarWashEquipmentIssue',
+  'CarWashCollection',
   // MANUFACTURING vertical
   'BillOfMaterials',
   'WorkOrder',

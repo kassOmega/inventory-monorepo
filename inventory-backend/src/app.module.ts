@@ -45,6 +45,7 @@ import { RestockModule } from './restock/restock.module';
 import { RolesModule } from './roles/roles.module';
 import { SalesModule } from './sales/sales.module';
 import { ServiceModule } from './service/service.module';
+import { CarWashModule } from './carwash/carwash.module';
 import { UnitsModule } from './units/units.module';
 import { UsersModule } from './users/users.module';
 import { VerificationModule } from './verification/verification.module';
@@ -94,6 +95,7 @@ import { FiscalModule } from './fiscal/fiscal.module';
     VerificationModule,
     VerticalProfilesModule,
     ServiceModule,
+    CarWashModule,
     ManufacturingModule,
     TaxesModule,
     FiscalModule,

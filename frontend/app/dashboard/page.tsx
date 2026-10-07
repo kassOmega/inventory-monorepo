@@ -6,6 +6,7 @@ import SalesReport from "@/app/components/SalesReport";
 import HospitalityDashboard from "@/app/components/HospitalityDashboard";
 import ManufacturingDashboard from "@/app/components/ManufacturingDashboard";
 import ServiceDashboard from "@/app/components/ServiceDashboard";
+import CarWashDashboard from "@/app/components/CarWashDashboard";
 import Loading from "@/app/components/Loading";
 import { useAuth } from "@/context/AuthContext";
 import { variantLabel } from "@/lib/variantLabel";
@@ -73,6 +74,8 @@ export default function DashboardPage() {
     (activeMembership?.businessType ?? user?.businessType) === "MANUFACTURING";
   const isService =
     (activeMembership?.businessType ?? user?.businessType) === "SERVICE";
+  const isCarWash =
+    (activeMembership?.businessType ?? user?.businessType) === "CAR_WASH";
 
   // `/products/my-inventory` is gated by `products.view`. SERVICE staff roles
   // (Provider/Cashier), platform admins and unverified memberships do not carry
@@ -126,7 +129,7 @@ export default function DashboardPage() {
     if (!user) return;
     setLoading(true);
 
-    if (isHospitality || isManufacturing || isService) {
+    if (isHospitality || isManufacturing || isService || isCarWash) {
       // Vertical dashboards render their own data — the location stock table is
       // retail-only, so don't request it.
       setLoading(false);
@@ -154,6 +157,7 @@ export default function DashboardPage() {
     isHospitality,
     isManufacturing,
     isService,
+    isCarWash,
     canViewInventory,
   ]);
 
@@ -217,6 +221,25 @@ export default function DashboardPage() {
           </p>
         </div>
         <ServiceDashboard />
+      </div>
+    );
+  }
+
+  // --- CAR WASH DASHBOARD (owner + staff) ---
+  if (isCarWash) {
+    return (
+      <div>
+        <div className="mb-6">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">
+            {t("nav.dashboard")}
+          </h1>
+          <p className="text-gray-500 text-xs sm:text-sm mt-1">
+            {t("home.welcomeBack", {
+              name: isOwner ? t("common.owner") : user?.roleName,
+            })}
+          </p>
+        </div>
+        <CarWashDashboard />
       </div>
     );
   }

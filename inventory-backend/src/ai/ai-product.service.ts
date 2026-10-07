@@ -297,6 +297,33 @@ const IDENTIFY_SYSTEM_INSTRUCTION = [
   'Do not guess. Return null for anything you cannot read.',
 ].join('\n');
 
+export interface AiVehicleSuggestion {
+  vehicleType: string | null;
+  plateNumber: string | null;
+  color: string | null;
+  makeModel: string | null;
+}
+
+const VEHICLE_ASSIST_SYSTEM_INSTRUCTION = [
+  'You are the AI assistant for a car wash business.',
+  'You look at a photograph of a vehicle that just arrived for a wash and describe it as structured vehicle data.',
+  'Identify the vehicle body type: one of Car, SUV, Pickup, Van, Truck, Bus, Motorcycle, Tricycle, or Other.',
+  'Read the license/number plate ONLY if it is clearly legible in the photo; otherwise return null. Never guess it.',
+  'Identify the primary color and a short make/model description when they are visible.',
+  'Return concise values only.',
+].join('\n');
+
+const VEHICLE_AI_SCHEMA = {
+  type: 'object',
+  properties: {
+    vehicleType: { type: ['string', 'null'] },
+    plateNumber: { type: ['string', 'null'] },
+    color: { type: ['string', 'null'] },
+    makeModel: { type: ['string', 'null'] },
+  },
+  required: ['vehicleType'],
+};
+
 const IDENTIFY_SCHEMA = {
   type: 'object',
   properties: {
@@ -703,6 +730,45 @@ export class AiProductService {
       return attrText.includes(hint) || attrText.includes(cleanHint);
     });
     return { product, variant: match ?? null };
+  }
+
+  /**
+   * AI car-wash assistant: analyze a vehicle photo and return the fields the
+   * "Record Wash" form needs (vehicle type, plate, color, make/model). The
+   * image is decoded in-memory and never persisted.
+   */
+  async analyzeVehiclePhoto(base64Image: string): Promise<AiVehicleSuggestion> {
+    const { mimeType, data } = this.decodeBase64(base64Image);
+    if (!ALLOWED_IMAGE_TYPES.has(mimeType)) {
+      throw new BadRequestException(
+        'Unsupported image type. Use JPEG, PNG, WEBP, or HEIC.',
+      );
+    }
+    const decoded = Buffer.from(data, 'base64');
+    if (decoded.byteLength === 0) {
+      throw new BadRequestException('The image payload is empty.');
+    }
+    if (decoded.byteLength > MAX_DECODED_BYTES) {
+      throw new BadRequestException(
+        'Image is too large (max 8MB). Take a smaller photo.',
+      );
+    }
+
+    const suggestion = await this.gemini.analyzeImage<AiVehicleSuggestion>({
+      systemInstruction: VEHICLE_ASSIST_SYSTEM_INSTRUCTION,
+      prompt:
+        'Analyze this vehicle photo and return its body type, plate number (only if clearly legible), color, and make/model.',
+      imageMimeType: mimeType,
+      imageBase64: data,
+      schema: VEHICLE_AI_SCHEMA,
+    });
+
+    return {
+      vehicleType: suggestion.vehicleType ?? null,
+      plateNumber: suggestion.plateNumber ?? null,
+      color: suggestion.color ?? null,
+      makeModel: suggestion.makeModel ?? null,
+    };
   }
 
   /** Accepts a `data:image/...;base64,....` data URL or a raw base64 string. */

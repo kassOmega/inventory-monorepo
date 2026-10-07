@@ -5,6 +5,7 @@
 // The open-group state machine, the active-route check and the leaf link are
 // shared with the mobile quick nav (lib/useNavGroups.ts, NavItemLink.tsx).
 import NavItemLink from "./NavItemLink";
+import SectionedNavItems from "./SectionedNavItems";
 import { type DashboardNav } from "@/lib/dashboardNavigation";
 import useNavGroups from "@/lib/useNavGroups";
 
@@ -21,6 +22,9 @@ const linkClass = (active: boolean) =>
     ? "bg-blue-600 text-white"
     : "text-gray-300 hover:bg-gray-800 hover:text-white");
 
+const sectionHeaderClass =
+  "px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500";
+
 export default function SidebarMenu({ nav, pathname, onNavigate }: Props) {
   // Several groups may stay open at once, and the active one opens itself.
   const { isOpen, toggle } = useNavGroups(nav, pathname, {
@@ -35,15 +39,13 @@ export default function SidebarMenu({ nav, pathname, onNavigate }: Props) {
         if (group.flat) {
           return (
             <div key={group.key} className="space-y-0.5 pt-0.5">
-              {group.items.map((item) => (
-                <NavItemLink
-                  key={item.href}
-                  item={item}
-                  pathname={pathname}
-                  onNavigate={onNavigate}
-                  className={linkClass}
-                />
-              ))}
+              <SectionedNavItems
+                items={group.items}
+                pathname={pathname}
+                onNavigate={onNavigate}
+                className={linkClass}
+                headerClass={sectionHeaderClass}
+              />
             </div>
           );
         }
@@ -77,15 +79,13 @@ export default function SidebarMenu({ nav, pathname, onNavigate }: Props) {
             </button>
             {expanded && (
               <div className="ml-3 mt-0.5 mb-1 border-l border-gray-700 pl-2 space-y-0.5">
-                {group.items.map((item) => (
-                  <NavItemLink
-                    key={item.href}
-                    item={item}
-                    pathname={pathname}
-                    onNavigate={onNavigate}
-                    className={linkClass}
-                  />
-                ))}
+                <SectionedNavItems
+                  items={group.items}
+                  pathname={pathname}
+                  onNavigate={onNavigate}
+                  className={linkClass}
+                  headerClass={sectionHeaderClass}
+                />
               </div>
             )}
           </div>

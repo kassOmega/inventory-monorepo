@@ -66,6 +66,11 @@ export const VERTICAL_ACCOUNTS: Partial<Record<BusinessType, DefaultAccount[]>> 
   [BusinessType.SERVICE]: [
     { name: 'Service Revenue', code: '4010', type: AccountType.INCOME, isSystem: true },
   ],
+  [BusinessType.CAR_WASH]: [
+    { name: 'Car Wash Revenue', code: '4010', type: AccountType.INCOME, isSystem: true },
+    { name: 'Equipment Revenue', code: '4110', type: AccountType.INCOME },
+    { name: 'Washer Commission Expense', code: '5040', type: AccountType.EXPENSE },
+  ],
 };
 
 export function getDefaultAccounts(businessType: BusinessType): DefaultAccount[] {
@@ -76,6 +81,40 @@ export function getDefaultAccounts(businessType: BusinessType): DefaultAccount[]
 // Default menu categories per vertical. `stationKey` maps to the org's station
 // slug (kitchen/bar/barista are auto-seeded for hospitality orgs; owners can
 // add more and re-route categories).
+/** Default vehicle-type price list seeded for a new car-wash business. */
+export const DEFAULT_CAR_WASH_PRICES: Array<{
+  vehicleType: string;
+  amount: number;
+}> = [
+  { vehicleType: 'Car', amount: 100 },
+  { vehicleType: 'SUV', amount: 150 },
+  { vehicleType: 'Truck', amount: 250 },
+  { vehicleType: 'Bajaj', amount: 80 },
+  { vehicleType: 'Motorcycle', amount: 50 },
+];
+
+/** Default vehicle types seeded for a new car-wash business. */
+export const DEFAULT_CAR_WASH_VEHICLE_TYPES = [
+  'Car',
+  'SUV',
+  'Pickup',
+  'Van',
+  'Truck',
+  'Bus',
+  'Motorcycle',
+  'Tricycle',
+  'Other',
+];
+
+/** Default wash types seeded for a new car-wash business. */
+export const DEFAULT_CAR_WASH_WASH_TYPES = [
+  'Premium',
+  'Normal',
+  'Half',
+  'Full',
+  'Body',
+];
+
 export const DEFAULT_MENU_CATEGORIES: Array<{
   name: string;
   stationKey: string;
@@ -104,7 +143,7 @@ export interface VerticalFeatures {
   finance: boolean;
 }
 
-export type Sector = 'RETAIL' | 'HOSPITALITY' | 'MANUFACTURING' | 'SERVICE';
+export type Sector = 'RETAIL' | 'HOSPITALITY' | 'MANUFACTURING' | 'SERVICE' | 'CAR_WASH';
 
 export interface DefaultRoleDef {
   name: string;
@@ -144,6 +183,13 @@ const SERVICE_ROLES: DefaultRoleDef[] = [
   { name: 'Cashier', description: 'Collects and confirms payments', permissionKey: 'CASHIER' },
 ];
 
+const CAR_WASH_ROLES: DefaultRoleDef[] = [
+  { name: 'Owner', description: 'Full access to everything', isSystem: true, permissionKey: 'OWNER' },
+  { name: 'Manager', description: 'Oversees operations, cash collection and reports', permissionKey: 'MANAGER' },
+  { name: 'Washer', description: 'Performs washes and tracks equipment issued to them', permissionKey: 'WASHER' },
+  { name: 'Cashier', description: 'Collects and confirms payments', permissionKey: 'CASHIER' },
+];
+
 /**
  * Common terminology across service businesses. Hospitality keeps menu/table
  * language; SERVICE verticals use "Catalog / Service / Ticket / Booking".
@@ -169,8 +215,19 @@ const SERVICE_LABELS: VerticalLabels = {
   customer: 'Client',
 };
 
+const CAR_WASH_LABELS: VerticalLabels = {
+  catalog: 'Wash Catalog',
+  service: 'Wash',
+  order: 'Wash Job',
+  orders: 'Wash Jobs',
+  booking: 'Booking',
+  customer: 'Customer',
+};
+
 export function getVerticalLabels(businessType: BusinessType): VerticalLabels {
-  return businessType === BusinessType.SERVICE ? SERVICE_LABELS : HOSPITALITY_LABELS;
+  if (businessType === BusinessType.SERVICE) return SERVICE_LABELS;
+  if (businessType === BusinessType.CAR_WASH) return CAR_WASH_LABELS;
+  return HOSPITALITY_LABELS;
 }
 
 /** Human label for a business type, e.g. RETAIL → "Retail & Distribution". */
@@ -187,7 +244,7 @@ export interface VerticalDefinition {
   defaultUnits: string[];
   labels?: VerticalLabels;
   /** Which 1:1 profile table this vertical uses (see *Profile models). */
-  profileModel: 'RetailProfile' | 'HospitalityProfile' | 'ManufacturingProfile' | 'ServiceProfile';
+  profileModel: 'RetailProfile' | 'HospitalityProfile' | 'ManufacturingProfile' | 'ServiceProfile' | 'CarWashProfile';
 }
 
 const retailFeatures = (): VerticalFeatures => ({
@@ -231,5 +288,15 @@ export const VERTICALS: Record<BusinessType, VerticalDefinition> = {
     defaultUnits: [],
     labels: SERVICE_LABELS,
     profileModel: 'ServiceProfile',
+  },
+  [BusinessType.CAR_WASH]: {
+    label: 'Car Wash',
+    sector: 'CAR_WASH',
+    defaultRoles: CAR_WASH_ROLES,
+    features: { inventory: true, retail: false, pos: false, kitchen: false, tables: false, reservations: true, rooms: false, folio: false, finance: true },
+    defaultCategories: ['General'],
+    defaultUnits: ['piece'],
+    labels: CAR_WASH_LABELS,
+    profileModel: 'CarWashProfile',
   },
 };

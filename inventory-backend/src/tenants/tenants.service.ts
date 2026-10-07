@@ -14,6 +14,9 @@ import {
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } from '../common/permissions';
 import { DEFAULT_GUEST_ID_TYPES } from '../common/hospitality-settings';
 import {
+  DEFAULT_CAR_WASH_PRICES,
+  DEFAULT_CAR_WASH_VEHICLE_TYPES,
+  DEFAULT_CAR_WASH_WASH_TYPES,
   DEFAULT_MENU_CATEGORIES,
   getDefaultAccounts,
   VERTICALS,
@@ -343,6 +346,32 @@ export class TenantsService {
             skipDuplicates: true,
           });
         }
+      }
+
+      // Default vehicle-type price list for a new car-wash business.
+      if (org.businessType === BusinessType.CAR_WASH) {
+        await tx.carWashPrice.createMany({
+          data: DEFAULT_CAR_WASH_PRICES.map((p) => ({
+            tenantId: org.id,
+            vehicleType: p.vehicleType,
+            amount: p.amount,
+          })),
+          skipDuplicates: true,
+        });
+        await tx.carWashVehicleType.createMany({
+          data: DEFAULT_CAR_WASH_VEHICLE_TYPES.map((name) => ({
+            tenantId: org.id,
+            name,
+          })),
+          skipDuplicates: true,
+        });
+        await tx.carWashWashType.createMany({
+          data: DEFAULT_CAR_WASH_WASH_TYPES.map((name) => ({
+            tenantId: org.id,
+            name,
+          })),
+          skipDuplicates: true,
+        });
       }
 
       // The creating user becomes the Owner of the new organization.
