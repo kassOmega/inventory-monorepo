@@ -60,6 +60,13 @@ const TENANT_MODELS = new Set([
   'FiscalReceipt',
   'FiscalBatch',
   'TenantFiscalConfig',
+  // Per-vertical 1:1 profile tables (scoped by `organizationId`, see the
+  // TENANT_FIELD_BY_MODEL map below).
+  'RetailProfile',
+  'HospitalityProfile',
+  'ManufacturingProfile',
+  'ServiceProfile',
+  'CarWashProfile',
   // SERVICE vertical
   'ServiceCategory',
   'ServiceItem',
@@ -113,6 +120,12 @@ const TENANT_FIELD_BY_MODEL: Record<string, string> = {
   CustomerNote: 'organizationId',
   CustomerLoyaltyEntry: 'organizationId',
   LoyaltyProgram: 'organizationId',
+  // 1:1 per-vertical profile tables (Organization relation).
+  RetailProfile: 'organizationId',
+  HospitalityProfile: 'organizationId',
+  ManufacturingProfile: 'organizationId',
+  ServiceProfile: 'organizationId',
+  CarWashProfile: 'organizationId',
   TaxRate: 'organizationId',
   BillOfMaterials: 'organizationId',
   WorkOrder: 'organizationId',

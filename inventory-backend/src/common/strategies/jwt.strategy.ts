@@ -32,13 +32,25 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload): Promise<JwtPayload> {
+    // Only `sub` is trusted from the token — every other field is reloaded from
+    // the database below. The signed token itself is intentionally minimal
+    // (see `buildTokenClaims`), so `payload` is a subset of `JwtPayload` here.
+    if (payload?.sub == null) {
+      throw new UnauthorizedException(tr('errors.unauthorized'));
+    }
     const now = Date.now();
     const entry = this.cache.get(payload.sub);
     if (entry && now - entry.timestamp < VALIDATION_TTL_MS) {
       return entry.promise;
     }
 
-    const promise = this.loadUser(payload.sub);
+    const promise = this.loadUser(payload.sub).catch((err) => {
+      // Never cache a rejected lookup: a transient DB error would otherwise
+      // pin the failure for the whole TTL and keep every request for this user
+      // failing until the cache expires.
+      this.cache.delete(payload.sub);
+      throw err;
+    });
     this.cache.set(payload.sub, { promise, timestamp: now });
     return promise;
   }

@@ -52,7 +52,12 @@ export class TenantsService {
       memberships.map(async (m) => {
         let profile: Record<string, unknown> | null = null;
         try {
-          profile = await this.profiles.getProfile(m.organizationId);
+          // Read-only: the business list must never write a profile row. A
+          // write here (lazy create) runs on the post-login critical path and
+          // can fail on a missing table or a concurrent insert, which surfaces
+          // as a 502 from the reverse proxy. Profiles are created explicitly
+          // via updateProfile / getProfile when the settings page is opened.
+          profile = await this.profiles.findProfile(m.organizationId);
         } catch {
           // profile is optional in the list response
         }
@@ -456,7 +461,11 @@ export class TenantsService {
     if (!org) throw new BadRequestException(tr('errors.orgNotFound'));
     let profile: Record<string, unknown> | null = null;
     try {
-      profile = await this.profiles.getProfile(organizationId);
+      // Read-only: viewing a business (or switching to it) must never write a
+      // profile row. Writes on these page-load paths can fail on a missing
+      // table or race with another request and take down the load. The profile
+      // is created explicitly when the settings page saves (updateProfile).
+      profile = await this.profiles.findProfile(organizationId);
     } catch {
       // profile is optional
     }

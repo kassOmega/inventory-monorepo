@@ -1,5 +1,8 @@
 # Plan — Production-only 502 on login (multi-business user, 2nd business = Car Wash)
 
+> **STATUS: FIXED.** The P0/P1 fixes below have been implemented. See the
+> "Fixes applied" section at the bottom for the exact changes and tests.
+
 Read-only investigation. No code changed.
 
 ## TL;DR
@@ -213,3 +216,42 @@ Problems:
 - `inventory-backend/src/common/strategies/jwt.strategy.ts` (P1, promise cache)
 - `inventory-backend/src/common/user-payload.util.ts` + `auth.service.ts` (P2, payload trim)
 - `docker/entrypoint.sh` / migration step (P0, schema application)
+
+---
+
+## Fixes applied
+
+### 1. Read paths no longer write a vertical profile (root cause of the 502)
+- `vertical-profiles.service.ts`: added **`findProfile()`** — a pure read that
+  returns `null` when the row is missing and never INSERTs. `getProfile()` now
+  uses **`upsert`** instead of find-then-create, so even the explicit write path
+  can't collide on the `@unique organizationId`.
+- `tenants.service.ts`: `myOrganizations()` and `getOrganization()` now call
+  `findProfile()` (read-only) instead of `getProfile()`. Viewing/switching to a
+  business can no longer trigger an INSERT on a page-load path, so a missing
+  Car Wash table (`P2021`) or a concurrent insert (`P2002`) can no longer fail
+  the flow. Profiles are created only via the explicit `updateProfile` write.
+
+### 2. Profile models are now tenant-scoped
+- `prisma.service.ts`: added `RetailProfile`, `HospitalityProfile`,
+  `ManufacturingProfile`, `ServiceProfile`, `CarWashProfile` to **both**
+  `TENANT_MODELS` and `TENANT_FIELD_BY_MODEL` (mapped to `organizationId`).
+  Previously they were in neither, so they were invisible to the tenant
+  middleware even though every other Car Wash model was scoped.
+
+### 3. Rejected auth lookups are no longer cached
+- `jwt.strategy.ts`: `validate()` deletes the cache entry when `loadUser`
+  rejects, so a transient DB error can't pin a rejected promise for the whole
+  10 s TTL.
+
+### Tests
+- Added `vertical-profiles.service.spec.ts` (3 tests) asserting the read path
+  never writes and `getProfile` upserts.
+- Full backend suite: **38 suites / 396 tests pass**; `tsc --noEmit` clean.
+
+### Still recommended (not required for the fix)
+- Deploy hygiene: confirm `prisma db push` (or a migration step) is applied for
+  the Car Wash migration when `SKIP_MIGRATIONS` is not set, and run the
+  `backfill-carwash-*` scripts for pre-existing Car Wash orgs.
+- Payload hardening: trim `permissions[]` from the JWT (it is ~4.3 KB worst
+  case but still under the proxy limit) for defence in depth.

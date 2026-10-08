@@ -15,7 +15,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantsService } from '../tenants/tenants.service';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
-import { buildUserPayload } from '../common/user-payload.util';
+import { buildTokenClaims, buildUserPayload } from '../common/user-payload.util';
 import { tr } from '../i18n/i18n.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -236,7 +236,7 @@ export class AuthService {
       },
     });
     const payload = await this.enrichStaffCounts(buildUserPayload(full!));
-    const access_token = this.jwtService.sign(payload);
+    const access_token = this.jwtService.sign(buildTokenClaims(payload));
 
     return {
       message: 'Account created. Please complete verification.',
@@ -319,7 +319,7 @@ export class AuthService {
 
     const payload = await this.enrichStaffCounts(buildUserPayload(user));
 
-    const token = this.jwtService.sign(payload);
+    const token = this.jwtService.sign(buildTokenClaims(payload));
 
     return {
       access_token: token,

@@ -4,8 +4,8 @@
 // existing org-creation code is untouched (zero-risk).
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { BusinessType } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
 import { tr } from '../i18n/i18n.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 // Prisma client delegate (camelCase) per business type — also the relation name
 // on the Organization model.
@@ -35,8 +35,14 @@ const PROFILE_FIELDS = new Set([
 export class VerticalProfilesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Get (lazy-create) the profile for the org's vertical. */
-  async getProfile(orgId: number) {
+  /**
+   * Read-only lookup of the profile for the org's vertical. Returns `null`
+   * when the org has no profile row yet. This is the safe call for read paths
+   * such as the post-login business list: it never writes, so it can never
+   * fail with a unique-constraint race or a missing-table error and take the
+   * whole auth flow down with it.
+   */
+  async findProfile(orgId: number) {
     const org = await this.prisma.organization.findUnique({
       where: { id: orgId },
       select: { businessType: true },
@@ -47,12 +53,31 @@ export class VerticalProfilesService {
     const existing = await (this.prisma as any)[delegate].findUnique({
       where: { organizationId: orgId },
     });
-    if (existing) return { businessType: org.businessType, ...existing };
+    if (!existing) return null;
+    return { businessType: org.businessType, ...existing };
+  }
 
-    const created = await (this.prisma as any)[delegate].create({
-      data: { organizationId: orgId },
+  /**
+   * Get (lazy-create) the profile for the org's vertical.
+   *
+   * Uses `upsert` instead of find-then-create so two concurrent first reads
+   * (e.g. `/auth/me` + `/tenants/me` racing right after login) cannot both try
+   * to INSERT and collide on `organizationId`.
+   */
+  async getProfile(orgId: number) {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { businessType: true },
     });
-    return { businessType: org.businessType, ...created };
+    if (!org) throw new BadRequestException(tr('errors.orgNotFound'));
+
+    const delegate = this.delegate(org.businessType);
+    const profile = await (this.prisma as any)[delegate].upsert({
+      where: { organizationId: orgId },
+      update: {},
+      create: { organizationId: orgId },
+    });
+    return { businessType: org.businessType, ...profile };
   }
 
   /** Update only the known profile fields for the org's vertical. */

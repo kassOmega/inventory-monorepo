@@ -84,3 +84,25 @@ export function buildUserPayload(user: UserForPayload): JwtPayload {
     verificationAttempts: user.verificationAttempts ?? 0,
   };
 }
+
+/**
+ * Minimal claim set embedded in the signed JWT.
+ *
+ * The token is only a carrier for the user id: `JwtStrategy.validate()` reloads
+ * the full payload from the database on every request (10s cache) and ignores
+ * every other claim. Signing the whole `JwtPayload` (permissions + memberships)
+ * bloats the token — and the `Set-Cookie` header — without any benefit, so we
+ * sign just the identity and a couple of stable fields for debugging.
+ *
+ * Keep new claims out of here unless `validate()` actually reads them.
+ */
+export function buildTokenClaims(payload: JwtPayload): Pick<
+  JwtPayload,
+  'sub' | 'email' | 'preferredLanguage'
+> {
+  return {
+    sub: payload.sub,
+    email: payload.email,
+    preferredLanguage: payload.preferredLanguage ?? null,
+  };
+}

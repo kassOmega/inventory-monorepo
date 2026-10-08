@@ -14,8 +14,10 @@
 #   docker run --rm -p 3001:3001 --env-file inventory-backend/.env inventory:local
 #
 # NOTE: schema changes are applied from docker/entrypoint.sh at container
-# start (`prisma db push --accept-data-loss`). Set SKIP_MIGRATIONS=1 to opt out
-# and keep applying schema changes as a separate deploy step instead.
+# start (`prisma migrate deploy`, with a one-time `db push` baseline for
+# databases created before migration tracking existed). Set SKIP_MIGRATIONS=1 to
+# opt out and keep applying schema changes as a separate deploy step instead.
+# Set RUN_BACKFILLS=1 on a deploy to apply the idempotent data backfills.
 
 # =============================================================================
 # 1. Backend (NestJS) build
@@ -37,8 +39,8 @@ RUN npm ci
 # prisma/ would widen tsc's inferred rootDir to the repo root, emitting
 # dist/src/main.js instead of dist/main.js.
 COPY inventory-backend/prisma/schema.prisma ./prisma/schema.prisma
-# Keep migrations in the image for operators who inspect/debug the schema, even
-# though the runtime entrypoint now uses `prisma db push`.
+# Migrations are applied at container start (`prisma migrate deploy`, with a
+# `db push` baseline for databases that predate the migration tracking table).
 COPY inventory-backend/prisma/migrations ./prisma/migrations
 # `prisma generate` does not connect to the database, but the datasource URL
 # must be resolvable, so give it a throwaway value at build time.
@@ -111,7 +113,7 @@ RUN apt-get update \
 COPY --from=backend-builder --chown=node:node /app/node_modules /app/backend/node_modules
 COPY --from=backend-builder --chown=node:node /app/dist /app/backend/dist
 COPY --from=backend-builder --chown=node:node /app/package.json /app/backend/package.json
-# schema.prisma is read by `prisma db push` in the entrypoint.
+# schema.prisma is read by the Prisma engine in the entrypoint.
 COPY --from=backend-builder --chown=node:node /app/prisma /app/backend/prisma
 
 # --- frontend (standalone server + static assets + PWA output) --------------

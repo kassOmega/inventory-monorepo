@@ -1,7 +1,9 @@
 #!/bin/sh
 # Entrypoint for the combined API + frontend image.
 #
-#   1. sync the Prisma schema with `prisma db push` (unless SKIP_MIGRATIONS=1)
+#   1. apply the Prisma schema with `prisma migrate deploy` (falls back to
+#      `db push` once when no migration tracking table exists). SKIP_MIGRATIONS=1
+#      skips this. RUN_BACKFILLS=1 also applies the idempotent data backfills.
 #   2. start the NestJS API on BACKEND_PORT (default 3000)
 #   3. wait until it accepts connections (when the frontend is also started)
 #   4. start the Next.js standalone server on PORT (default 3001, published)
@@ -32,9 +34,17 @@ terminate() {
 }
 trap terminate TERM INT
 
-# Sync schema changes with Prisma db push before the API starts. A failure is
-# fatal: serving traffic against a mismatched schema corrupts data, and the
-# platform restarting the container is the correct response.
+# Apply schema changes before the API starts. A failure is fatal: serving
+# traffic against a mismatched schema corrupts data, and the platform restarting
+# the container is the correct response.
+#
+# Strategy: run `prisma migrate deploy` (the committed migrations, applied
+# exactly once, tracked in `_prisma_migrations`). Databases that were previously
+# managed with `db push` never recorded a migration baseline, so `migrate
+# deploy` would try to replay every migration from scratch and fail. For those
+# legacy databases we detect the absence of `_prisma_migrations` and fall back
+# to `db push`, which makes the live schema match schema.prisma without data
+# loss (the Car Wash tables are created, not dropped).
 #
 # Set SKIP_MIGRATIONS=1 to run the image without touching the schema, e.g. when
 # schema changes are applied by a separate deploy step or by a single replica.
@@ -48,12 +58,71 @@ run_migrations() {
     exit 1
   fi
   cd /app/backend
-  echo "[entrypoint] syncing schema with prisma db push"
-  # --no-install: never reach for the network, only the local CLI baked into
-  # the image (prisma is a runtime dependency, see package.json).
-  if ! npx --no-install prisma db push --accept-data-loss; then
-    echo "[entrypoint] prisma db push failed - refusing to start the API" >&2
-    exit 1
+
+  # A database is "migration-managed" if the tracking table already exists.
+  # A fresh or previously `db push`-managed database has no tracking table; for
+  # those we baseline with `db push` so the live schema matches schema.prisma
+  # (creating the Car Wash tables without dropping data). Once the tracking
+  # table exists, all subsequent runs are exact `migrate deploy`.
+  has_migration_table="$(node - <<'NODE'
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+(async () => {
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      "SELECT to_regclass('public.\"_prisma_migrations\"') IS NOT NULL AS present",
+    );
+    process.stdout.write(rows?.[0]?.present ? '1' : '0');
+  } catch {
+    process.stdout.write('0');
+  } finally {
+    await prisma.$disconnect();
+  }
+})();
+NODE
+)"
+
+  if [ "$has_migration_table" = "1" ]; then
+    echo "[entrypoint] applying migrations with prisma migrate deploy"
+    # --no-install: never reach for the network, only the local CLI baked into
+    # the image (prisma is a runtime dependency, see package.json).
+    if ! npx --no-install prisma migrate deploy; then
+      echo "[entrypoint] prisma migrate deploy failed - refusing to start the API" >&2
+      exit 1
+    fi
+  else
+    echo "[entrypoint] no _prisma_migrations table - baselining schema with prisma db push"
+    if ! npx --no-install prisma db push --accept-data-loss; then
+      echo "[entrypoint] prisma db push failed - refusing to start the API" >&2
+      exit 1
+    fi
+  fi
+
+  # Idempotent data backfills (role permissions, default vehicle/wash types for
+  # pre-existing Car Wash orgs). These are NOT run by default so container
+  # starts stay fast; set RUN_BACKFILLS=1 for the deploy that introduces new
+  # default data. Each script is safe to re-run.
+  if [ "${RUN_BACKFILLS:-0}" = "1" ]; then
+    echo "[entrypoint] RUN_BACKFILLS=1 - applying idempotent data backfills"
+    for script in \
+      backfill-guest-id-types \
+      backfill-room-charges \
+      backfill-hospitality-role-permissions \
+      backfill-customer-permissions \
+      backfill-carwash-role-permissions \
+      backfill-carwash-vehicle-types \
+      backfill-carwash-wash-types; do
+      file="dist/prisma/${script}.js"
+      if [ -f "$file" ]; then
+        echo "[entrypoint]   -> ${script}"
+        node "$file" || {
+          echo "[entrypoint] backfill ${script} failed - refusing to start the API" >&2
+          exit 1
+        }
+      else
+        echo "[entrypoint]   -> ${script} (skipped: $file not found)"
+      fi
+    done
   fi
 }
 
