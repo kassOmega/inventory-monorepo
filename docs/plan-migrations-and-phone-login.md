@@ -206,3 +206,21 @@ field. Resolve the user by email first, then by phone.
 **Note:** several `CarWashWasher` rows have `userId: null` (no linked login
 account) — those washers still cannot log in until an account is created; only
 linked washers with a phone can use phone login.
+
+---
+
+## Follow-up — washer account provisioning (delivered)
+
+- `createWasher`/`updateWasher`: a shared `provisionWasherAccount` helper creates
+  a `User` (+ ACTIVE `Membership` with the WASHER role) and links the washer row,
+  so **every newly created washer can sign in** (by email or phone). A phone-only
+  washer gets a deterministic placeholder email `washer+<digits>@carwash.local`.
+  `updateWasher` also provisions+links a legacy unlinked washer on save.
+- New migration `20261013000002_carwash_washer_accounts` links existing phone-
+  having washers to a login account (idempotent SQL, fixed bcrypt hash for the
+  default password). Added to the entrypoint's legacy `db execute` list.
+- `prisma/backfill-carwash-washer-accounts.ts` kept as a manual rerun tool.
+- Tests: `carwash-washer-account.spec.ts` (provisioning + placeholder email);
+  full backend suite 425 tests.
+- Verified locally: legacy washers with phones are now linked and resolve by
+  phone for login. (Washers with no phone still need an account/phone first.)

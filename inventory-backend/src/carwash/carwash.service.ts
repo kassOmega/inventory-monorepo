@@ -17,6 +17,7 @@ import {
   UserStatus,
 } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { Prisma } from '@prisma/client';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { normalizePhone } from '../common/phone.util';
 import { tr } from '../i18n/i18n.service';
@@ -282,51 +283,105 @@ export class CarWashService {
     });
   }
 
+  /**
+   * Ensure a washer has a linked login account. Creates a User (with the given
+   * email/password, or a phone-derived placeholder email) + an ACTIVE membership
+   * in the washer's organization with the WASHER role, then points the washer row
+   * at it. Returns the linked user id. Idempotent: an existing link is left as-is.
+   */
+  private async provisionWasherAccount(
+    tx: Prisma.TransactionClient,
+    args: {
+      tenantId: number;
+      washerId: number;
+      existingUserId: number | null;
+      name: string;
+      email?: string | null;
+      phone?: string | null;
+      password?: string | null;
+    },
+  ): Promise<number> {
+    if (args.existingUserId) return args.existingUserId;
+
+    const normalizedPhone = normalizePhone(args.phone);
+    // Derive a stable placeholder email from the phone when none is given, so a
+    // phone-only washer can still get a login account (they sign in by phone).
+    const email =
+      (args.email && args.email.trim().toLowerCase()) ||
+      (normalizedPhone
+        ? `washer+${normalizedPhone.replace(/\D/g, '')}@carwash.local`
+        : `washer+${args.washerId}@carwash.local`);
+
+    const hashed = await bcrypt.hash(args.password ?? '123456', 10);
+    let user = await tx.user.findUnique({ where: { email } });
+    if (!user) {
+      user = await tx.user.create({
+        data: {
+          email,
+          password: hashed,
+          name: args.name,
+          phone: normalizedPhone,
+        },
+      });
+    } else if (normalizedPhone && !user.phone) {
+      // Backfill the phone onto an existing account so phone login works.
+      user = await tx.user.update({
+        where: { id: user.id },
+        data: { phone: normalizedPhone },
+      });
+    }
+
+    const washerRole = await tx.role.findFirst({
+      where: { organizationId: args.tenantId, systemKey: 'WASHER' },
+    });
+    if (washerRole) {
+      const existing = await tx.membership.findFirst({
+        where: { userId: user.id, organizationId: args.tenantId },
+      });
+      if (!existing) {
+        await tx.membership.create({
+          data: {
+            userId: user.id,
+            organizationId: args.tenantId,
+            roleId: washerRole.id,
+            status: UserStatus.ACTIVE,
+          },
+        });
+      }
+    }
+    await tx.carWashWasher.update({
+      where: { id: args.washerId },
+      data: { userId: user.id },
+    });
+    return user.id;
+  }
+
   async createWasher(dto: CreateWasherDto) {
     const tenantId = this.tenantId();
-    const hashed = await bcrypt.hash(dto.password ?? '123456', 10);
-    const washerRole = await this.prisma.role.findFirst({
-      where: { organizationId: tenantId, systemKey: 'WASHER' },
-    });
 
     try {
       return await this.prisma.$transaction(async (tx) => {
-        let user = await tx.user.findUnique({ where: { email: dto.email } });
-        if (!user) {
-          user = await tx.user.create({
-            data: {
-              email: dto.email,
-              password: hashed,
-              name: dto.name,
-              phone: normalizePhone(dto.phone),
-            },
-          });
-        }
-        if (washerRole) {
-          const existing = await tx.membership.findFirst({
-            where: { userId: user.id, organizationId: tenantId },
-          });
-          if (!existing) {
-            await tx.membership.create({
-              data: {
-                userId: user.id,
-                organizationId: tenantId,
-                roleId: washerRole.id,
-                status: UserStatus.ACTIVE,
-              },
-            });
-          }
-        }
-        return tx.carWashWasher.create({
+        // Create the washer row first, then provision/link its login account so
+        // every washer can sign in (by email or phone).
+        const washer = await tx.carWashWasher.create({
           data: {
             tenantId,
-            userId: user.id,
             name: dto.name,
             phone: normalizePhone(dto.phone),
             commissionRate: dto.commissionRate ?? 50,
             isActive: dto.isActive ?? true,
           },
         });
+        await this.provisionWasherAccount(tx, {
+          tenantId,
+          washerId: washer.id,
+          existingUserId: null,
+          name: dto.name,
+          email: dto.email,
+          phone: dto.phone,
+          password: dto.password,
+        });
+        return tx.carWashWasher.findUniqueOrThrow({ where: { id: washer.id } });
       });
     } catch (err) {
       return this.rethrowDuplicate(
@@ -352,7 +407,7 @@ export class CarWashService {
       },
     });
 
-    // Keep the linked login account in sync (name/phone/email).
+    // Keep the linked login account in sync (name/phone/email)…
     if (existing.userId) {
       await this.prisma.user.update({
         where: { id: existing.userId },
@@ -362,8 +417,22 @@ export class CarWashService {
           ...(dto.email ? { email: dto.email } : {}),
         },
       });
+    } else {
+      // …or, for a legacy washer without a login account, provision and link one
+      // now (using the provided email, or a phone-derived placeholder).
+      await this.prisma.$transaction((tx) =>
+        this.provisionWasherAccount(tx, {
+          tenantId: existing.tenantId,
+          washerId: id,
+          existingUserId: null,
+          name: dto.name ?? existing.name,
+          email: dto.email ?? null,
+          phone: dto.phone ?? existing.phone,
+          password: null,
+        }),
+      );
     }
-    return washer;
+    return this.prisma.carWashWasher.findUniqueOrThrow({ where: { id } });
   }
 
   async deleteWasher(id: number) {
