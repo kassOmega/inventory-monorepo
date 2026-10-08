@@ -1,240 +1,500 @@
 "use client";
+// app/dashboard/purchases/page.tsx
+//
+// One page for every purchase. A quick purchase (paid from the till) and a
+// credit purchase (taken from a vendor) are the same record, so they share the
+// same form, the same table and the same actions — the only difference the page
+// draws attention to is how the buy side settles. The tabs filter that one list;
+// they do not switch to a second implementation.
 import { getDateRange } from "@/app/components/DateFilter";
 import { useSingleLocationAutofill } from "@/lib/singleLocation";
-import FilterPanel from "@/app/components/FilterPanel";
-import Modal from "@/app/components/Modal";
 import Loading from "@/app/components/Loading";
-import RowActionsMenu from "@/app/components/RowActionsMenu";
+import PurchaseForm, { PurchaseMode } from "@/app/components/PurchaseForm";
+import PurchasesTable, { recordedMargin } from "@/app/components/PurchasesTable";
+import PurchaseDetailModal from "@/app/components/PurchaseDetailModal";
+import VendorPaymentModal from "@/app/components/VendorPaymentModal";
+import SearchableSelect from "@/app/components/SearchableSelect";
+import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useToast } from "@/app/components/ToastProvider";
 import { useAuth } from "@/context/AuthContext";
 import api, { markHandled } from "@/lib/api";
 import { fmtCurrency } from "@/lib/currency";
+import { formatDate } from "@/lib/datetime";
 import { statusLabel } from "@/lib/statusLabel";
-import { newClientRef } from "@/lib/clientRef";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 type DatePreset = "today" | "week" | "month" | "year";
+/** ALL shows both settlements side by side; the other two filter the list. */
+type Tab = "ALL" | "PAID" | "CREDIT";
+
+/** The range shortcuts behind the Filters toggle; labels live in `filters.*`. */
+const DATE_PRESETS: { key: DatePreset; labelKey: string }[] = [
+  { key: "today", labelKey: "filters.dateToday" },
+  { key: "week", labelKey: "filters.dateWeek" },
+  { key: "month", labelKey: "filters.dateMonth" },
+  { key: "year", labelKey: "filters.dateYear" },
+];
 
 export default function PurchasesPage() {
   const { t } = useTranslation();
   const { user, hasPermission } = useAuth();
   const toast = useToast();
+  const confirm = useConfirm();
   const isOwner = user?.isSuperuser === true;
   const canApprove = hasPermission("purchases.approve");
-  const [purchases, setPurchases] = useState<any[]>([]);
+  const canCreate = hasPermission("purchases.create");
+
+  const [rows, setRows] = useState<any[]>([]);
   const [stats, setStats] = useState<any>(null);
-  const [showForm, setShowForm] = useState(false);
+  const [tab, setTab] = useState<Tab>("ALL");
   const [statusFilter, setStatusFilter] = useState("");
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [datePreset, setDatePreset] = useState<DatePreset>("month");
   const [startDate, setStartDate] = useState(() => getDateRange("month").start);
   const [endDate, setEndDate] = useState(() => getDateRange("month").end);
   const [shopFilter, setShopFilter] = useState("");
+  const [vendorFilter, setVendorFilter] = useState("");
   const [shops, setShops] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
-  // Autofill the sole shop when the business has only one.
-  useSingleLocationAutofill(locations, shopFilter, setShopFilter);
-  const [form, setForm] = useState({ productName: "", quantity: 1, unitPrice: 0, sellPrice: 0, notes: "", paymentMethodId: "" });
-  const [clientRef, setClientRef] = useState(() => newClientRef());
-  const [loading, setLoading] = useState(false);
+  const [vendors, setVendors] = useState<any[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [payTarget, setPayTarget] = useState<any>(null);
+  // The row whose detail modal is open — the table keeps only the headline, so
+  // this modal is where the rest of the record is read.
+  const [viewTarget, setViewTarget] = useState<any>(null);
   const [fetching, setFetching] = useState(true);
   const [daySheet, setDaySheet] = useState<any>(null);
-  const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
-  // The org's "Cash" method (case-insensitive) — the default payment method.
-  const cashMethod = paymentMethods.find(
-    (m: any) => m.name.toLowerCase() === "cash",
-  );
+  // The date range is the one filter that is not touched on every visit, so it
+  // hides behind the Filters toggle.
+  const [showFilters, setShowFilters] = useState(false);
+  // Autofill the sole shop when the business has only one.
+  useSingleLocationAutofill(locations, shopFilter, setShopFilter);
 
   const fetchPurchases = async () => {
     setFetching(true);
     try {
       const params = new URLSearchParams();
+      if (tab !== "ALL") params.set("paymentType", tab);
       if (statusFilter) params.set("status", statusFilter);
+      // The settlement status only means anything on a credit row.
+      if (tab !== "PAID" && paymentStatusFilter)
+        params.set("paymentStatus", paymentStatusFilter);
       if (search) params.set("search", search);
       if (startDate) params.set("startDate", startDate);
       if (endDate) params.set("endDate", endDate);
       if (shopFilter) params.set("shopId", shopFilter);
+      if (tab !== "PAID" && vendorFilter)
+        params.set("vendorCustomerId", vendorFilter);
       const query = params.toString();
+      // The stats strip always reports both settlements, so it is asked without
+      // the tab's paymentType filter.
+      const statsParams = new URLSearchParams(params);
+      statsParams.delete("paymentType");
       const [res, sres] = await Promise.all([
         api.get(`/purchases${query ? "?" + query : ""}`),
-        api.get(`/purchases/stats?${query}`),
+        api.get(`/purchases/stats?${statsParams.toString()}`),
       ]);
-      setPurchases(res.data);
+      setRows(Array.isArray(res.data) ? res.data : (res.data?.data ?? []));
       setStats(sres.data);
+    } catch (err: any) {
+      markHandled(err);
+      toast.error(t("purchases.failed"));
     } finally {
       setFetching(false);
     }
   };
-  useEffect(() => { fetchPurchases(); }, [statusFilter, search, startDate, endDate, shopFilter]);
 
   useEffect(() => {
-    api.get("/payment-methods").then(r => {
-      setPaymentMethods(r.data);
-      const cash = (r.data as any[]).find(
-        (m: any) => m.name.toLowerCase() === "cash",
-      );
-      // Cash is the default + initially selected payment method.
-      setForm((f) =>
-        f.paymentMethodId
-          ? f
-          : { ...f, paymentMethodId: cash ? String(cash.id) : "" },
-      );
-    }).catch(() => {});
-    api.get(`/reports/day-sheet?locationId=${shopFilter || ""}&startDate=${startDate}&endDate=${endDate}`)
-      .then(r => setDaySheet(r.data)).catch(() => {});
+    fetchPurchases();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    tab,
+    statusFilter,
+    paymentStatusFilter,
+    search,
+    startDate,
+    endDate,
+    shopFilter,
+    vendorFilter,
+  ]);
+
+  useEffect(() => {
+    api
+      .get(
+        `/reports/day-sheet?locationId=${shopFilter || ""}&startDate=${startDate}&endDate=${endDate}`,
+      )
+      .then((r) => setDaySheet(r.data))
+      .catch(() => {});
   }, [shopFilter, startDate, endDate]);
 
   useEffect(() => {
-    if (isOwner) api.get("/locations").then(r => {
-      setLocations(r.data);
-      setShops(r.data.filter((l: any) => l.type === "SHOP"));
-    });
-  }, []);
+    if (isOwner)
+      api
+        .get("/locations")
+        .then((r) => {
+          setLocations(r.data);
+          setShops(r.data.filter((l: any) => l.type === "SHOP"));
+        })
+        .catch(() => {});
+    // Vendors are customers — the picker reuses the customer directory.
+    api
+      .get("/customers")
+      .then((r) =>
+        setVendors(Array.isArray(r.data) ? r.data : (r.data?.data ?? [])),
+      )
+      .catch(() => {});
+  }, [isOwner]);
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault(); setLoading(true);
+  // --- Actions ------------------------------------------------------------
+
+  const handleApprove = async (row: any) => {
     try {
-      await api.post("/purchases", { productName: form.productName, quantity: Number(form.quantity), unitPrice: Number(form.unitPrice), sellPrice: Number(form.sellPrice), notes: form.notes || undefined, paymentMethodId: form.paymentMethodId ? Number(form.paymentMethodId) : undefined, clientRef });
-      setShowForm(false); setForm({ productName: "", quantity: 1, unitPrice: 0, sellPrice: 0, notes: "", paymentMethodId: cashMethod ? String(cashMethod.id) : "" }); setClientRef(newClientRef()); fetchPurchases();
-    } catch (err: any) { markHandled(err); toast.error(err?.response?.data?.message ?? t("purchases.failed")); } finally { setLoading(false); }
+      await api.patch(
+        `/purchases/${row.publicId ?? row.id}/approve`,
+      );
+      fetchPurchases();
+    } catch (err: any) {
+      markHandled(err);
+      toast.error(err?.response?.data?.message ?? t("purchases.failed"));
+    }
   };
-  const handleApprove = async (id: number) => { try { await api.patch(`/purchases/${id}/approve`); fetchPurchases(); } catch (err: any) { markHandled(err); toast.error(t("purchases.failed")); } };
-  const handleReject = async (id: number) => { try { await api.patch(`/purchases/${id}/reject`); fetchPurchases(); } catch (err: any) { markHandled(err); toast.error(t("purchases.failed")); } };
 
-  const badge = (s: string) => (<span className={"px-2 py-0.5 text-xs rounded-full font-semibold " + (s==="PENDING"?"bg-yellow-100 text-yellow-800":s==="APPROVED"?"bg-green-100 text-green-800":"bg-red-100 text-red-800")}>{statusLabel(s)}</span>);
+  const handleReject = async (row: any) => {
+    try {
+      await api.patch(`/purchases/${row.publicId ?? row.id}/reject`);
+      fetchPurchases();
+    } catch (err: any) {
+      markHandled(err);
+      toast.error(err?.response?.data?.message ?? t("purchases.failed"));
+    }
+  };
 
-  if (fetching) return <Loading className="py-24" />;
+  const handleDelete = async (row: any) => {
+    const ok = await confirm(t("purchases.deleteConfirm"));
+    if (!ok) return;
+    try {
+      await api.delete(`/purchases/${row.publicId ?? row.id}`);
+      fetchPurchases();
+      toast.success(t("purchases.deleted"));
+    } catch (err: any) {
+      markHandled(err);
+      toast.error(err?.response?.data?.message ?? t("purchases.failedDelete"));
+    }
+  };
+
+  const formMode: PurchaseMode = tab === "CREDIT" ? "CREDIT" : "PAID";
+
+  // --- What the strip summarises, per settlement --------------------------
+
+  // Summed from the loaded rows: a credit purchase records its margin while the
+  // goods sit on the shelf, and only books it when they are actually resold.
+  const creditMargin = rows
+    .filter((r) => r.paymentType === "CREDIT")
+    .reduce((sum, r) => sum + recordedMargin(r), 0);
+
+  // The chip on the Filters button, so a collapsed panel still says which range
+  // the list below it is showing.
+  const activeRange =
+    startDate || endDate
+      ? `${startDate ? formatDate(`${startDate}T00:00:00`) : "—"} – ${
+          endDate ? formatDate(`${endDate}T00:00:00`) : "—"
+        }`
+      : "";
+
+  if (fetching && rows.length === 0 && !stats) return <Loading className="py-24" />;
 
   return (
     <div>
-      <div className="flex justify-between items-start md:items-center mb-6 gap-3">
-        <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">{t("purchases.title")}</h1>
-        {hasPermission("purchases.create") && <button onClick={()=>setShowForm(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 whitespace-nowrap">+ {t("purchases.newPurchase")}</button>}
+      <div className="flex justify-between items-start md:items-center mb-4 gap-3">
+        <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">
+          {t("purchases.title")}
+        </h1>
+        {canCreate && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 whitespace-nowrap"
+          >
+            + {t("purchases.newPurchase")}
+          </button>
+        )}
       </div>
 
-      <FilterPanel
-        showDateFilter
-        datePreset={datePreset}
-        onDatePresetChange={(p) => {
-          setDatePreset(p);
-          const range = getDateRange(p);
-          setStartDate(range.start);
-          setEndDate(range.end);
-        }}
-        startDate={startDate}
-        onStartDateChange={setStartDate}
-        endDate={endDate}
-        onEndDateChange={setEndDate}
-        search={search}
-        onSearchChange={setSearch}
-        category=""
-        onCategoryChange={() => {}}
-        categories={[]}
-        location={shopFilter}
-        onLocationChange={setShopFilter}
-        locations={locations}
-        showLocation={isOwner}
+      {/* One list, filtered by settlement — never two implementations. */}
+      <div className="flex gap-0.5 sm:gap-1 mb-4 border-b overflow-x-auto pb-px">
+        {(["ALL", "PAID", "CREDIT"] as Tab[]).map((tb) => (
+          <button
+            key={tb}
+            onClick={() => setTab(tb)}
+            className={
+              "px-3 sm:px-4 py-2 whitespace-nowrap text-xs sm:text-sm font-medium rounded-t-lg transition " +
+              (tab === tb
+                ? "bg-white text-blue-600 border border-b-white -mb-px shadow-sm"
+                : "text-gray-500 hover:text-gray-700 hover:bg-gray-100")
+            }
+          >
+            {tb === "ALL"
+              ? t("purchases.tabAll")
+              : tb === "PAID"
+                ? t("purchases.tabPaid")
+                : t("purchases.tabCredit")}
+          </button>
+        ))}
+      </div>
+
+      {/* One slim toolbar. The filters a shopkeeper touches on every visit stay
+          visible; the date range hides behind Filters and reports itself as a
+          chip, so the list gets the room instead of the chrome. */}
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={t("filters.searchProducts")}
+          className="border p-1.5 sm:p-2 rounded-lg flex-1 min-w-[150px] text-xs sm:text-sm"
+        />
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="border p-1.5 sm:p-2 rounded-lg bg-white text-xs sm:text-sm"
+        >
+          <option value="">{t("purchases.allStatus")}</option>
+          <option value="PENDING">{statusLabel("PENDING")}</option>
+          <option value="APPROVED">{statusLabel("APPROVED")}</option>
+          <option value="REJECTED">{statusLabel("REJECTED")}</option>
+        </select>
+        {tab !== "PAID" && (
+          <select
+            value={paymentStatusFilter}
+            onChange={(e) => setPaymentStatusFilter(e.target.value)}
+            className="border p-1.5 sm:p-2 rounded-lg bg-white text-xs sm:text-sm"
+          >
+            <option value="">{t("purchases.allPaymentStatus")}</option>
+            <option value="UNPAID">{statusLabel("UNPAID")}</option>
+            <option value="PARTIALLY_PAID">
+              {statusLabel("PARTIALLY_PAID")}
+            </option>
+            <option value="PAID">{statusLabel("PAID")}</option>
+          </select>
+        )}
+        {tab !== "PAID" && (
+          <div className="w-full sm:w-44">
+            <SearchableSelect
+              options={vendors.map((v: any) => ({
+                value: String(v.id),
+                label: v.name,
+                searchText: `${v.name ?? ""} ${v.phone ?? ""}`,
+              }))}
+              value={vendorFilter}
+              onChange={setVendorFilter}
+              placeholder={t("purchases.filterVendor")}
+              clearable
+              clearLabel={t("common.clear")}
+            />
+          </div>
+        )}
+        {isOwner && shops.length > 0 && (
+          <select
+            value={shopFilter}
+            onChange={(e) => setShopFilter(e.target.value)}
+            className="border p-1.5 sm:p-2 rounded-lg bg-white text-xs sm:text-sm"
+          >
+            <option value="">{t("filters.allLocations")}</option>
+            {shops.map((s: any) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <button
+          type="button"
+          onClick={() => setShowFilters((v) => !v)}
+          className={
+            "px-2.5 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium border whitespace-nowrap transition " +
+            (showFilters
+              ? "bg-blue-50 text-blue-700 border-blue-200"
+              : "bg-white text-gray-600 hover:bg-gray-50")
+          }
+        >
+          {t("common.filters")}
+          {!showFilters && activeRange && (
+            <span className="ml-1 text-[10px] sm:text-xs text-gray-400">
+              {activeRange}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* Looking back at an older range is rare enough to hide: the presets stay
+          one tap away and the custom dates sit next to them. */}
+      {showFilters && (
+        <div className="bg-white rounded-xl shadow-sm border p-2 sm:p-3 mb-3 flex flex-wrap items-center gap-1.5 sm:gap-2">
+          {DATE_PRESETS.map((p) => (
+            <button
+              key={p.key}
+              type="button"
+              onClick={() => {
+                setDatePreset(p.key);
+                const range = getDateRange(p.key);
+                setStartDate(range.start);
+                setEndDate(range.end);
+              }}
+              className={
+                "px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-medium transition " +
+                (datePreset === p.key
+                  ? "bg-blue-600 text-white shadow"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200")
+              }
+            >
+              {t(p.labelKey)}
+            </button>
+          ))}
+          <div className="flex items-center gap-1 sm:gap-2 ml-0.5 sm:ml-1 flex-wrap">
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="border p-1 rounded text-[11px] sm:text-xs bg-white"
+            />
+            <span className="text-gray-400 text-[11px] sm:text-xs">
+              {t("filters.to")}
+            </span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="border p-1 rounded text-[11px] sm:text-xs bg-white"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Both settlements on one line, with the till's day figures dimmed after
+          them: the numbers a shopkeeper checks without scrolling past cards. Each
+          figure group may shrink and wrap, so a 360 px phone never scrolls the
+          page sideways to finish reading a number. */}
+      <div className="bg-white rounded-xl shadow-sm border px-3 py-2 mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm overflow-hidden">
+        {tab !== "CREDIT" && stats?.paid && (
+          <span className="min-w-0">
+            <span className="text-gray-400">{t("purchases.modePaid")}</span>{" "}
+            <strong className="text-red-600">
+              {fmtCurrency(stats.paid.totalCost)}
+            </strong>
+            <span className="text-gray-300"> → </span>
+            <strong className="text-blue-700">
+              {fmtCurrency(stats.paid.totalRevenue)}
+            </strong>
+            {isOwner && (
+              <>
+                <span className="text-gray-300"> · </span>
+                <span className="text-gray-400">{t("purchases.profit")}</span>{" "}
+                <strong
+                  className={
+                    stats.paid.totalProfit >= 0
+                      ? "text-green-700"
+                      : "text-red-700"
+                  }
+                >
+                  {fmtCurrency(stats.paid.totalProfit)}
+                </strong>
+              </>
+            )}
+            <span className="text-gray-300"> · </span>
+            <span className="text-yellow-700">
+              {stats.paid.pendingCount} {t("status.pending")}
+            </span>
+          </span>
+        )}
+        {tab !== "PAID" && stats?.credit && (
+          <span className="min-w-0">
+            <span className="text-gray-400">{t("purchases.modeCredit")}</span>{" "}
+            <strong className="text-gray-800">
+              {fmtCurrency(stats.credit.totalTaken)}
+            </strong>
+            <span className="text-gray-300"> · </span>
+            <span className="text-gray-400">
+              {t("purchases.creditPaidBack")}
+            </span>{" "}
+            <strong className="text-green-700">
+              {fmtCurrency(stats.credit.totalPaidToVendor)}
+            </strong>
+            <span className="text-gray-300"> · </span>
+            <span className="text-gray-400">
+              {t("purchases.creditOutstanding")}
+            </span>{" "}
+            <strong className="text-red-600">
+              {fmtCurrency(stats.credit.totalRemainingToPay)}
+            </strong>
+            <span className="text-gray-300"> · </span>
+            <span className="text-red-700">
+              {stats.credit.unpaidCount} {t("purchases.creditUnpaid")}
+            </span>
+            {isOwner && (
+              <>
+                <span className="text-gray-300"> · </span>
+                <span
+                  className="text-gray-400"
+                  title={t("purchases.recordedMarginHint")}
+                >
+                  {t("purchases.recordedMargin")}
+                </span>{" "}
+                <strong
+                  className={creditMargin >= 0 ? "text-green-700" : "text-red-700"}
+                >
+                  ~{fmtCurrency(creditMargin)}
+                </strong>
+              </>
+            )}
+          </span>
+        )}
+        {daySheet && (
+          <span className="min-w-0 w-full sm:w-auto text-[10px] sm:text-xs text-gray-400">
+            {t("purchases.openingCash")} {fmtCurrency(daySheet.opening)}
+            {" · "}
+            {t("purchases.inflow")} +{fmtCurrency(daySheet.totalInflow)}
+            {" · "}
+            {t("purchases.outflow")} -{fmtCurrency(daySheet.totalOutflow)}
+            {" · "}
+            {t("purchases.closingCash")} {fmtCurrency(daySheet.closing)}
+          </span>
+        )}
+      </div>
+
+      <PurchasesTable
+        rows={rows}
+        mode={tab}
+        canApprove={canApprove}
+        canCreate={canCreate}
+        onView={setViewTarget}
+        onApprove={handleApprove}
+        onReject={handleReject}
+        onDelete={handleDelete}
+        onPay={setPayTarget}
       />
 
-      {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-          {[
-            ...(isOwner
-              ? [{ label: t("purchases.cost"), value: fmtCurrency(stats.totalCost), color: "text-gray-800" }]
-              : []),
-            { label: t("purchases.revenue"), value: fmtCurrency(stats.totalRevenue), color: "text-blue-700" },
-            ...(isOwner
-              ? [{ label: t("purchases.profit"), value: fmtCurrency(stats.totalProfit), color: stats.totalProfit >= 0 ? "text-green-700" : "text-red-700" }]
-              : []),
-            { label: t("status.pending"), value: stats.pendingCount, color: "text-yellow-700" },
-          ].map((s) => (
-            <div key={s.label} className="bg-white rounded-xl shadow-sm border p-3 sm:p-4">
-              <div className="text-xs text-gray-500">{s.label}</div>
-              <div className={"text-lg font-bold " + s.color}>{s.value}</div>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Everything the slimmed-down table no longer prints. */}
+      <PurchaseDetailModal
+        purchase={viewTarget}
+        onClose={() => setViewTarget(null)}
+      />
 
-      {daySheet && (
-        <div className="bg-white rounded-xl shadow-sm border p-3 sm:p-4 mb-4 flex flex-wrap gap-x-6 gap-y-2 text-sm">
-          <div><span className="text-xs uppercase text-gray-400 font-semibold mr-2">{t("purchases.openingCash")}</span><strong>{fmtCurrency(daySheet.opening)}</strong></div>
-          <div><span className="text-xs uppercase text-gray-400 font-semibold mr-2">{t("purchases.inflow")}</span><strong className="text-green-600">+{fmtCurrency(daySheet.totalInflow)}</strong></div>
-          <div><span className="text-xs uppercase text-gray-400 font-semibold mr-2">{t("purchases.outflow")}</span><strong className="text-red-600">-{fmtCurrency(daySheet.totalOutflow)}</strong></div>
-          <div><span className="text-xs uppercase text-gray-400 font-semibold mr-2">{t("purchases.closingCash")}</span><strong className="text-blue-700">{fmtCurrency(daySheet.closing)}</strong></div>
-        </div>
-      )}
+      <PurchaseForm
+        isOpen={showForm}
+        onClose={() => setShowForm(false)}
+        mode={formMode}
+        // The tab that opened the form already chose the settlement; only the
+        // ALL tab leaves the switch on the form itself.
+        hideModeSwitch={tab !== "ALL"}
+        onSaved={fetchPurchases}
+      />
 
-      <div className="flex gap-2 mb-4">
-        <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} className="border p-2 rounded-lg bg-white text-sm">
-          <option value="">{t("purchases.allStatus")}</option><option value="PENDING">{t("status.pending")}</option><option value="APPROVED">{t("status.approved")}</option><option value="REJECTED">{t("status.rejected")}</option>
-        </select>
-      </div>
-      <div className="bg-white rounded-xl shadow-sm border overflow-x-auto">
-        <table className="w-full text-left min-w-[500px] text-xs sm:text-sm"><thead className="bg-gray-50 border-b"><tr>
-          <th className="p-2 sm:p-3 md:p-4">{t("common.product")}</th><th className="p-2 sm:p-3 md:p-4">{t("status.shop")}</th><th className="p-2 sm:p-3 md:p-4">{t("common.qty")}</th>
-          <th className="p-2 sm:p-3 md:p-4 text-right">{t("purchases.unitPrice")}</th><th className="p-2 sm:p-3 md:p-4 text-right">{t("purchases.sellPrice")}</th>
-          {isOwner && <th className="p-2 sm:p-3 md:p-4 text-right">{t("purchases.profit")}</th>}
-          <th className="p-2 sm:p-3 md:p-4">{t("purchases.invoice")}</th>
-          <th className="p-2 sm:p-3 md:p-4">{t("common.status")}</th>
-          {(isOwner || canApprove) && <th className="p-2 sm:p-3 md:p-4">{t("common.actions")}</th>}
-        </tr></thead><tbody>
-          {purchases.map((p:any) => (<tr key={p.id} className="border-b hover:bg-gray-50">
-            <td className="p-2 sm:p-3 md:p-4 font-medium whitespace-nowrap">{p.productName}</td>
-            <td className="p-2 sm:p-3 md:p-4 text-gray-500 whitespace-nowrap">{p.shop?.name}</td>
-            <td className="p-2 sm:p-3 md:p-4">{p.quantity}</td>
-            <td className="p-2 sm:p-3 md:p-4 text-right">{fmtCurrency(p.unitPrice)}</td>
-            <td className="p-2 sm:p-3 md:p-4 text-right">{fmtCurrency(p.sellPrice)}</td>
-            {isOwner && <td className={"p-2 sm:p-3 md:p-4 text-right font-semibold " + (p.profit >= 0 ? "text-green-600" : "text-red-500")}>{fmtCurrency(p.profit)}</td>}
-            <td className="p-2 sm:p-3 md:p-4 font-mono text-xs">{p.sale?.invoiceNumber || "—"}</td>
-            <td className="p-2 sm:p-3 md:p-4">{badge(p.status)}</td>
-            {(isOwner || canApprove) && <td className="p-2 sm:p-3 md:p-4">{p.status==="PENDING" && <RowActionsMenu items={[{label:t("purchases.approve"), color:"text-green-600", onClick:()=>handleApprove(p.id)},{label:t("purchases.reject"), color:"text-red-500", onClick:()=>handleReject(p.id)}]} />}</td>}
-          </tr>))}
-          {purchases.length===0 && <tr><td colSpan={isOwner?9:canApprove?8:7} className="p-6 text-center text-gray-400 text-sm">{t("purchases.noPurchases")}</td></tr>}
-        </tbody></table>
-      </div>
-      <Modal isOpen={showForm} onClose={()=>setShowForm(false)} title={t("purchases.newPurchase")}>
-        <form onSubmit={handleCreate} className="grid grid-cols-1 gap-4">
-          <div><label className="block text-sm font-medium text-gray-500 mb-1">{t("purchases.productName")}</label>
-            <input value={form.productName} onChange={e=>setForm({...form,productName:e.target.value})} placeholder={t("purchases.productNamePlaceholder")} className="border p-2 rounded-lg w-full text-sm" required/>
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div><label className="block text-sm font-medium text-gray-500 mb-1">{t("purchases.quantity")}</label>
-              <input type="number" min="1" value={form.quantity} onChange={e=>setForm({...form,quantity:Number(e.target.value)})} className="border p-2 rounded-lg w-full text-sm" required/>
-            </div>
-            <div><label className="block text-sm font-medium text-gray-500 mb-1">{t("purchases.buyPriceBirr")}</label>
-              <input type="number" step="0.01" min="0" value={form.unitPrice} onChange={e=>setForm({...form,unitPrice:Number(e.target.value)})} className="border p-2 rounded-lg w-full text-sm" required/>
-            </div>
-            <div><label className="block text-sm font-medium text-gray-500 mb-1">{t("purchases.sellPriceBirr")}</label>
-              <input type="number" step="0.01" min="0" value={form.sellPrice} onChange={e=>setForm({...form,sellPrice:Number(e.target.value)})} className="border p-2 rounded-lg w-full text-sm" required/>
-            </div>
-          </div>
-          <div><label className="block text-sm font-medium text-gray-500 mb-1">{t("purchases.paymentMethod")}</label>
-            <select value={form.paymentMethodId} onChange={e=>setForm({...form,paymentMethodId:e.target.value})} className="border p-2 rounded-lg w-full text-sm">
-              {!cashMethod && <option value="">{t("purchases.selectPaymentMethod")}</option>}
-              {paymentMethods.map((m:any)=>(<option key={m.id} value={m.id}>{m.name}</option>))}
-            </select>
-          </div>
-          <div><label className="block text-sm font-medium text-gray-500 mb-1">{t("purchases.notesOptional")}</label>
-            <input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} className="border p-2 rounded-lg w-full text-sm"/>
-          </div>
-          <div className="flex gap-2 mt-2">
-            <button type="submit" disabled={loading} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50">
-              {loading ? (
-                <span className="inline-flex items-center gap-2">
-                  <Loading size="sm" />
-                  {t("purchases.saving")}
-                </span>
-              ) : (
-                t("common.submit")
-              )}
-            </button>
-            <button type="button" onClick={()=>setShowForm(false)} className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-300">{t("common.cancel")}</button>
-          </div>
-        </form>
-      </Modal>
+      <VendorPaymentModal
+        isOpen={!!payTarget}
+        onClose={() => setPayTarget(null)}
+        purchase={payTarget}
+        onSaved={fetchPurchases}
+      />
     </div>
   );
 }
-

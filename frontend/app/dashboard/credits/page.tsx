@@ -1,4 +1,5 @@
 "use client";
+import PurchaseForm from "@/app/components/PurchaseForm";
 import SaleForm from "@/app/components/SaleForm";
 import { useSingleLocationAutofill } from "@/lib/singleLocation";
 import CustomerForm from "@/app/components/CustomerForm";
@@ -20,11 +21,14 @@ import Pagination from "@/app/components/Pagination";
 
 export default function CreditsPage() {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
   const router = useRouter();
   const isOwner = user?.isSuperuser === true;
+  // Taking stock from a vendor and editing the ledger are different rights, so
+  // the row offers the purchase entry only to someone who may record it.
+  const canBuyFromVendor = hasPermission("purchases.create");
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [locations, setLocations] = useState<any[]>([]);
@@ -40,6 +44,10 @@ export default function CreditsPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [saleCustomer, setSaleCustomer] = useState<any>(null);
   const [showSaleModal, setShowSaleModal] = useState(false);
+  // The mirror of a credit sale: stock taken *from* this person as a vendor,
+  // recorded from the ledger row that shows what is still owed to them.
+  const [purchaseCustomer, setPurchaseCustomer] = useState<any>(null);
+  const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const creditPaged = useServerPaging({ pageSize: 20 });
 
   const fetchCustomers = async () => {
@@ -161,7 +169,22 @@ export default function CreditsPage() {
               <th className="p-2 sm:p-3 md:p-4 text-right hidden sm:table-cell">
                 {t("credits.totalPaid")}
               </th>
-              <th className="p-2 sm:p-3 md:p-4 text-right">{t("credits.remaining")}</th>
+              <th
+                className="p-2 sm:p-3 md:p-4 text-right"
+                title={t("credits.netHint")}
+              >
+                {t("credits.remaining")}
+              </th>
+              <th className="p-2 sm:p-3 md:p-4 text-right hidden sm:table-cell">
+                {t("credits.takenOnCredit")}
+              </th>
+              <th
+                className="p-2 sm:p-3 md:p-4 text-right hidden sm:table-cell"
+                title={t("credits.netHint")}
+              >
+                {t("credits.remainingToPay")}
+              </th>
+              <th className="p-2 sm:p-3 md:p-4 text-right">{t("credits.netBalance")}</th>
               <th className="p-2 sm:p-3 md:p-4 text-right">{t("common.actions")}</th>
             </tr>
           </thead>
@@ -219,6 +242,15 @@ export default function CreditsPage() {
                 >
                   {fmtCurrency(c.remaining)}
                 </td>
+                <td className="p-2 sm:p-3 md:p-4 text-right text-gray-500 hidden sm:table-cell">
+                  {fmtCurrency(c.totalTakenOnCredit ?? 0)}
+                </td>
+                <td className="p-2 sm:p-3 md:p-4 text-right text-amber-600 hidden sm:table-cell">
+                  {fmtCurrency(c.remainingToPay ?? 0)}
+                </td>
+                <td className="p-2 sm:p-3 md:p-4 text-right">
+                  <NetPill amount={c.netBalance ?? 0} />
+                </td>
                 <td className="p-2 sm:p-3 md:p-4">
                   <RowActionsMenu
                     items={[
@@ -241,6 +273,20 @@ export default function CreditsPage() {
                           setShowSaleModal(true);
                         },
                       },
+                      // Mirror entry: the goods moving the other way. Offered
+                      // only when the person is a vendor and the user may buy.
+                      ...(canBuyFromVendor
+                        ? [
+                            {
+                              label: t("credits.purchase"),
+                              color: "text-blue-600",
+                              onClick: () => {
+                                setPurchaseCustomer(c);
+                                setShowPurchaseModal(true);
+                              },
+                            },
+                          ]
+                        : []),
                       {
                         label: t("common.edit"),
                         onClick: () => {
@@ -261,7 +307,7 @@ export default function CreditsPage() {
             {customers.length === 0 && (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={9}
                   className="p-6 text-center text-gray-400 text-sm"
                 >
                   {t("credits.noCustomers")}
@@ -332,6 +378,61 @@ export default function CreditsPage() {
           fetchCustomers();
         }}
       />
+
+      {/* Same form as the Purchases page, opened on the CREDIT settlement with
+          this ledger row's person already chosen as the vendor — so a payable
+          can be added where it is read, without a detour through the purchases
+          page and a second lookup. The settlement switch stays visible; a paid
+          purchase from the same vendor is recorded here too. */}
+      <PurchaseForm
+        isOpen={showPurchaseModal && !!purchaseCustomer}
+        onClose={() => {
+          setShowPurchaseModal(false);
+          setPurchaseCustomer(null);
+        }}
+        mode="CREDIT"
+        defaultVendorId={purchaseCustomer?.id ?? null}
+        onSaved={() => {
+          setShowPurchaseModal(false);
+          setPurchaseCustomer(null);
+          fetchCustomers();
+        }}
+      />
     </div>
   );
 }
+
+/**
+ * A customer's net position with the business, signed so the direction is
+ * unmistakable: green means they still owe us, red means we still owe them.
+ * This person is also one of our vendors, so the receivable and the payable are
+ * netted off each other first — the pill is the signed form of whichever of the
+ * two netted columns is non-zero, and "settled" when neither is.
+ */
+function NetPill({ amount }: { amount: number }) {
+  const { t } = useTranslation();
+  const cls =
+    amount > 0
+      ? "bg-green-50 text-green-700"
+      : amount < 0
+        ? "bg-red-50 text-red-600"
+        : "bg-gray-100 text-gray-500";
+  const label =
+    amount > 0
+      ? t("credits.toReceive")
+      : amount < 0
+        ? t("credits.toPay")
+        : t("credits.settled");
+  return (
+    <span
+      className={
+        "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold whitespace-nowrap " +
+        cls
+      }
+    >
+      {amount > 0 ? `+${fmtCurrency(amount)}` : fmtCurrency(amount)}
+      <span className="font-normal">{label}</span>
+    </span>
+  );
+}
+

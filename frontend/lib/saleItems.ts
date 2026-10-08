@@ -29,6 +29,26 @@ export interface SaleItemGroup<T extends SaleItemLike> {
 }
 
 /**
+ * A line of a listing item table (Product / Qty / Price / Subtotal): a sale
+ * line, or a purchase row read as one line of what a vendor handed over.
+ */
+export interface LedgerLine extends SaleItemLike {
+  product?: {
+    id?: number | string;
+    brand?: string | null;
+    baseName?: string | null;
+  } | null;
+  variant?: {
+    id?: number | string;
+    sku?: string | null;
+    attributes?: Record<string, unknown> | null;
+  } | null;
+}
+
+/** Those lines grouped by product, as an item table renders them. */
+export type LedgerLineGroup = SaleItemGroup<LedgerLine>;
+
+/**
  * Group a sale's items by product, keeping first-appearance order so the list
  * reads the same way the sale was rung up.
  */

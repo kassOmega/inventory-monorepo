@@ -1,8 +1,15 @@
 "use client";
+import PurchaseForm from "@/app/components/PurchaseForm";
 import SaleForm from "@/app/components/SaleForm";
 import Modal from "@/app/components/Modal";
 import Loading from "@/app/components/Loading";
 import RowActionsMenu from "@/app/components/RowActionsMenu";
+import CreditLedgerList, {
+  CreditLedgerEntry,
+} from "@/app/components/CreditLedgerList";
+import VendorPaymentModal from "@/app/components/VendorPaymentModal";
+import { recordedMargin } from "@/app/components/PurchasesTable";
+import PurchaseDetailModal from "@/app/components/PurchaseDetailModal";
 import { useToast } from "@/app/components/ToastProvider";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useAuth } from "@/context/AuthContext";
@@ -14,23 +21,38 @@ import { useParams } from "next/navigation";
 import { formatBusinessNumber } from "@/lib/bizNumber";
 import { variantLabel } from "@/lib/variantLabel";
 import { attachSaleVariants, groupSaleItemsByProduct } from "@/lib/saleItems";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import type { LedgerLine } from "@/lib/saleItems";
+import {
+  groupPurchasesByDayAndShop,
+  purchaseLineGroup,
+} from "@/lib/purchaseLedger";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 export default function CustomerDetailPage() {
   const { t } = useTranslation();
   const { id } = useParams();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
   const isOwner = user?.isSuperuser === true;
+  // Vendor paybacks are recorded with the same permission that records a
+  // purchase, exactly as the purchases page does it.
+  const canCreate = hasPermission("purchases.create");
   const [customer, setCustomer] = useState<any>(null);
+  const [payTarget, setPayTarget] = useState<any>(null);
+  // The payable whose detail modal is open — the vendor side reads its rows the
+  // same way the purchases list does.
+  const [viewTarget, setViewTarget] = useState<any>(null);
   const [locations, setLocations] = useState<any[]>([]);
   const [shopFilter, setShopFilter] = useState(
     isOwner ? "" : String(user?.locationId || ""),
   );
   const [productSearch, setProductSearch] = useState("");
-  const [tab, setTab] = useState<"sales" | "payments">("sales");
+  const [tab, setTab] = useState<"sales" | "payments" | "payables">("sales");
+  // Mirror of the credit-sale modal: stock taken *from* this person, booked
+  // straight from their ledger with the vendor already chosen.
+  const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
   const [payAmount, setPayAmount] = useState("");
   const [payNotes, setPayNotes] = useState("");
@@ -175,67 +197,40 @@ export default function CustomerDetailPage() {
     });
   }, [customer, productSearch]);
 
-  // Products whose variant lines are folded open, keyed "<creditSaleId>:<productId>".
-  const [expandedVariants, setExpandedVariants] = useState<Set<string>>(
-    new Set(),
-  );
-  const toggleVariantGroup = (key: string) =>
-    setExpandedVariants((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-
-  const groupedSales = useMemo(() => {
-    // Normalize to a local calendar-day key (YYYY-MM-DD) so every credit sale
-    // made on the same date shares one group header, regardless of browser
-    // locale or time formatting.
-    const dayKey = (cs: any) => {
-      const d = new Date(cs.sale?.saleDate ?? cs.createdAt);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      return `${y}-${m}-${day}`;
-    };
-
-    const groups: Record<string, any[]> = {};
-    [...filteredSales]
-      .sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      )
-      .forEach((cs) => {
-        const key = dayKey(cs);
-        if (!groups[key]) groups[key] = [];
-        groups[key].push(cs);
-      });
-
-    // Newest date first
-    const result: {
-      key: string;
-      date: string;
-      sales: any[];
-      dayTotal: number;
-      accumulated: number;
-    }[] = [];
-    let running = 0;
-    Object.entries(groups)
-      .sort((a, b) => (a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : 0))
-      .forEach(([key, sales]) => {
-        const dayTotal = sales.reduce((s, cs) => s + cs.totalAmount, 0);
-        running += dayTotal;
-        const formatted = formatDate(`${key}T00:00:00`);
-        result.push({
-          key,
-          date: formatted,
-          sales,
-          dayTotal,
-          accumulated: running,
-        });
-      });
-    return result;
-  }, [filteredSales]);
+  // One credit sale, as the shared ledger list reads it: the CR number, shop,
+  // item count and balance in the meta strip, and the sale's own items — folds
+  // and all — in the table under it. The list groups these by day and carries
+  // the running total, exactly as it does for the payables tab.
+  const salesEntries: CreditLedgerEntry[] = filteredSales.map((cs: any) => ({
+    key: cs.id,
+    title: cs.publicId ?? undefined,
+    date: cs.sale?.saleDate ?? cs.createdAt,
+    sortAt: cs.createdAt,
+    total: cs.totalAmount,
+    strip: (
+      <>
+        {formatBusinessNumber("CR", cs.number) && (
+          <span className="font-medium text-gray-500 mr-1">
+            {formatBusinessNumber("CR", cs.number)} ·
+          </span>
+        )}
+        {cs.shop?.name || t("status.shop")} · {cs.items.length}{" "}
+        {cs.items.length > 1 ? t("credits.items") : t("credits.item")} ·{" "}
+        {t("credits.remaining")}:{" "}
+        {fmtCurrency(cs.sale?.remainingAmount ?? cs.totalAmount)}
+      </>
+    ),
+    actions: [
+      {
+        label: t("common.delete"),
+        color: "text-red-500",
+        onClick: () => handleDeleteSale(cs.id),
+      },
+    ],
+    groups: groupSaleItemsByProduct<LedgerLine>(
+      attachSaleVariants(cs.items, cs.sale?.items ?? []),
+    ),
+  }));
 
   // Credit sales that still have an outstanding balance and can be linked to a
   // payment (must have a real Sale behind them, not just a legacy record).
@@ -243,7 +238,127 @@ export default function CustomerDetailPage() {
     (cs: any) => cs.sale?.id && (cs.sale.remainingAmount ?? 0) > 0,
   );
 
+  // What is still owed on one purchase row.
+  const remainingOn = (p: any) =>
+    Math.max(0, (p.totalCost ?? 0) - (p.amountPaid ?? 0));
+
+  // Every payback we already made, right under the item it settled — the same
+  // indented `↳` sub-rows the credit-sales tab uses for its variant lines, so
+  // the balance is never a mystery.
+  const paybackRows = (p: any) =>
+    (p.payments ?? []).map((pay: any) => (
+      <tr
+        key={`pay-${pay.id}`}
+        className="border-b last:border-b-0 bg-gray-50/60 text-gray-600"
+      >
+        <td
+          className="p-2 sm:p-3 pl-8 sm:pl-10 text-[11px] sm:text-xs"
+          colSpan={3}
+        >
+          ↳ {new Date(pay.paidAt).toLocaleDateString()}
+          {pay.paymentMethod?.name ? ` · ${pay.paymentMethod.name}` : ""}
+          {pay.notes ? ` · ${pay.notes}` : ""}
+        </td>
+        <td className="p-2 sm:p-3 text-right text-[11px] sm:text-xs font-medium text-green-600">
+          {fmtCurrency(pay.amount)}
+        </td>
+      </tr>
+    ));
+
+  // What we took from this vendor, one entry per shop per day — the same
+  // day-header + item-table shape the Credit Sales tab uses for what we sold, so
+  // the two sides of the ledger read identically. An entry lists every product
+  // taken from that shop that day, each payback under the row it settled.
+  const payableEntries: CreditLedgerEntry[] = groupPurchasesByDayAndShop(
+    customer?.vendorPurchases ?? [],
+  ).map((group) => ({
+    key: group.key,
+    date: group.createdAt,
+    total: group.totalCost,
+    strip: (
+      <>
+        {group.shopName || t("status.shop")} · {group.lines.length}{" "}
+        {group.lines.length > 1 ? t("credits.items") : t("credits.item")} ·{" "}
+        {t("credits.remaining")}: {fmtCurrency(group.remaining)}
+      </>
+    ),
+    // Read the line, then settle it: the same two moves the Credit Sales header
+    // offers on the other side of the ledger. An entry can hold several
+    // purchases, so each item names the product it acts on.
+    actions: [
+      ...group.lines.map((p: any) => ({
+        label: `${t("common.view")} · ${p.productName}`,
+        onClick: () => setViewTarget(p),
+      })),
+      ...(canCreate
+        ? group.lines
+            .filter((p: any) => remainingOn(p) > 0)
+            .map((p: any) => ({
+              label: `${t("purchases.recordPayment")} · ${p.productName}`,
+              color: "text-green-600",
+              onClick: () => setPayTarget(p),
+            }))
+        : []),
+    ],
+    groups: group.lines.map(purchaseLineGroup),
+    subRows: (line) => paybackRows(line.items[0]),
+    // Each row still names the record behind it, as the purchases list did.
+    lineTitle: (_line, index) => group.lines[index]?.publicId ?? undefined,
+    onLineClick: (line) => setViewTarget(line.items[0]),
+  }));
+
+  // The money side of everything taken from this vendor, summed from the very
+  // rows the list groups below (so the strip and the list can never disagree)
+  // plus the margin those rows recorded — the sell side of a credit purchase is
+  // only booked once the goods are resold.
+  const vendorLedger = useMemo(() => {
+    const rows = customer?.vendorPurchases ?? [];
+    const taken = rows.reduce((s: number, p: any) => s + (p.totalCost ?? 0), 0);
+    const paid = rows.reduce((s: number, p: any) => s + (p.amountPaid ?? 0), 0);
+    const margin = rows.reduce((s: number, p: any) => s + recordedMargin(p), 0);
+    return { taken, paid, outstanding: Math.max(0, taken - paid), margin };
+  }, [customer]);
+
   if (!customer) return <Loading className="py-24" />;
+
+  /**
+   * The four headline figures. The first two are gross — everything invoiced on
+   * credit and everything collected — while the last two are the netted pair:
+   * this person is also one of our vendors, so the two sides cancel and only
+   * one of those two is ever non-zero.
+   */
+  const kpis: {
+    label: string;
+    value: string;
+    color: string;
+    hint?: string;
+  }[] = [
+    {
+      label: t("credits.totalCredits"),
+      value: fmtCurrency(customer.totalCredits),
+      color: "text-gray-800",
+    },
+    {
+      label: t("credits.totalPaid"),
+      value: fmtCurrency(customer.totalPaid),
+      color: "text-green-600",
+    },
+    {
+      label: t("credits.remaining"),
+      value: fmtCurrency(customer.remaining),
+      color: customer.remaining > 0 ? "text-red-500" : "text-green-600",
+      hint: t("credits.netHint"),
+    },
+    {
+      label: t("credits.remainingToPay"),
+      value: fmtCurrency(customer.remainingToPay ?? 0),
+      color:
+        (customer.remainingToPay ?? 0) > 0
+          ? "text-amber-600"
+          : "text-green-600",
+      hint: t("credits.netHint"),
+    },
+  ];
 
   return (
     <div>
@@ -269,13 +384,23 @@ export default function CustomerDetailPage() {
             )}
           </h1>
         </div>
-        <div className="flex gap-2">
+        {/* Three buttons wrap rather than squeeze on a phone: the ledger of a
+            person who is both a customer and a vendor carries all three. */}
+        <div className="flex flex-wrap justify-end gap-2">
           <button
             onClick={() => setShowSaleModal(true)}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 whitespace-nowrap"
           >
             + {t("credits.sale")}
           </button>
+          {canCreate && (
+            <button
+              onClick={() => setShowPurchaseModal(true)}
+              className="bg-white text-blue-700 border border-blue-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-50 whitespace-nowrap"
+            >
+              + {t("credits.purchase")}
+            </button>
+          )}
           <button
             onClick={() => setShowPayModal(true)}
             className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 whitespace-nowrap"
@@ -285,34 +410,27 @@ export default function CustomerDetailPage() {
         </div>
       </div>
 
-      {/* Inline Payment Form */}
-
-      <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-6">
-        {[
-          {
-            label: t("credits.totalCredits"),
-            value: fmtCurrency(customer.totalCredits),
-            color: "text-gray-800",
-          },
-          {
-            label: t("credits.totalPaid"),
-            value: fmtCurrency(customer.totalPaid),
-            color: "text-green-600",
-          },
-          {
-            label: t("credits.remaining"),
-            value: fmtCurrency(customer.remaining),
-            color: customer.remaining > 0 ? "text-red-500" : "text-green-600",
-          },
-        ].map((k) => (
+      {/* Gross on the left, netted on the right — see the `kpis` comment. */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
+        {kpis.map((k) => (
           <div
             key={k.label}
-            className="bg-white rounded-xl shadow-sm border p-3 sm:p-4 text-center"
+            title={k.hint}
+            // `min-w-0` + `overflow-hidden`: a currency value too long for the
+            // card breaks onto a second line instead of widening the grid (and
+            // with it the whole page) on a phone.
+            className="bg-white rounded-xl shadow-sm border p-3 sm:p-4 text-center min-w-0 overflow-hidden"
           >
             <p className="text-[10px] sm:text-xs font-semibold text-gray-400 uppercase tracking-wider">
               {k.label}
             </p>
-            <p className={"text-sm sm:text-lg font-bold mt-1 " + k.color}>
+            <p
+              className={
+                "text-xs sm:text-lg font-bold mt-1 leading-tight break-words " +
+                k.color
+              }
+              title={k.value}
+            >
               {k.value}
             </p>
           </div>
@@ -320,7 +438,7 @@ export default function CustomerDetailPage() {
       </div>
 
       <div className="flex gap-0.5 sm:gap-1 mb-4 border-b overflow-x-auto pb-px">
-        {["sales", "payments"].map((tb) => (
+        {["sales", "payments", "payables"].map((tb) => (
           <button
             key={tb}
             onClick={() => setTab(tb as any)}
@@ -331,7 +449,11 @@ export default function CustomerDetailPage() {
                 : "text-gray-500 hover:text-gray-700 hover:bg-gray-100")
             }
           >
-            {tb === "sales" ? t("credits.creditSales") : t("credits.paymentHistory")}
+            {tb === "sales"
+              ? t("credits.creditSales")
+              : tb === "payments"
+                ? t("credits.paymentHistory")
+                : t("credits.payables")}
           </button>
         ))}
       </div>
@@ -362,177 +484,15 @@ export default function CustomerDetailPage() {
       </div>
 
       {tab === "sales" && (
-        <div className="space-y-4">
-          {groupedSales.map(({ date, sales, dayTotal, accumulated }) => (
-            <div
-              key={date}
-              className="bg-white rounded-xl shadow-sm border overflow-hidden"
-            >
-              <div className="px-3 sm:px-4 py-2.5 bg-gray-50 border-b text-xs sm:text-sm font-semibold text-gray-700 flex justify-between">
-                <span>
-                  {sales.length === 1
-                    ? t("credits.salesGroupHeader", { date, count: sales.length })
-                    : t("credits.salesGroupHeaderPlural", { date, count: sales.length })}{" "}
-                  · {fmtCurrency(dayTotal)}
-                </span>
-                <span className="text-gray-500 font-normal">
-                  {t("credits.accLabel")} {fmtCurrency(accumulated)}
-                </span>
-              </div>
-              {sales.map((cs: any) => (
-                <div
-                  key={cs.id}
-                  className="border-b last:border-b-0"
-                  title={cs.publicId ?? undefined}
-                >
-                  <div className="px-3 sm:px-4 py-1.5 text-[10px] sm:text-xs text-gray-400 bg-gray-50/50 flex justify-between items-center">
-                    <span>
-                      {formatBusinessNumber("CR", cs.number) && (
-                        <span className="font-medium text-gray-500 mr-1">
-                          {formatBusinessNumber("CR", cs.number)} ·
-                        </span>
-                      )}
-                      {cs.shop?.name || t("status.shop")} · {cs.items.length}{" "}
-                      {cs.items.length > 1 ? t("credits.items") : t("credits.item")} ·{" "}
-                      {t("credits.remaining")}: {fmtCurrency(cs.sale?.remainingAmount ?? cs.totalAmount)}
-                    </span>
-                    <RowActionsMenu
-                      items={[
-                        {
-                          label: t("common.delete"),
-                          color: "text-red-500",
-                          onClick: () => handleDeleteSale(cs.id),
-                        },
-                      ]}
-                    />
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs sm:text-sm">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="p-2 sm:p-3 font-medium text-gray-500">
-                            {t("common.product")}
-                          </th>
-                          <th className="p-2 sm:p-3 text-center w-16 font-medium text-gray-500">
-                            {t("common.qty")}
-                          </th>
-                          <th className="p-2 sm:p-3 text-right w-24 font-medium text-gray-500">
-                            {t("common.price")}
-                          </th>
-                          <th className="p-2 sm:p-3 text-right w-24 font-medium text-gray-500">
-                            {t("credits.subtotal")}
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {groupSaleItemsByProduct<any>(
-                          attachSaleVariants(cs.items, cs.sale?.items ?? []),
-                        ).map((group) => {
-                          const key = `${cs.id}:${group.productId}`;
-                          const name = `${group.product?.brand ?? ""} ${
-                            group.product?.baseName ?? ""
-                          }`.trim();
-
-                          // No variants: one plain row, exactly as before.
-                          if (!group.hasVariants) {
-                            const item = group.items[0];
-                            return (
-                              <tr
-                                key={key}
-                                className="border-b last:border-b-0"
-                              >
-                                <td className="p-2 sm:p-3">{name}</td>
-                                <td className="p-2 sm:p-3 text-center">
-                                  {item.quantity}
-                                </td>
-                                <td className="p-2 sm:p-3 text-right">
-                                  {fmtCurrency(item.unitPrice)}
-                                </td>
-                                <td className="p-2 sm:p-3 text-right font-medium">
-                                  {fmtCurrency(item.quantity * item.unitPrice)}
-                                </td>
-                              </tr>
-                            );
-                          }
-
-                          // Variant product: fold its lines, collapsed by default.
-                          const open = expandedVariants.has(key);
-                          return (
-                            <Fragment key={key}>
-                              <tr className="border-b">
-                                <td className="p-2 sm:p-3">
-                                  <button
-                                    type="button"
-                                    aria-expanded={open}
-                                    title={
-                                      open
-                                        ? t("products.collapseVariants")
-                                        : t("products.expandVariants")
-                                    }
-                                    onClick={() => toggleVariantGroup(key)}
-                                    className="flex items-center gap-1.5 text-left"
-                                  >
-                                    <span className="w-3 text-gray-400">
-                                      {open ? "▾" : "▸"}
-                                    </span>
-                                    <span>{name}</span>
-                                    <span className="text-[10px] text-gray-400">
-                                      · {group.items.length}{" "}
-                                      {t("products.variants")}
-                                    </span>
-                                  </button>
-                                </td>
-                                <td className="p-2 sm:p-3 text-center">
-                                  {group.quantity}
-                                </td>
-                                <td className="p-2 sm:p-3 text-right">
-                                  {group.unitPrice === null
-                                    ? "—"
-                                    : fmtCurrency(group.unitPrice)}
-                                </td>
-                                <td className="p-2 sm:p-3 text-right font-medium">
-                                  {fmtCurrency(group.subtotal)}
-                                </td>
-                              </tr>
-                              {open &&
-                                group.items.map((item, i) => (
-                                  <tr
-                                    key={`${key}:${i}`}
-                                    className="border-b last:border-b-0 bg-gray-50/60 text-gray-600"
-                                  >
-                                    <td className="p-2 sm:p-3 pl-8 sm:pl-10 text-[11px] sm:text-xs">
-                                      {variantLabel(item.variant) ||
-                                        t("products.standard")}
-                                    </td>
-                                    <td className="p-2 sm:p-3 text-center text-[11px] sm:text-xs">
-                                      {item.quantity}
-                                    </td>
-                                    <td className="p-2 sm:p-3 text-right text-[11px] sm:text-xs">
-                                      {fmtCurrency(item.unitPrice)}
-                                    </td>
-                                    <td className="p-2 sm:p-3 text-right text-[11px] sm:text-xs">
-                                      {fmtCurrency(
-                                        item.quantity * item.unitPrice,
-                                      )}
-                                    </td>
-                                  </tr>
-                                ))}
-                            </Fragment>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ))}
-          {groupedSales.length === 0 && (
-            <p className="text-center text-gray-400 py-8 text-sm">
-              {t("credits.noCreditSales")}
-            </p>
-          )}
-        </div>
+        <CreditLedgerList
+          entries={salesEntries}
+          dayLabel={(date, count) =>
+            count === 1
+              ? t("credits.salesGroupHeader", { date, count })
+              : t("credits.salesGroupHeaderPlural", { date, count })
+          }
+          emptyLabel={t("credits.noCreditSales")}
+        />
       )}
 
       {tab === "payments" && (
@@ -603,6 +563,62 @@ export default function CustomerDetailPage() {
           </div>
         </div>
       )}
+      {tab === "payables" && (
+        <div className="space-y-4">
+          {/* One line, not a card wall: the same payables the groups below list,
+              read at a glance. The page's own cards cover the customer side. */}
+          <div className="bg-white rounded-xl shadow-sm border px-3 py-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm overflow-hidden">
+            <span className="min-w-0">
+              <span className="text-gray-400">{t("credits.takenOnCredit")}</span>{" "}
+              <strong className="text-gray-800">
+                {fmtCurrency(vendorLedger.taken)}
+              </strong>
+            </span>
+            <span className="min-w-0">
+              <span className="text-gray-400">{t("credits.paidToVendor")}</span>{" "}
+              <strong className="text-green-600">
+                {fmtCurrency(vendorLedger.paid)}
+              </strong>
+            </span>
+            <span className="min-w-0">
+              <span className="text-gray-400">{t("credits.remainingToPay")}</span>{" "}
+              <strong className="text-red-600">
+                {fmtCurrency(vendorLedger.outstanding)}
+              </strong>
+            </span>
+            <span
+              className="min-w-0"
+              title={t("purchases.recordedMarginHint")}
+            >
+              <span className="text-gray-400">
+                {t("purchases.recordedMargin")}
+              </span>{" "}
+              <strong
+                className={
+                  vendorLedger.margin >= 0 ? "text-green-700" : "text-red-700"
+                }
+              >
+                ~{fmtCurrency(vendorLedger.margin)}
+              </strong>
+            </span>
+          </div>
+
+          {/* The same list the Credit Sales tab draws, fed the shop-days of what
+              we took: a header per day, then one entry per shop per day with its
+              products in the item table and each payback under its own row. */}
+          <CreditLedgerList
+            entries={payableEntries}
+            dayLabel={(date, count) =>
+              count === 1
+                ? t("credits.payablesGroupHeader", { date, count })
+                : t("credits.payablesGroupHeaderPlural", { date, count })
+            }
+            emptyLabel={t("credits.noPayables")}
+          />
+        </div>
+      )}
+
+
 
       <Modal
         isOpen={showPayModal}
@@ -836,6 +852,37 @@ export default function CustomerDetailPage() {
           setShowSaleModal(false);
           fetchCustomer();
         }}
+      />
+
+      {/* The other direction on the same ledger: stock taken from this person as
+          a vendor. CREDIT is the default (that is what a payable is) and the
+          vendor is already known, but the switch stays available: a shopkeeper
+          who paid this supplier from the till should not have to leave the
+          customer's page to record it. */}
+      <PurchaseForm
+        isOpen={showPurchaseModal}
+        onClose={() => setShowPurchaseModal(false)}
+        mode="CREDIT"
+        defaultVendorId={customer?.id ?? null}
+        onSaved={() => {
+          setShowPurchaseModal(false);
+          fetchCustomer();
+        }}
+      />
+
+      {/* Paying this vendor back is the same modal the purchases page uses. */}
+      <VendorPaymentModal
+        isOpen={!!payTarget}
+        onClose={() => setPayTarget(null)}
+        purchase={payTarget}
+        onSaved={fetchCustomer}
+      />
+
+      {/* A payables row carries the same record a purchases row does, so it opens
+          the same detail modal. */}
+      <PurchaseDetailModal
+        purchase={viewTarget}
+        onClose={() => setViewTarget(null)}
       />
     </div>
   );
