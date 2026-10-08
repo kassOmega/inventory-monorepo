@@ -115,7 +115,7 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      const res = await api.post("/auth/login", { email, password });
+      const res = await api.post("/auth/login", { identifier: email, password });
       login(res.data.access_token, res.data.user);
     } catch (err: any) {
       if (err?.response?.status === 401) {
@@ -165,10 +165,11 @@ export default function LoginPage() {
           <form onSubmit={handleLogin} className="space-y-4 sm:space-y-5">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t("auth.email")}
+                {t("auth.emailOrPhone")}
               </label>
               <input
-                type="email"
+                type="text"
+                autoComplete="username"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full p-2.5 sm:p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition text-sm"

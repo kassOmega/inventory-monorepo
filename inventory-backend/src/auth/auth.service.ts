@@ -9,6 +9,23 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UserStatus } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+
+/** The relation set loaded for login / payload building (shared shape). */
+const AUTH_USER_INCLUDE = {
+  role: {
+    include: {
+      permissions: { include: { permission: true } },
+    },
+  },
+  location: true,
+  memberships: {
+    include: {
+      organization: true,
+      role: { include: { permissions: { include: { permission: true } } } },
+    },
+  },
+} satisfies Prisma.UserInclude;
 import * as bcrypt from 'bcrypt';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -16,6 +33,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TenantsService } from '../tenants/tenants.service';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { buildTokenClaims, buildUserPayload } from '../common/user-payload.util';
+import { looksLikeEmail, normalizePhone } from '../common/phone.util';
 import { tr } from '../i18n/i18n.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -42,6 +60,37 @@ export class AuthService {
 
   private lockoutKey(email: string, ip?: string): string {
     return `${email.trim().toLowerCase()}|${ip ?? 'unknown'}`;
+  }
+
+  /**
+   * Resolve a login identifier (email OR phone) to a user. Email is matched by
+   * its unique key; phone is normalized and matched case-insensitively. A phone
+   * that maps to more than one account is treated as not found, so we never
+   * guess which account to sign in (the person can use their email instead).
+   */
+  private async findUserByIdentifier(
+    identifier: string,
+    include: typeof AUTH_USER_INCLUDE,
+  ) {
+    if (!identifier) return null;
+    if (looksLikeEmail(identifier)) {
+      return this.prisma.user.findUnique({
+        where: { email: identifier.toLowerCase() },
+        include,
+      });
+    }
+    const phone = normalizePhone(identifier);
+    if (!phone) return null;
+    // Narrow the candidate set with a `contains` on the significant tail, then
+    // confirm with a full normalized comparison (handles +251/0 prefixes and
+    // separators). A phone shared by more than one account is ambiguous → null.
+    const tail = phone.replace(/\D/g, '').slice(-9);
+    const candidates = await this.prisma.user.findMany({
+      where: { phone: { contains: tail } },
+      include,
+    });
+    const matched = candidates.filter((u) => normalizePhone(u.phone) === phone);
+    return matched.length === 1 ? matched[0] : null;
   }
 
   private isBlocked(key: string): boolean {
@@ -182,7 +231,7 @@ export class AuthService {
         email: dto.email,
         password: hashedPassword,
         name: dto.name,
-        phone: dto.phone ?? null,
+        phone: normalizePhone(dto.phone),
         isOwnerAccount: true,
         isPlatformAdmin: false,
       },
@@ -266,7 +315,10 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, ip?: string) {
-    const key = this.lockoutKey(dto.email, ip);
+    // The login identifier is an email OR a phone number. `identifier` is the
+    // preferred field; `email` is kept as a fallback for older clients.
+    const rawIdentifier = (dto.identifier ?? dto.email ?? '').trim();
+    const key = this.lockoutKey(rawIdentifier, ip);
     if (this.isBlocked(key)) {
       throw new HttpException(
         tr('errors.tooManyAttempts'),
@@ -274,23 +326,7 @@ export class AuthService {
       );
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-      include: {
-        role: {
-          include: {
-            permissions: { include: { permission: true } },
-          },
-        },
-        location: true,
-        memberships: {
-          include: {
-            organization: true,
-            role: { include: { permissions: { include: { permission: true } } } },
-          },
-        },
-      },
-    });
+    const user = await this.findUserByIdentifier(rawIdentifier, AUTH_USER_INCLUDE);
 
     if (!user) {
       this.recordFailure(key);
@@ -426,7 +462,7 @@ export class AuthService {
     const updateData: Record<string, unknown> = {};
     if (data.name !== undefined) updateData.name = data.name;
     if (data.email !== undefined) updateData.email = data.email;
-    if (data.phone !== undefined) updateData.phone = data.phone;
+    if (data.phone !== undefined) updateData.phone = normalizePhone(data.phone);
     if (data.preferredLanguage !== undefined) {
       updateData.preferredLanguage = data.preferredLanguage;
     }

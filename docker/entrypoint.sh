@@ -1,9 +1,9 @@
 #!/bin/sh
 # Entrypoint for the combined API + frontend image.
 #
-#   1. apply the Prisma schema with `prisma migrate deploy` (falls back to
-#      `db push` once when no migration tracking table exists). SKIP_MIGRATIONS=1
-#      skips this. RUN_BACKFILLS=1 also applies the idempotent data backfills.
+#   1. apply the Prisma schema and data with `prisma migrate deploy` (falls back
+#      to `db push` once when no migration tracking table exists). SKIP_MIGRATIONS=1
+#      skips this. Data backfills are committed SQL migrations, not run here.
 #   2. start the NestJS API on BACKEND_PORT (default 3000)
 #   3. wait until it accepts connections (when the frontend is also started)
 #   4. start the Next.js standalone server on PORT (default 3001, published)
@@ -96,45 +96,20 @@ NODE
       echo "[entrypoint] prisma db push failed - refusing to start the API" >&2
       exit 1
     fi
-  fi
-
-  # Role-permission reconciliation is idempotent and cheap, and keeps the menu
-  # consistent with each role's real permissions (a stale grant would otherwise
-  # show menu items the role can no longer use). Always reconcile role perms.
-  for script in \
-    backfill-hospitality-role-permissions \
-    backfill-customer-permissions \
-    backfill-carwash-role-permissions \
-    backfill-carwash-permission-prune; do
-    file="dist/prisma/${script}.js"
-    if [ -f "$file" ]; then
-      echo "[entrypoint] reconciling roles -> ${script}"
-      node "$file" || {
-        echo "[entrypoint] backfill ${script} failed - refusing to start the API" >&2
-        exit 1
-      }
-    fi
-  done
-
-  # Heavier data backfills (default seed data). NOT run by default so container
-  # starts stay fast; set RUN_BACKFILLS=1 for the deploy that introduces new
-  # default data. Each script is safe to re-run.
-  if [ "${RUN_BACKFILLS:-0}" = "1" ]; then
-    echo "[entrypoint] RUN_BACKFILLS=1 - applying idempotent data backfills"
-    for script in \
-      backfill-guest-id-types \
-      backfill-room-charges \
-      backfill-carwash-vehicle-types \
-      backfill-carwash-wash-types; do
-      file="dist/prisma/${script}.js"
-      if [ -f "$file" ]; then
-        echo "[entrypoint]   -> ${script}"
-        node "$file" || {
-          echo "[entrypoint] backfill ${script} failed - refusing to start the API" >&2
+    # Legacy (db push) databases skip `migrate deploy`, so apply the committed
+    # DATA migrations directly (idempotent SQL). Schema is already synced by the
+    # `db push` above; these migrations reconcile role permissions to the code
+    # baselines. Applying the same SQL as `migrate deploy` keeps one source of
+    # truth (no separate backfill scripts).
+    for migration in \
+      prisma/migrations/20261013000000_reconcile_role_permissions/migration.sql \
+      prisma/migrations/20261013000001_carwash_prune_foreign_grants/migration.sql; do
+      if [ -f "$migration" ]; then
+        echo "[entrypoint] baselining data -> $migration"
+        if ! npx --no-install prisma db execute --file "$migration" --schema prisma/schema.prisma; then
+          echo "[entrypoint] applying $migration failed - refusing to start the API" >&2
           exit 1
-        }
-      else
-        echo "[entrypoint]   -> ${script} (skipped: $file not found)"
+        fi
       fi
     done
   fi

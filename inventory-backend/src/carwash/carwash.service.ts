@@ -18,6 +18,7 @@ import {
 } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
+import { normalizePhone } from '../common/phone.util';
 import { tr } from '../i18n/i18n.service';
 import { FinanceService } from '../finance/finance.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -297,7 +298,7 @@ export class CarWashService {
               email: dto.email,
               password: hashed,
               name: dto.name,
-              phone: dto.phone,
+              phone: normalizePhone(dto.phone),
             },
           });
         }
@@ -321,7 +322,7 @@ export class CarWashService {
             tenantId,
             userId: user.id,
             name: dto.name,
-            phone: dto.phone,
+            phone: normalizePhone(dto.phone),
             commissionRate: dto.commissionRate ?? 50,
             isActive: dto.isActive ?? true,
           },
@@ -345,7 +346,7 @@ export class CarWashService {
       where: { id },
       data: {
         name: dto.name,
-        phone: dto.phone,
+        phone: dto.phone !== undefined ? normalizePhone(dto.phone) : undefined,
         commissionRate: dto.commissionRate,
         isActive: dto.isActive,
       },
@@ -357,7 +358,7 @@ export class CarWashService {
         where: { id: existing.userId },
         data: {
           ...(dto.name ? { name: dto.name } : {}),
-          ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
+          ...(dto.phone !== undefined ? { phone: normalizePhone(dto.phone) } : {}),
           ...(dto.email ? { email: dto.email } : {}),
         },
       });

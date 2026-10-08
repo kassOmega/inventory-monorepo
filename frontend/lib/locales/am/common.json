@@ -823,7 +823,8 @@
     "createOne": "አዲስ ይፍጠሩ",
     "signInInstead": "ይልቁንስ ይግቡ",
     "logoutSuccess": "በተሳካ ሁኔታ ወጥተዋል።",
-    "sessionExpired": "ክፍለ ጊዜዎ አልቋል። እባክዎ እንደገና ይግቡ።"
+    "sessionExpired": "ክፍለ ጊዜዎ አልቋል። እባክዎ እንደገና ይግቡ።",
+    "emailOrPhone": "ኢሜይል ወይም ስልክ ቁጥር"
   },
   "roles": {
     "addRoleBtn": "+ ሚና ያክሉ",

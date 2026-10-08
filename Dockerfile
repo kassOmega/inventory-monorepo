@@ -13,11 +13,12 @@
 # Run:
 #   docker run --rm -p 3001:3001 --env-file inventory-backend/.env inventory:local
 #
-# NOTE: schema changes are applied from docker/entrypoint.sh at container
-# start (`prisma migrate deploy`, with a one-time `db push` baseline for
-# databases created before migration tracking existed). Set SKIP_MIGRATIONS=1 to
-# opt out and keep applying schema changes as a separate deploy step instead.
-# Set RUN_BACKFILLS=1 on a deploy to apply the idempotent data backfills.
+# NOTE: schema and data changes are applied from docker/entrypoint.sh at
+# container start (`prisma migrate deploy`, with a one-time `db push` baseline
+# for databases created before migration tracking existed). Set SKIP_MIGRATIONS=1
+# to opt out and keep applying migrations as a separate deploy step instead.
+# Data backfills are committed as SQL migrations, so no separate backfill step
+# runs at start.
 
 # =============================================================================
 # 1. Backend (NestJS) build
@@ -49,8 +50,8 @@ RUN npx prisma generate
 
 COPY inventory-backend/nest-cli.json inventory-backend/tsconfig.json inventory-backend/tsconfig.build.json inventory-backend/tsconfig.scripts.json ./
 COPY inventory-backend/src ./src
-# Deliberately `nest build` and not `npm run build`: that script runs
-# `prisma db push` + backfill scripts against a live database. -> dist/main.js
+# Deliberately `nest build` and not `npm run build`: that script can run
+# Prisma commands + backfill scripts against a live database. -> dist/main.js
 RUN npx nest build
 
 # Compile Prisma seed/backfill scripts to JS so production containers can run

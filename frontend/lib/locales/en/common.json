@@ -823,7 +823,8 @@
     "createOne": "Create one",
     "signInInstead": "Sign in instead",
     "logoutSuccess": "Logged out successfully.",
-    "sessionExpired": "Your session has expired. Please log in again."
+    "sessionExpired": "Your session has expired. Please log in again.",
+    "emailOrPhone": "Email or phone"
   },
   "roles": {
     "addRoleBtn": "+ Add Role",
