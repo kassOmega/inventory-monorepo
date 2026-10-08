@@ -1,7 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
-import { ListFilters, SelectField } from "@/app/components/ListFilters";
+import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
 import Modal from "@/app/components/Modal";
 import SearchableSelect from "@/app/components/SearchableSelect";
 import { useAuth } from "@/context/AuthContext";
@@ -100,17 +100,20 @@ export default function CarWashEquipmentPage() {
       </div>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
 
-      <ListFilters>
-        <SelectField
-          value={paidFilter}
-          onChange={setPaidFilter}
-          allLabel={t("carwash.paid") + " / " + t("carwash.unpaid")}
-          options={[
-            { value: "paid", label: t("carwash.paid") },
-            { value: "unpaid", label: t("carwash.unpaid") },
-          ]}
-        />
-      </ListFilters>
+      <FilterPanel
+        extra={
+          <FilterSelect
+            value={paidFilter}
+            onChange={setPaidFilter}
+            label={t("carwash.paid") + " / " + t("carwash.unpaid")}
+            allLabel={t("carwash.paid") + " / " + t("carwash.unpaid")}
+            options={[
+              { value: "paid", label: t("carwash.paid") },
+              { value: "unpaid", label: t("carwash.unpaid") },
+            ]}
+          />
+        }
+      />
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
         <table className="w-full text-sm">

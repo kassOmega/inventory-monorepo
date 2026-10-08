@@ -773,6 +773,87 @@ export class FinanceService {
     return income;
   }
 
+  /**
+   * Posts a completed car-wash job's revenue (and, optionally, the washer
+   * commission expense) to the ledger, inside the caller's transaction:
+   *   - OtherIncome (source='CARWASH_WASH', idempotent by wash id) + a journal
+   *     entry Debiting Cash and Crediting the car-wash revenue account.
+   *   - A Washer Commission Expense journal line (Debit commission, Credit the
+   *     revenue account reduces owner share) so the P&L reflects both sides.
+   * The company never posts an in-progress wash — only completion calls this.
+   */
+  async postCarWashIncome(args: {
+    tx: any;
+    tenantId: number;
+    washId: number;
+    revenueAccountId: number;
+    commissionAccountId?: number | null;
+    description: string;
+    revenue: number;
+    commission: number;
+    incomeDate: Date;
+    createdById?: number | null;
+  }) {
+    const { tx, tenantId, washId } = args;
+    const existing = await tx.otherIncome.findFirst({
+      where: { tenantId, source: 'CARWASH_WASH', sourceId: washId },
+    });
+    if (existing) return existing;
+
+    const cash = await tx.account.findFirst({
+      where: { tenantId, name: 'Cash', type: AccountType.ASSET },
+    });
+    const income = await tx.otherIncome.create({
+      data: {
+        tenantId,
+        accountId: args.revenueAccountId,
+        source: 'CARWASH_WASH',
+        sourceId: washId,
+        description: args.description,
+        amount: args.revenue,
+        incomeDate: args.incomeDate,
+        createdById: args.createdById ?? null,
+      },
+    });
+
+    if (!cash) {
+      this.logger.warn(
+        `Car-wash wash #${washId} was posted but its CWJ journal entry was skipped - no 'Cash' account is configured for this organization.`,
+      );
+      return income;
+    }
+
+    const entry = await tx.journalEntry.create({
+      data: {
+        tenantId,
+        reference: `CWJ-${washId}`,
+        description: args.description,
+        entryDate: args.incomeDate,
+        createdById: args.createdById ?? null,
+      },
+    });
+    const lines: Array<{
+      tenantId: number;
+      journalEntryId: number;
+      accountId: number;
+      debit: number;
+      credit: number;
+    }> = [
+      { tenantId, journalEntryId: entry.id, accountId: cash.id, debit: args.revenue, credit: 0 },
+      { tenantId, journalEntryId: entry.id, accountId: args.revenueAccountId, debit: 0, credit: args.revenue },
+    ];
+    if (args.commission > 0 && args.commissionAccountId) {
+      // Owner share = revenue - commission: reclass the commission from revenue
+      // to the commission expense so both sides land in the P&L.
+      lines.push(
+        { tenantId, journalEntryId: entry.id, accountId: args.commissionAccountId, debit: args.commission, credit: 0 },
+        { tenantId, journalEntryId: entry.id, accountId: args.revenueAccountId, debit: args.commission, credit: 0 },
+      );
+    }
+    await tx.journalLine.createMany({ data: lines });
+    return income;
+  }
+
   // --- Auto income from confirmed order payments ---
   /**
    * Posts categorized OtherIncome rows for a paid order, one per menu category,

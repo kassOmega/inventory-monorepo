@@ -29,6 +29,12 @@ export class RolesController {
     return this.service.findPermissions();
   }
 
+  @Get(':id')
+  @Permissions('users.view', 'users.manage', 'roles.manage')
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.service.findOne(id);
+  }
+
   @Post()
   create(@Body() dto: CreateRoleDto) {
     return this.service.create(dto);

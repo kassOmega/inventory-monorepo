@@ -12,7 +12,9 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateWasherDto {
   @IsString()
@@ -143,6 +145,33 @@ export class UpdateVehicleDto {
   vehicleType?: string;
 }
 
+export class CreateBookingItemDto {
+  @IsOptional()
+  @IsInt()
+  vehicleId?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  vehicleType?: string;
+
+  @IsOptional()
+  @IsInt()
+  washTypeId?: number | null;
+
+  @IsOptional()
+  @Min(0)
+  amount?: number;
+
+  @IsOptional()
+  @IsDateString()
+  date?: string;
+
+  @IsOptional()
+  @IsDateString()
+  startsAt?: string;
+}
+
 export class CreateBookingDto {
   @IsOptional()
   @IsInt()
@@ -185,6 +214,14 @@ export class CreateBookingDto {
   @IsString()
   @MaxLength(300)
   notes?: string;
+
+  /// Multiple vehicles in one booking. When omitted, the single `vehicleId`
+  /// fields above are wrapped into one item (backward compatible).
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateBookingItemDto)
+  items?: CreateBookingItemDto[];
 }
 
 export class UpdateBookingStatusDto {

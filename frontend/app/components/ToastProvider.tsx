@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -24,10 +25,13 @@ export function useToast() {
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
-  let id = 0;
+  // A ref (not a local `let`) so ids stay unique across renders — a local counter
+  // resets to 0 every render, which produces duplicate React keys and wedges the
+  // toast list.
+  const nextId = useRef(0);
 
   const add = useCallback((message: string, type: Toast["type"]) => {
-    const tid = ++id;
+    const tid = ++nextId.current;
     setToasts((prev) => [...prev, { id: tid, message, type }]);
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== tid)), 3000);
   }, []);

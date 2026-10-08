@@ -311,6 +311,24 @@ export default function FinancePage() {
           tone: "red",
         },
       ];
+    if (businessType === "CAR_WASH")
+      return [
+        {
+          label: t("fin.cardCarWashRevenue"),
+          value: incomeCard(["Car Wash Revenue"], ["4010"]),
+          tone: "gray",
+        },
+        {
+          label: t("fin.cardEquipmentRevenue"),
+          value: incomeCard(["Equipment Revenue"], ["4110"]),
+          tone: "gray",
+        },
+        {
+          label: t("fin.cardWasherCommission"),
+          value: expenseCard(["Washer Commission Expense"], ["5040"]),
+          tone: "red",
+        },
+      ];
     // Retail & Distribution (default)
     return [
       {

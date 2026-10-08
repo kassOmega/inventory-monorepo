@@ -1266,7 +1266,24 @@
     "addVehicleType": "የተሽከርካሪ አይነት ጨምር",
     "noVehicleTypes": "ገና የተሽከርካሪ አይነቶች የሉም",
     "price": "ዋጋ",
-    "addCustomer": "ደንበኛ ጨምር"
+    "addCustomer": "ደንበኛ ጨምር",
+    "period": "ጊዜ",
+    "today": "ዛሬ",
+    "thisWeek": "በዚህ ሳምንት",
+    "thisMonth": "በዚህ ወር",
+    "thisYear": "በዚህ ዓመት",
+    "custom": "ብጁ",
+    "allWashers": "ሁሉም ሰራተኞች",
+    "allWashTypes": "ሁሉም የማጠቢያ ዓይነቶች",
+    "allCategories": "ሁሉም ምድቦች",
+    "allVehicleTypes": "ሁሉም የተሽከርካሪ ዓይነቶች",
+    "allStatus": "ሁሉም ሁኔታ",
+    "collectionSettled": "ተሰብስቧል",
+    "washerReports": "የሰራተኞች ሪፖርቶች",
+    "collected": "የተሰበሰበ",
+    "gap": "ቀሪ",
+    "noGap": "የሚሰበሰብ የለም",
+    "needVehicle": "ቢያንስ አንድ ተሽከርካሪ ያክሉ"
   },
   "verticals": {
     "retail": "ችርቻሮ እና ስርጭት",
@@ -2091,7 +2108,10 @@
     "descriptionPh": "ምሳሌ፦ የመሳሪያ ሽያጭ፣ ተመላሽ",
     "newCategoryHint": "+ አዲስ ምድብ (ሒሳብ ይፍጠሩ)",
     "postsHint": "ይመዘገባል፦ ዴቢት {{debit}} ↔ ክሬዲት {{credit}}",
-    "cash": "ጥሬ ገንዘብ"
+    "cash": "ጥሬ ገንዘብ",
+    "cardCarWashRevenue": "የመኪና ማጠቢያ ገቢ",
+    "cardEquipmentRevenue": "የመሳሪያ ገቢ",
+    "cardWasherCommission": "የሰራተኛ ኮሚሽን"
   },
   "sr": {
     "viewSummary": "ማጠቃለያ",

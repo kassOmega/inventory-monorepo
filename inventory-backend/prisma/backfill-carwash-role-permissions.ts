@@ -46,7 +46,9 @@ async function main() {
       organization: { businessType: 'CAR_WASH' },
     },
     include: {
-      permissions: { include: { permission: { select: { key: true } } } },
+      permissions: {
+        include: { permission: { select: { id: true, key: true } } },
+      },
       organization: { select: { id: true, name: true, businessType: true } },
     },
     orderBy: [{ organizationId: 'asc' }, { id: 'asc' }],
@@ -54,6 +56,7 @@ async function main() {
 
   let touched = 0;
   let granted = 0;
+  let revoked = 0;
   let clean = 0;
   const perOrg = new Map<number, number>();
 
@@ -61,7 +64,12 @@ async function main() {
     const target = CAR_WASH_ROLE_GRANTS[role.systemKey!] ?? [];
     const existing = role.permissions.map((p) => p.permission.key);
     const missing = missingRoleGrants(existing, target);
-    if (missing.length === 0) {
+    // System roles are reconciled EXACTLY to the target: the Washer baseline was
+    // intentionally narrowed, so grants beyond it must be removed too. Owners can
+    // re-grant extras per role afterwards.
+    const targetSet = new Set(target);
+    const extra = role.permissions.filter((p) => !targetSet.has(p.permission.key));
+    if (missing.length === 0 && extra.length === 0) {
       clean += 1;
       continue;
     }
@@ -71,25 +79,37 @@ async function main() {
     console.log(
       `${DRY_RUN ? '→' : '✅'} ${orgName} (#${orgId}) ${role.name} [${role.systemKey}]`,
     );
-    console.log(`     + ${missing.join(', ')}`);
+    if (missing.length) console.log(`     + ${missing.join(', ')}`);
+    if (extra.length) console.log(`     - ${extra.map((e) => e.permission.key).join(', ')}`);
 
     if (!DRY_RUN) {
-      await prisma.rolePermission.createMany({
-        data: missing.map((key) => ({
-          roleId: role.id,
-          permissionId: permissionIdByKey[key],
-        })),
-        skipDuplicates: true,
-      });
+      if (missing.length) {
+        await prisma.rolePermission.createMany({
+          data: missing.map((key) => ({
+            roleId: role.id,
+            permissionId: permissionIdByKey[key],
+          })),
+          skipDuplicates: true,
+        });
+      }
+      if (extra.length) {
+        await prisma.rolePermission.deleteMany({
+          where: {
+            roleId: role.id,
+            permissionId: { in: extra.map((e) => e.permissionId) },
+          },
+        });
+      }
     }
     touched += 1;
     granted += missing.length;
-    perOrg.set(orgId, (perOrg.get(orgId) ?? 0) + missing.length);
+    revoked += extra.length;
+    perOrg.set(orgId, (perOrg.get(orgId) ?? 0) + missing.length + extra.length);
   }
 
   const manual = await prisma.role.count({ where: { systemKey: null } });
   console.log(
-    `\nDone. ${touched} role(s) updated, ${granted} permission grant(s) ${DRY_RUN ? 'pending' : 'written'}, ${clean} already current.`,
+    `\nDone. ${touched} role(s) updated, ${granted} grant(s), ${revoked} revoke(s) ${DRY_RUN ? 'pending' : 'written'}, ${clean} already current.`,
   );
   console.log(
     `     ${manual} hand-made role(s) left untouched (no systemKey), ${perOrg.size} organization(s) affected.`,

@@ -81,6 +81,7 @@ const TENANT_MODELS = new Set([
   'CarWashPrice',
   'CarWashVehicle',
   'CarWashBooking',
+  'CarWashBookingItem',
   'CarWash',
   'CarWashEquipmentIssue',
   'CarWashCollection',

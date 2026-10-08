@@ -110,6 +110,7 @@ NODE
       backfill-hospitality-role-permissions \
       backfill-customer-permissions \
       backfill-carwash-role-permissions \
+      backfill-carwash-permission-prune \
       backfill-carwash-vehicle-types \
       backfill-carwash-wash-types; do
       file="dist/prisma/${script}.js"

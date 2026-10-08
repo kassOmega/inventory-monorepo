@@ -30,6 +30,10 @@ export const enMessages: Record<string, any> = {
       'A business must be selected to create a customer.',
     mustBeAssignedToShop: 'You must be assigned to a shop',
     onlyShopkeepersCreatePurchases: 'Only shopkeepers can create purchases',
+    collectionAlreadySettled:
+      'This day has already been settled. The collection was recorded in full.',
+    carWashExpenseAccountMissing:
+      'No chart-of-accounts expense account matches "{category}". Add it in Finance → Chart of Accounts.',
     cashMethodRequired:
       'No "Cash" payment method found. Please add one first.',
     purchaseNotFound: 'Purchase not found',

@@ -159,33 +159,33 @@ export default function CreditsPage() {
         </label>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-        <table className="w-full text-left text-xs sm:text-sm">
+      <div className="bg-white rounded-xl shadow-sm border overflow-x-auto">
+        <table className="w-full text-left text-xs sm:text-sm min-w-[820px]">
           <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="p-2 sm:p-3 md:p-4">{t("credits.name")}</th>
-              <th className="p-2 sm:p-3 md:p-4 hidden sm:table-cell">{t("credits.phone")}</th>
-              <th className="p-2 sm:p-3 md:p-4 text-right">{t("credits.totalCredits")}</th>
-              <th className="p-2 sm:p-3 md:p-4 text-right hidden sm:table-cell">
+              <th className="p-2 sm:p-3 md:p-4 whitespace-nowrap">{t("credits.name")}</th>
+              <th className="p-2 sm:p-3 md:p-4 hidden sm:table-cell whitespace-nowrap">{t("credits.phone")}</th>
+              <th className="p-2 sm:p-3 md:p-4 text-right whitespace-nowrap">{t("credits.totalCredits")}</th>
+              <th className="p-2 sm:p-3 md:p-4 text-right hidden sm:table-cell whitespace-nowrap">
                 {t("credits.totalPaid")}
               </th>
               <th
-                className="p-2 sm:p-3 md:p-4 text-right"
+                className="p-2 sm:p-3 md:p-4 text-right whitespace-nowrap"
                 title={t("credits.netHint")}
               >
                 {t("credits.remaining")}
               </th>
-              <th className="p-2 sm:p-3 md:p-4 text-right hidden sm:table-cell">
+              <th className="p-2 sm:p-3 md:p-4 text-right hidden sm:table-cell whitespace-nowrap">
                 {t("credits.takenOnCredit")}
               </th>
               <th
-                className="p-2 sm:p-3 md:p-4 text-right hidden sm:table-cell"
+                className="p-2 sm:p-3 md:p-4 text-right hidden sm:table-cell whitespace-nowrap"
                 title={t("credits.netHint")}
               >
                 {t("credits.remainingToPay")}
               </th>
-              <th className="p-2 sm:p-3 md:p-4 text-right">{t("credits.netBalance")}</th>
-              <th className="p-2 sm:p-3 md:p-4 text-right">{t("common.actions")}</th>
+              <th className="p-2 sm:p-3 md:p-4 text-right whitespace-nowrap">{t("credits.netBalance")}</th>
+              <th className="p-2 sm:p-3 md:p-4 text-right whitespace-nowrap">{t("common.actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -228,30 +228,30 @@ export default function CreditsPage() {
                     ))}
                   </span>
                 </td>
-                <td className="p-2 sm:p-3 md:p-4 text-gray-500 hidden sm:table-cell">
+                <td className="p-2 sm:p-3 md:p-4 text-gray-500 hidden sm:table-cell whitespace-nowrap">
                   {c.phone || "—"}
                 </td>
-                <td className="p-2 sm:p-3 md:p-4 text-right">
+                <td className="p-2 sm:p-3 md:p-4 text-right whitespace-nowrap">
                   {fmtCurrency(c.totalCredits)}
                 </td>
-                <td className="p-2 sm:p-3 md:p-4 text-right text-green-600 hidden sm:table-cell">
+                <td className="p-2 sm:p-3 md:p-4 text-right text-green-600 hidden sm:table-cell whitespace-nowrap">
                   {fmtCurrency(c.totalPaid)}
                 </td>
                 <td
-                  className={`p-2 sm:p-3 md:p-4 text-right font-bold ${c.remaining > 0 ? "text-red-500" : "text-green-600"}`}
+                  className={`p-2 sm:p-3 md:p-4 text-right font-bold whitespace-nowrap ${c.remaining > 0 ? "text-red-500" : "text-green-600"}`}
                 >
                   {fmtCurrency(c.remaining)}
                 </td>
-                <td className="p-2 sm:p-3 md:p-4 text-right text-gray-500 hidden sm:table-cell">
+                <td className="p-2 sm:p-3 md:p-4 text-right text-gray-500 hidden sm:table-cell whitespace-nowrap">
                   {fmtCurrency(c.totalTakenOnCredit ?? 0)}
                 </td>
-                <td className="p-2 sm:p-3 md:p-4 text-right text-amber-600 hidden sm:table-cell">
+                <td className="p-2 sm:p-3 md:p-4 text-right text-amber-600 hidden sm:table-cell whitespace-nowrap">
                   {fmtCurrency(c.remainingToPay ?? 0)}
                 </td>
-                <td className="p-2 sm:p-3 md:p-4 text-right">
+                <td className="p-2 sm:p-3 md:p-4 text-right whitespace-nowrap">
                   <NetPill amount={c.netBalance ?? 0} />
                 </td>
-                <td className="p-2 sm:p-3 md:p-4">
+                <td className="p-2 sm:p-3 md:p-4 whitespace-nowrap">
                   <RowActionsMenu
                     items={[
                       {

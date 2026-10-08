@@ -1,5 +1,6 @@
 // src/roles/roles.service.ts
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { BusinessType } from '@prisma/client';
 import { PERMISSION_GROUPS_BY_BUSINESS_TYPE, PERMISSIONS } from '../common/permissions';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { PrismaService } from '../prisma/prisma.service';
@@ -13,15 +14,67 @@ export class RolesService {
 
   constructor(private prisma: PrismaService) {}
 
-  findAll() {
-    return this.prisma.role.findMany({
-      where: { organizationId: getCurrentTenantId() },
-      include: {
-        permissions: { include: { permission: true } },
-        _count: { select: { users: true } },
-      },
-      orderBy: { id: 'asc' },
+  /**
+   * The permission groups the active organization's business type may use. Every
+   * role surface (list, detail, editor) is filtered to this set so a business
+   * never sees another vertical's permissions — even for shared/system roles.
+   */
+  private async allowedGroupsForActiveOrg(): Promise<Set<string> | null> {
+    const tenantId = getCurrentTenantId();
+    if (tenantId == null) return null;
+    const org = await this.prisma.organization.findUnique({
+      where: { id: tenantId },
+      select: { businessType: true },
     });
+    if (!org?.businessType) return null;
+    const groups =
+      PERMISSION_GROUPS_BY_BUSINESS_TYPE[org.businessType as BusinessType];
+    return groups ? new Set(groups) : null;
+  }
+
+  private filterRolePermissions<T extends { permission: { group: string } }>(
+    role: { permissions: T[] },
+    allowed: Set<string> | null,
+  ) {
+    if (!allowed) return role;
+    return {
+      ...role,
+      permissions: role.permissions.filter((rp) =>
+        allowed.has(rp.permission.group),
+      ),
+    };
+  }
+
+  async findAll() {
+    const [roles, allowed] = await Promise.all([
+      this.prisma.role.findMany({
+        where: { organizationId: getCurrentTenantId() },
+        include: {
+          permissions: { include: { permission: true } },
+          _count: { select: { users: true } },
+        },
+        orderBy: { id: 'asc' },
+      }),
+      this.allowedGroupsForActiveOrg(),
+    ]);
+    // Only expose permissions that belong to the active business's catalog, so
+    // the list count and the detail modal never show another vertical's groups.
+    return roles.map((r) => this.filterRolePermissions(r, allowed));
+  }
+
+  async findOne(id: number) {
+    const [role, allowed] = await Promise.all([
+      this.prisma.role.findUnique({
+        where: { id },
+        include: {
+          permissions: { include: { permission: true } },
+          _count: { select: { users: true } },
+        },
+      }),
+      this.allowedGroupsForActiveOrg(),
+    ]);
+    if (!role) throw new BadRequestException(tr('errors.roleNotFound'));
+    return this.filterRolePermissions(role, allowed);
   }
 
   /**
@@ -47,31 +100,19 @@ export class RolesService {
         // Best-effort — listing still proceeds with whatever rows exist.
       }
     }
-    const tenantId = getCurrentTenantId();
-    let allowedGroups: string[] | null = null;
-    if (tenantId != null) {
-      const org = await this.prisma.organization.findUnique({
-        where: { id: tenantId },
-        select: { businessType: true },
-      });
-      if (org?.businessType) {
-        allowedGroups =
-          PERMISSION_GROUPS_BY_BUSINESS_TYPE[org.businessType] ?? null;
-      }
-    }
-
+    const allowed = await this.allowedGroupsForActiveOrg();
     const permissions = await this.prisma.permission.findMany({
       orderBy: [{ group: 'asc' }, { key: 'asc' }],
     });
 
-    if (allowedGroups == null) return permissions;
-    return permissions.filter((p) => allowedGroups.includes(p.group));
+    if (!allowed) return permissions;
+    return permissions.filter((p) => allowed.has(p.group));
   }
 
   async create(dto: CreateRoleDto) {
     const permissionIds = await this.resolvePermissionIds(dto.permissions);
 
-    return this.prisma.role.create({
+    const created = await this.prisma.role.create({
       data: {
         name: dto.name,
         description: dto.description,
@@ -82,17 +123,21 @@ export class RolesService {
       },
       include: { permissions: { include: { permission: true } } },
     });
+    return this.filterRolePermissions(
+      created,
+      await this.allowedGroupsForActiveOrg(),
+    );
   }
 
   async update(id: number, dto: UpdateRoleDto) {
     const role = await this.prisma.role.findUnique({ where: { id } });
     if (!role) throw new BadRequestException(tr('errors.roleNotFound'));
-    if (role.isSystem) {
-      throw new BadRequestException(tr('errors.systemRoleNotEditable'));
-    }
 
+    // System/seed roles keep their name (it identifies the role across the
+    // app) but their permissions ARE editable, so a business owner can grant a
+    // Washer extra capabilities on top of the baseline.
     const data: { name?: string; description?: string } = {};
-    if (dto.name) data.name = dto.name;
+    if (!role.isSystem && dto.name) data.name = dto.name;
     if (dto.description !== undefined) data.description = dto.description;
 
     if (Object.keys(data).length > 0) {
@@ -109,10 +154,16 @@ export class RolesService {
       }
     }
 
-    return this.prisma.role.findUnique({
+    const updated = await this.prisma.role.findUnique({
       where: { id },
       include: { permissions: { include: { permission: true } } },
     });
+    return updated
+      ? this.filterRolePermissions(
+          updated,
+          await this.allowedGroupsForActiveOrg(),
+        )
+      : updated;
   }
 
   async remove(id: number) {
@@ -131,8 +182,14 @@ export class RolesService {
   }
 
   private async resolvePermissionIds(keys: string[]) {
+    // Only permissions inside the active business's catalog may be granted, so a
+    // role can never be given another vertical's keys (system or custom).
+    const allowed = await this.allowedGroupsForActiveOrg();
     const permissions = await this.prisma.permission.findMany({
-      where: { key: { in: keys } },
+      where: {
+        key: { in: keys },
+        ...(allowed ? { group: { in: [...allowed] } } : {}),
+      },
     });
     return permissions.map((p) => p.id);
   }

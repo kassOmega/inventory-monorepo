@@ -1142,7 +1142,7 @@
     "settings": "Car Wash Settings",
     "addWasher": "Add Washer",
     "addPrice": "Add Price",
-    "addVehicle": "Add Vehicle",
+    "addVehicle": "Add vehicle",
     "newBooking": "New Booking",
     "recordWash": "Record Wash",
     "issueItem": "Issue Item",
@@ -1266,7 +1266,24 @@
     "addVehicleType": "Add vehicle type",
     "noVehicleTypes": "No vehicle types yet",
     "price": "Price",
-    "addCustomer": "Add customer"
+    "addCustomer": "Add customer",
+    "period": "Period",
+    "today": "Today",
+    "thisWeek": "This Week",
+    "thisMonth": "This Month",
+    "thisYear": "This Year",
+    "custom": "Custom",
+    "allWashers": "All Washers",
+    "allWashTypes": "All Wash Types",
+    "allCategories": "All Categories",
+    "allVehicleTypes": "All Vehicle Types",
+    "allStatus": "All Status",
+    "collectionSettled": "Settled",
+    "washerReports": "Washer Reports",
+    "collected": "Collected",
+    "gap": "Outstanding",
+    "noGap": "Nothing to collect",
+    "needVehicle": "Add at least one vehicle"
   },
   "verticals": {
     "retail": "Retail & Distribution",
@@ -2091,7 +2108,10 @@
     "descriptionPh": "e.g. Equipment sale, Refund",
     "newCategoryHint": "+ New category (create an account)",
     "postsHint": "Posts: Debit {{debit}} ↔ Credit {{credit}}",
-    "cash": "Cash"
+    "cash": "Cash",
+    "cardCarWashRevenue": "Car Wash Revenue",
+    "cardEquipmentRevenue": "Equipment Revenue",
+    "cardWasherCommission": "Washer Commission"
   },
   "sr": {
     "viewSummary": "Summary",

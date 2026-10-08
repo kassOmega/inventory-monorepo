@@ -489,13 +489,9 @@ export const PERMISSION_GROUPS_BY_BUSINESS_TYPE: Record<
     'Car Wash - Collections',
     'Car Wash - Reports',
     'Car Wash - Settings',
-    'Products',
-    'Categories',
     'Customers',
-    'Reports',
     'Users',
     'Roles',
-    'Finance',
     'AI',
     'Agent',
   ],
@@ -645,14 +641,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'carwash.expenses.view',
     'carwash.reports.view',
   ],
-  // Car-wash washer: records washes and sees their own results/commission.
+  // Car-wash washer: records nothing by default — only the dashboard and their
+  // OWN wash report. The business owner grants additional permissions as needed.
   WASHER: [
     'dashboard.view',
-    'carwash.washes.view',
-    'carwash.washes.create',
-    'carwash.washes.edit',
-    'carwash.bookings.view',
-    'carwash.equipment.view',
     'carwash.reports.view',
   ],
   // Front desk: checks guests in/out, takes reservations and settles folios.

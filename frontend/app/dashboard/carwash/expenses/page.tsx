@@ -1,7 +1,8 @@
 "use client";
 
 import api from "@/lib/api";
-import { ListFilters, SearchField } from "@/app/components/ListFilters";
+import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
+import { getDateRange, type DatePreset } from "@/app/components/DateFilter";
 import Modal from "@/app/components/Modal";
 import SearchableSelect from "@/app/components/SearchableSelect";
 import { useAuth } from "@/context/AuthContext";
@@ -18,7 +19,13 @@ export default function CarWashExpensesPage() {
   const [editing, setEditing] = useState<any | null>(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("");
   const [error, setError] = useState("");
+
+  const init = getDateRange("month");
+  const [datePreset, setDatePreset] = useState<DatePreset>("month");
+  const [startDate, setStartDate] = useState(init.start);
+  const [endDate, setEndDate] = useState(init.end);
 
   const canCreate = hasPermission("carwash.expenses.create");
   const canEdit = hasPermission("carwash.expenses.edit");
@@ -26,12 +33,18 @@ export default function CarWashExpensesPage() {
 
   const load = useCallback(async () => {
     try {
-      const r = await api.get("/carwash/expenses");
+      const q = new URLSearchParams({
+        startDate,
+        endDate,
+        ...(category ? { category } : {}),
+        ...(search.trim() ? { search: search.trim() } : {}),
+      });
+      const r = await api.get(`/carwash/expenses?${q.toString()}`);
       setExpenses(r.data);
     } catch (e: any) {
       setError(e?.response?.data?.message ?? t("carwash.failedLoad"));
     }
-  }, [t]);
+  }, [t, startDate, endDate, category, search]);
 
   useEffect(() => {
     load();
@@ -78,10 +91,7 @@ export default function CarWashExpensesPage() {
     }
   };
 
-  const filtered = expenses.filter((x) => {
-    const q = search.toLowerCase();
-    return !q || (x.account?.name ?? x.category ?? "").toLowerCase().includes(q) || (x.notes ?? "").toLowerCase().includes(q);
-  });
+  const filtered = expenses;
 
   return (
     <div className="space-y-6">
@@ -95,9 +105,27 @@ export default function CarWashExpensesPage() {
       </div>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
 
-      <ListFilters>
-        <SearchField value={search} onChange={setSearch} placeholder={t("carwash.category")} />
-      </ListFilters>
+      <FilterPanel
+        showDateFilter
+        datePreset={datePreset}
+        onDatePresetChange={setDatePreset}
+        startDate={startDate}
+        onStartDateChange={setStartDate}
+        endDate={endDate}
+        onEndDateChange={setEndDate}
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("carwash.category")}
+        extra={
+          <FilterSelect
+            value={category}
+            onChange={setCategory}
+            label={t("carwash.category")}
+            allLabel={t("carwash.allCategories")}
+            options={CATEGORIES.map((c) => ({ value: c, label: c }))}
+          />
+        }
+      />
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
         <table className="w-full text-sm">

@@ -18,6 +18,7 @@ import {
 } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
+import { tr } from '../i18n/i18n.service';
 import { FinanceService } from '../finance/finance.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { computeWashCommissions, CommissionedWasher } from './commission';
@@ -63,18 +64,20 @@ export class CarWashService {
     return id;
   }
 
-  // A washer (not a manager/cashier/owner) only sees their own results. Washers
-  // are the only role that can record a wash (`carwash.washes.create`) yet cannot
-  // see collections (`carwash.collections.view`).
+  // A washer only sees their own results. Detection is LINK-BASED (a CarWashWasher
+  // row points at this user) rather than permission-based, because the Washer
+  // baseline grants no wash permissions — the owner adds them if wanted. A
+  // manager/owner who also happens to have a washer row keeps full scope
+  // (they hold `carwash.collections.view`).
   private async washerScope(user?: {
     sub: number;
     permissions: string[];
   }): Promise<number | null> {
     if (!user) return null;
-    const isWasher =
-      user.permissions.includes('carwash.washes.create') &&
-      !user.permissions.includes('carwash.collections.view');
-    if (!isWasher) return null;
+    const isManager =
+      user.permissions.includes('carwash.collections.view') ||
+      user.permissions.includes('carwash.reports.full');
+    if (isManager) return null;
     const washer = await this.prisma.carWashWasher.findFirst({
       where: { userId: user.sub },
     });
@@ -126,13 +129,67 @@ export class CarWashService {
   // -------------------------------------------------------------------------
   // Dashboard
   // -------------------------------------------------------------------------
-  async dashboard(user?: { sub: number; permissions: string[] }) {
-    const now = new Date();
-    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
-    const weekStart = new Date(dayStart.getTime() - 6 * 24 * 60 * 60 * 1000);
+  /**
+   * Resolve a [start, end] range from optional ISO date strings. Defaults to
+   * today when neither is supplied, preserving the original no-param behavior.
+   */
+  /** Format a Date as `YYYY-MM-DD` in the server's local timezone. */
+  private toLocalDay(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
 
-    const washerId = await this.washerScope(user);
+  private resolveRange(startDate?: string, endDate?: string) {
+    const now = new Date();
+    // Parse `YYYY-MM-DD` as a LOCAL calendar day (not UTC midnight) so the
+    // resolved range and the echoed start/end match the dates the user picked,
+    // regardless of the server timezone.
+    const parseDay = (value: string) => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+      if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      const d = new Date(value);
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    };
+    const start = startDate
+      ? parseDay(startDate)
+      : new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startDay = new Date(
+      start.getFullYear(),
+      start.getMonth(),
+      start.getDate(),
+    );
+    const end = endDate ? parseDay(endDate) : start;
+    const endDay = new Date(
+      end.getFullYear(),
+      end.getMonth(),
+      end.getDate(),
+    );
+    // Inclusive end-of-day.
+    const endExclusive = new Date(endDay.getTime() + 24 * 60 * 60 * 1000);
+    return { start: startDay, endExclusive };
+  }
+
+  async dashboard(
+    user?: { sub: number; permissions: string[] },
+    filters?: {
+      startDate?: string;
+      endDate?: string;
+      washerId?: number;
+      washTypeId?: number;
+      vehicleType?: string;
+    },
+  ) {
+    const { start, endExclusive } = this.resolveRange(
+      filters?.startDate,
+      filters?.endDate,
+    );
+
+    // A washer only ever sees their own washes; the scope is forced and any
+    // supplied `washerId` filter is ignored for them (cannot widen scope).
+    const scopeWasherId = await this.washerScope(user);
+    const washerId = scopeWasherId ?? filters?.washerId ?? null;
     const washerWhere = washerId
       ? {
           OR: [
@@ -141,64 +198,73 @@ export class CarWashService {
           ],
         }
       : {};
+    const typeWhere = {
+      ...(filters?.washTypeId != null ? { washTypeId: filters.washTypeId } : {}),
+      ...(filters?.vehicleType ? { vehicleType: filters.vehicleType } : {}),
+    };
+    const rangeWhere = { date: { gte: start, lt: endExclusive } };
+    const where = { ...rangeWhere, ...washerWhere, ...typeWhere };
 
-    const [washesToday, washesWeek, activeWashers, openBookings, washer] =
-      await Promise.all([
-        this.prisma.carWash.findMany({
-          where: { date: { gte: dayStart, lt: dayEnd }, ...washerWhere },
-          include: { washer: true, participantWashers: true },
-        }),
-        this.prisma.carWash.findMany({
-          where: { date: { gte: weekStart, lt: dayEnd }, ...washerWhere },
-          include: { washer: true, participantWashers: true },
-        }),
-        this.prisma.carWashWasher.count({ where: { isActive: true } }),
-        this.prisma.carWashBooking.count({
-          where: {
-            status: {
-              in: [CarWashBookingStatus.PENDING, CarWashBookingStatus.SERVING],
-            },
+    const [washes, activeWashers, openBookings, washer] = await Promise.all([
+      this.prisma.carWash.findMany({
+        where,
+        include: { washer: true, participantWashers: true },
+      }),
+      this.prisma.carWashWasher.count({ where: { isActive: true } }),
+      this.prisma.carWashBooking.count({
+        where: {
+          status: {
+            in: [CarWashBookingStatus.PENDING, CarWashBookingStatus.SERVING],
           },
-        }),
-        washerId
-          ? this.prisma.carWashWasher.findUnique({ where: { id: washerId } })
-          : Promise.resolve(null),
-      ]);
+        },
+      }),
+      washerId
+        ? this.prisma.carWashWasher.findUnique({ where: { id: washerId } })
+        : Promise.resolve(null),
+    ]);
 
-    const summaryToday = this.summarizeWashes(washesToday);
-    const summaryWeek = this.summarizeWashes(washesWeek);
+    const summary = this.summarizeWashes(washes);
 
+    // Per-day series across the requested range (capped to 62 days for the
+    // chart) so the filter visibly changes the bars.
     const daily: Array<{ date: string; commission: number; revenue: number }> =
       [];
-    if (washerId) {
-      for (let i = 6; i >= 0; i--) {
-        const dStart = new Date(dayStart.getTime() - i * 24 * 60 * 60 * 1000);
-        const dEnd = new Date(dStart.getTime() + 24 * 60 * 60 * 1000);
-        const dayWashes = washesWeek.filter(
-          (w) => w.date >= dStart && w.date < dEnd,
-        );
-        const s = this.summarizeWashes(dayWashes);
-        daily.push({
-          date: dStart.toISOString().slice(0, 10),
-          commission: s.perWasher[washerId] ?? 0,
-          revenue: s.totalRevenue,
-        });
-      }
+    const spanDays = Math.min(
+      Math.round((endExclusive.getTime() - start.getTime()) / 86400000),
+      62,
+    );
+    for (let i = spanDays - 1; i >= 0; i--) {
+      const dStart = new Date(start.getTime() + i * 86400000);
+      const dEnd = new Date(dStart.getTime() + 86400000);
+      const dayWashes = washes.filter(
+        (w) => w.date >= dStart && w.date < dEnd,
+      );
+      const s = this.summarizeWashes(dayWashes);
+      daily.push({
+        date: this.toLocalDay(dStart),
+        commission: washerId
+          ? (s.perWasher[washerId] ?? 0)
+          : s.totalCommission,
+        revenue: s.totalRevenue,
+      });
     }
 
     return {
-      role: washerId ? 'washer' : 'staff',
-      washerId,
+      role: scopeWasherId ? 'washer' : 'staff',
+      washerId: scopeWasherId,
       washerName: washer?.name ?? null,
       commissionRate: washer?.commissionRate ?? null,
-      todayWashes: washesToday.length,
-      todayRevenue: summaryToday.totalRevenue,
+      startDate: this.toLocalDay(start),
+      endDate: this.toLocalDay(new Date(endExclusive.getTime() - 86400000)),
+      todayWashes: washes.length,
+      todayRevenue: summary.totalRevenue,
       todayCommission: washerId
-        ? (summaryToday.perWasher[washerId] ?? 0)
-        : summaryToday.totalCommission,
+        ? (summary.perWasher[washerId] ?? 0)
+        : summary.totalCommission,
       weekCommission: washerId
-        ? (summaryWeek.perWasher[washerId] ?? 0)
-        : summaryWeek.totalCommission,
+        ? (summary.perWasher[washerId] ?? 0)
+        : summary.totalCommission,
+      ownerShare: summary.ownerShare,
       daily,
       activeWashers,
       openBookings,
@@ -427,20 +493,23 @@ export class CarWashService {
   // -------------------------------------------------------------------------
   // Vehicles (customer cars / plate numbers)
   // -------------------------------------------------------------------------
-  listVehicles(search?: string) {
+  listVehicles(search?: string, customerId?: number) {
     return this.prisma.carWashVehicle.findMany({
-      where: search
-        ? {
-            OR: [
-              {
-                plateNumber: { contains: search, mode: 'insensitive' as const },
-              },
-              {
-                vehicleType: { contains: search, mode: 'insensitive' as const },
-              },
-            ],
-          }
-        : undefined,
+      where: {
+        ...(customerId != null ? { customerId } : {}),
+        ...(search
+          ? {
+              OR: [
+                {
+                  plateNumber: { contains: search, mode: 'insensitive' as const },
+                },
+                {
+                  vehicleType: { contains: search, mode: 'insensitive' as const },
+                },
+              ],
+            }
+          : {}),
+      },
       include: { customer: true },
       orderBy: { plateNumber: 'asc' },
       take: 100,
@@ -480,33 +549,99 @@ export class CarWashService {
   // -------------------------------------------------------------------------
   // Bookings (time-slot + walk-in queue)
   // -------------------------------------------------------------------------
-  listBookings(date?: string) {
-    const day = date ? new Date(date) : new Date();
-    const start = new Date(day.getFullYear(), day.getMonth(), day.getDate());
-    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  listBookings(
+    date?: string,
+    filters?: { startDate?: string; endDate?: string; washerId?: number; status?: string },
+  ) {
+    let where: any;
+    if (filters?.startDate || filters?.endDate) {
+      const { start, endExclusive } = this.resolveRange(
+        filters.startDate,
+        filters.endDate,
+      );
+      where = { bookingDate: { gte: start, lt: endExclusive } };
+    } else {
+      const day = date ? new Date(date) : new Date();
+      const start = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+      const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+      where = { bookingDate: { gte: start, lt: end } };
+    }
+    if (filters?.washerId != null) where.washerId = filters.washerId;
+    if (filters?.status) where.status = filters.status as CarWashBookingStatus;
     return this.prisma.carWashBooking.findMany({
-      where: { bookingDate: { gte: start, lt: end } },
-      include: { customer: true, vehicle: true, washer: true },
+      where,
+      include: {
+        customer: true,
+        vehicle: true,
+        washer: true,
+        items: { include: { vehicle: true, washType: true } },
+      },
       orderBy: [{ isTimeSlotBooking: 'asc' }, { startsAt: 'asc' }],
     });
   }
 
   async createBooking(dto: CreateBookingDto) {
+    const tenantId = this.tenantId();
     const startsAt = new Date(dto.startsAt);
+
+    // Items: multi-vehicle payload, or the single-vehicle fields wrapped into
+    // one item for backward compatibility.
+    const items =
+      dto.items && dto.items.length > 0
+        ? dto.items
+        : [
+            {
+              vehicleId: dto.vehicleId ?? null,
+              vehicleType: dto.vehicleType ?? 'Car',
+              amount: dto.amount ?? 0,
+            },
+          ];
+    const totalAmount = items.reduce((s, i) => s + (i.amount ?? 0), 0);
+
+    // Auto queue position: next in that day's queue when not supplied.
+    const dayStart = new Date(startsAt.getFullYear(), startsAt.getMonth(), startsAt.getDate());
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    let positionInQueue = dto.positionInQueue;
+    if (positionInQueue == null) {
+      const last = await this.prisma.carWashBooking.findFirst({
+        where: { bookingDate: { gte: dayStart, lt: dayEnd } },
+        orderBy: { positionInQueue: 'desc' },
+        select: { positionInQueue: true },
+      });
+      positionInQueue = (last?.positionInQueue ?? 0) + 1;
+    }
+
     return this.prisma.carWashBooking.create({
       data: {
-        tenantId: this.tenantId(),
+        tenantId,
         customerId: dto.customerId ?? null,
-        vehicleId: dto.vehicleId ?? null,
+        vehicleId: items[0]?.vehicleId ?? null,
         washerId: dto.washerId ?? null,
-        vehicleType: dto.vehicleType ?? 'Car',
-        amount: dto.amount ?? 0,
+        vehicleType: items[0]?.vehicleType ?? dto.vehicleType ?? 'Car',
+        amount: totalAmount,
         isTimeSlotBooking: dto.isTimeSlotBooking ?? true,
         bookingDate: startsAt,
         startsAt,
         endsAt: dto.endsAt ? new Date(dto.endsAt) : null,
-        positionInQueue: dto.positionInQueue,
+        positionInQueue,
         notes: dto.notes,
+        items: {
+          create: items.map((i) => ({
+            tenantId,
+            vehicleId: i.vehicleId ?? null,
+            vehicleType: i.vehicleType ?? 'Car',
+            washTypeId: i.washTypeId ?? null,
+            amount: i.amount ?? 0,
+            date: i.date ? new Date(i.date) : startsAt,
+            startsAt: i.startsAt ? new Date(i.startsAt) : startsAt,
+          })),
+        },
+      },
+      include: {
+        customer: true,
+        vehicle: true,
+        washer: true,
+        items: { include: { vehicle: true, washType: true } },
       },
     });
   }
@@ -526,14 +661,20 @@ export class CarWashService {
     startDate?: string,
     endDate?: string,
     user?: { sub: number; permissions: string[] },
+    filters?: { washerId?: number; washTypeId?: number },
   ) {
-    const start = startDate
-      ? new Date(startDate)
-      : new Date(new Date().setHours(0, 0, 0, 0));
-    const end = endDate
-      ? new Date(endDate)
-      : new Date(new Date().setHours(23, 59, 59, 999));
-    const washerId = await this.washerScope(user);
+    const { start, endExclusive } =
+      startDate || endDate
+        ? this.resolveRange(startDate, endDate)
+        : (() => {
+            const s = new Date(new Date().setHours(0, 0, 0, 0));
+            const e = new Date(new Date().setHours(23, 59, 59, 999) + 1);
+            return { start: s, endExclusive: e };
+          })();
+    // A washer is always scoped to their own washes (forced); an owner/manager
+    // may narrow to a specific washer via the filter.
+    const scopeWasherId = await this.washerScope(user);
+    const washerId = scopeWasherId ?? filters?.washerId ?? null;
     const washerWhere = washerId
       ? {
           OR: [
@@ -542,8 +683,9 @@ export class CarWashService {
           ],
         }
       : {};
+    const typeWhere = filters?.washTypeId != null ? { washTypeId: filters.washTypeId } : {};
     return this.prisma.carWash.findMany({
-      where: { date: { gte: start, lte: end }, ...washerWhere },
+      where: { date: { gte: start, lt: endExclusive }, ...washerWhere, ...typeWhere },
       include: {
         washer: true,
         participantWashers: true,
@@ -596,10 +738,54 @@ export class CarWashService {
   }
 
   async completeWash(id: number) {
-    await this.assertWash(id);
-    return this.prisma.carWash.update({
+    const wash = await this.prisma.carWash.findUnique({
       where: { id },
-      data: { status: CarWashStatus.COMPLETED, completedAt: new Date() },
+      include: { washer: true, participantWashers: true },
+    });
+    if (!wash) throw new NotFoundException('Wash not found');
+
+    const washersById = new Map<number, CommissionedWasher>();
+    if (wash.washer) washersById.set(wash.washer.id, wash.washer);
+    for (const p of wash.participantWashers) washersById.set(p.id, p);
+    const { totalCommission } = computeWashCommissions({
+      amount: wash.amount,
+      primaryWasherId: wash.washerId,
+      participantWasherIds: wash.participantWashers.map((p) => p.id),
+      washersById,
+    });
+
+    const tenantId = this.tenantId();
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.carWash.update({
+        where: { id },
+        data: { status: CarWashStatus.COMPLETED, completedAt: new Date() },
+      });
+
+      // Only a COMPLETED wash is recognised in the ledger (a wash terminated
+      // before completion posts nothing). Idempotent by wash id.
+      const accounts = await tx.account.findMany({ where: { tenantId } });
+      const revenueAccount =
+        accounts.find((a) => a.name === 'Car Wash Revenue') ??
+        accounts.find((a) => a.name === 'Equipment Revenue') ??
+        accounts.find((a) => a.type === AccountType.INCOME);
+      const commissionAccount = accounts.find(
+        (a) => a.name === 'Washer Commission Expense',
+      );
+      if (revenueAccount && wash.amount > 0) {
+        await this.finance.postCarWashIncome({
+          tx,
+          tenantId,
+          washId: id,
+          revenueAccountId: revenueAccount.id,
+          commissionAccountId: commissionAccount?.id ?? null,
+          description: `Car wash #${id}`,
+          revenue: wash.amount,
+          commission: totalCommission,
+          incomeDate: wash.date,
+          createdById: wash.recordedById ?? null,
+        });
+      }
+      return updated;
     });
   }
 
@@ -687,21 +873,24 @@ export class CarWashService {
   // -------------------------------------------------------------------------
   // Money collection + daily summary
   // -------------------------------------------------------------------------
-  async dailySummary(dateStr?: string) {
-    const day = dateStr ? new Date(dateStr) : new Date();
-    const start = new Date(day.getFullYear(), day.getMonth(), day.getDate());
-    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  async dailySummary(dateStr?: string, endDateStr?: string) {
+    // Single-day (legacy) when only `dateStr` is given; a range when both are.
+    const { start, endExclusive } = this.resolveRange(dateStr, endDateStr);
 
-    const [washes, equipment, expenses] = await Promise.all([
+    const [washes, equipment, expenses, collections] = await Promise.all([
       this.prisma.carWash.findMany({
-        where: { date: { gte: start, lt: end } },
+        where: { date: { gte: start, lt: endExclusive } },
         include: { washer: true, participantWashers: true },
       }),
       this.prisma.carWashEquipmentIssue.findMany({
-        where: { issuedAt: { gte: start, lt: end } },
+        where: { issuedAt: { gte: start, lt: endExclusive } },
       }),
       this.prisma.expense.findMany({
-        where: { expenseDate: { gte: start, lt: end } },
+        where: { expenseDate: { gte: start, lt: endExclusive } },
+      }),
+      this.prisma.carWashCollection.findMany({
+        where: { collectionDate: { gte: start, lt: endExclusive } },
+        select: { totalAmount: true },
       }),
     ]);
 
@@ -709,20 +898,40 @@ export class CarWashService {
     const equipmentRevenue = equipment.reduce((s, e) => s + e.totalAmount, 0);
     const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
     const netProfit = summary.ownerShare - totalExpenses;
+    // Money on the air: the owner share not yet collected. The gap is what is
+    // still outstanding for the range, so the collection button only enables
+    // while a gap remains.
+    const collectedAmount = collections.reduce((s, c) => s + c.totalAmount, 0);
+    const gap = Math.max(0, summary.ownerShare - collectedAmount);
 
     return {
       date: start,
+      startDate: this.toLocalDay(start),
+      endDate: this.toLocalDay(new Date(endExclusive.getTime() - 86400000)),
       totalRevenue: summary.totalRevenue,
       totalCommission: summary.totalCommission,
       ownerShare: summary.ownerShare,
       equipmentRevenue,
       totalExpenses,
       netProfit,
+      collectedAmount,
+      gap,
     };
   }
 
-  listCollections() {
+  listCollections(startDate?: string, endDate?: string) {
+    const where =
+      startDate || endDate
+        ? (() => {
+            const { start, endExclusive } = this.resolveRange(
+              startDate,
+              endDate,
+            );
+            return { collectionDate: { gte: start, lt: endExclusive } };
+          })()
+        : {};
     return this.prisma.carWashCollection.findMany({
+      where,
       include: { collectedBy: true },
       orderBy: { collectionDate: 'desc' },
     });
@@ -735,14 +944,23 @@ export class CarWashService {
     const start = new Date(day.getFullYear(), day.getMonth(), day.getDate());
     const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
 
-    // Balance still owed to the owner after previous collections that day.
-    const prior = await this.prisma.carWashCollection.aggregate({
+    const prior = await this.prisma.carWashCollection.findMany({
       where: { collectionDate: { gte: start, lt: end } },
-      _sum: { totalAmount: true },
+      select: { totalAmount: true, remainingBalance: true },
     });
+    const priorTotal = prior.reduce((s, c) => s + c.totalAmount, 0);
+
+    // A day whose owner share has already been handed over in full is settled:
+    // refuse a second full collection so double-taps can't create duplicates.
+    const alreadySettled = prior.some(
+      (c) => (c.remainingBalance ?? 0) <= 0.0001,
+    );
+    if (alreadySettled && dto.totalAmount == null) {
+      throw new BadRequestException(tr('errors.collectionAlreadySettled'));
+    }
+
     const totalAmount = dto.totalAmount ?? summary.ownerShare;
-    const remainingBalance =
-      summary.ownerShare - (prior._sum.totalAmount ?? 0) - totalAmount;
+    const remainingBalance = summary.ownerShare - priorTotal - totalAmount;
 
     return this.prisma.carWashCollection.create({
       data: {
@@ -796,15 +1014,24 @@ export class CarWashService {
   // -------------------------------------------------------------------------
   // Expenses (simple category -> mapped to the right account under the hood)
   // -------------------------------------------------------------------------
-  listExpenses(startDate?: string, endDate?: string) {
+  listExpenses(
+    startDate?: string,
+    endDate?: string,
+    category?: string,
+    search?: string,
+  ) {
+    const { start, endExclusive } =
+      startDate || endDate ? this.resolveRange(startDate, endDate) : {};
     return this.prisma.expense.findMany({
       where: {
-        ...(startDate || endDate
+        ...(start ? { expenseDate: { gte: start, lt: endExclusive } } : {}),
+        ...(category ? { account: { name: category } } : {}),
+        ...(search
           ? {
-              expenseDate: {
-                ...(startDate ? { gte: new Date(startDate) } : {}),
-                ...(endDate ? { lte: new Date(endDate) } : {}),
-              },
+              OR: [
+                { account: { name: { contains: search, mode: 'insensitive' } } },
+                { notes: { contains: search, mode: 'insensitive' } },
+              ],
             }
           : {}),
       },
@@ -861,14 +1088,17 @@ export class CarWashService {
     });
     if (account) return account.id;
 
-    const fallback = await this.prisma.account.findFirst({
-      where: { tenantId, type: AccountType.EXPENSE },
-      orderBy: { id: 'asc' },
+    // No silent fallback: the category must map to a real COA account so the
+    // posted GL entry lands in the right expense bucket. If the exact account is
+    // missing, try the generic expense accounts before failing loudly.
+    const generic = await this.prisma.account.findFirst({
+      where: { tenantId, name: 'Other Expenses', type: AccountType.EXPENSE },
     });
-    if (!fallback) {
-      throw new BadRequestException('No expense account is configured');
-    }
-    return fallback.id;
+    if (generic) return generic.id;
+
+    throw new BadRequestException(
+      tr('errors.carWashExpenseAccountMissing', { category: target }),
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -1094,18 +1324,25 @@ export class CarWashService {
   // -------------------------------------------------------------------------
   // Washer reports (per-washer commission over a date range)
   // -------------------------------------------------------------------------
-  async washerReports(startDate?: string, endDate?: string) {
-    const start = startDate
-      ? new Date(startDate)
-      : new Date(new Date().setHours(0, 0, 0, 0));
-    const end = endDate
-      ? new Date(endDate)
-      : new Date(new Date().setHours(23, 59, 59, 999));
+  async washerReports(
+    startDate?: string,
+    endDate?: string,
+    user?: { sub: number; permissions: string[] },
+  ) {
+    // Local-day range so a report for "today" includes today's local washes.
+    const { start, endExclusive } = this.resolveRange(startDate, endDate);
+    const end = new Date(endExclusive.getTime() - 1);
+
+    // A washer only sees their own row; owner/manager see every washer.
+    const scopeWasherId = await this.washerScope(user);
 
     const [washers, washes] = await Promise.all([
-      this.prisma.carWashWasher.findMany({ orderBy: { name: 'asc' } }),
+      this.prisma.carWashWasher.findMany({
+        where: scopeWasherId != null ? { id: scopeWasherId } : undefined,
+        orderBy: { name: 'asc' },
+      }),
       this.prisma.carWash.findMany({
-        where: { date: { gte: start, lte: end } },
+        where: { date: { gte: start, lt: endExclusive } },
         include: { washer: true, participantWashers: true },
       }),
     ]);
@@ -1146,6 +1383,63 @@ export class CarWashService {
     return { start, end, washers: report };
   }
 
+  /**
+   * The washes a single washer completed in a date range, each with that
+   * washer's commission share — the drill-down behind the washer report row.
+   * A washer caller is always scoped to their own record.
+   */
+  async washerWashes(
+    washerId: number,
+    startDate?: string,
+    endDate?: string,
+    user?: { sub: number; permissions: string[] },
+  ) {
+    const scopeWasherId = await this.washerScope(user);
+    const effectiveId = scopeWasherId ?? washerId;
+    const { start, endExclusive } = this.resolveRange(startDate, endDate);
+
+    const washes = await this.prisma.carWash.findMany({
+      where: {
+        date: { gte: start, lt: endExclusive },
+        OR: [
+          { washerId: effectiveId },
+          { participantWashers: { some: { id: effectiveId } } },
+        ],
+      },
+      include: {
+        washer: true,
+        participantWashers: true,
+        vehicle: true,
+        customer: true,
+        washType: true,
+      },
+      orderBy: { date: 'desc' },
+    });
+
+    return washes.map((wash) => {
+      const washersById = new Map<number, CommissionedWasher>();
+      if (wash.washer) washersById.set(wash.washer.id, wash.washer);
+      for (const p of wash.participantWashers) washersById.set(p.id, p);
+      const { commissions } = computeWashCommissions({
+        amount: wash.amount,
+        primaryWasherId: wash.washerId,
+        participantWasherIds: wash.participantWashers.map((p) => p.id),
+        washersById,
+      });
+      return {
+        id: wash.id,
+        date: wash.date,
+        status: wash.status,
+        vehicleType: wash.vehicleType,
+        plateNumber: wash.plateNumber,
+        washType: wash.washType?.name ?? null,
+        amount: wash.amount,
+        commission: commissions[effectiveId] ?? 0,
+        customer: wash.customer?.name ?? null,
+      };
+    });
+  }
+
   // -------------------------------------------------------------------------
   // Breakdown report (mirrors the Flutter reports screen): revenue/commission,
   // expenses, equipment revenue (paid vs unpaid), washer earnings, popular
@@ -1156,12 +1450,8 @@ export class CarWashService {
     endDate?: string,
     user?: { sub: number; permissions: string[] },
   ) {
-    const start = startDate
-      ? new Date(startDate)
-      : new Date(new Date().setHours(0, 0, 0, 0));
-    const end = endDate
-      ? new Date(endDate)
-      : new Date(new Date().setHours(23, 59, 59, 999));
+    const { start, endExclusive } = this.resolveRange(startDate, endDate);
+    const end = new Date(endExclusive.getTime() - 1);
     const washerId = await this.washerScope(user);
     const washerWhere = washerId
       ? {

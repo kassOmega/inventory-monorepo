@@ -1,7 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
-import { CheckboxField, ListFilters, SearchField } from "@/app/components/ListFilters";
+import FilterPanel from "@/app/components/FilterPanel";
 import Modal from "@/app/components/Modal";
 import { useAuth } from "@/context/AuthContext";
 import { useTranslation } from "react-i18next";
@@ -97,10 +97,17 @@ export default function CarWashStoreItemsPage() {
       </div>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
 
-      <ListFilters>
-        <SearchField value={search} onChange={setSearch} placeholder={t("carwash.name")} />
-        <CheckboxField checked={lowOnly} onChange={setLowOnly} label={t("carwash.minimumStock")} />
-      </ListFilters>
+      <FilterPanel
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("carwash.name")}
+        extra={
+          <label className="flex items-center gap-2 text-sm text-gray-600 self-end">
+            <input type="checkbox" checked={lowOnly} onChange={(e) => setLowOnly(e.target.checked)} />
+            {t("carwash.minimumStock")}
+          </label>
+        }
+      />
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
         <table className="w-full text-sm">

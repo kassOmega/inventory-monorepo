@@ -3525,6 +3525,7 @@ model CarWashWashType {
 
   prices CarWashPrice[]
   washes CarWash[]
+  bookingItems CarWashBookingItem[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -3571,6 +3572,7 @@ model CarWashVehicle {
 
   bookings CarWashBooking[]
   washes   CarWash[]
+  bookingItems CarWashBookingItem[]
 
   @@unique([tenantId, plateNumber])
   @@index([tenantId])
@@ -3597,9 +3599,34 @@ model CarWashBooking {
   notes             String?
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
+  items             CarWashBookingItem[]
 
   @@index([tenantId, bookingDate])
   @@index([tenantId, status])
+}
+
+/// One vehicle line of a booking. A booking can carry several vehicles, each
+/// with its own wash type and price; the booking header keeps the customer,
+/// washer, time slot and status. When a line is washed it links to the CarWash.
+model CarWashBookingItem {
+  id          Int             @id @default(autoincrement())
+  tenantId    Int
+  bookingId   Int
+  booking     CarWashBooking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  vehicleId   Int?
+  vehicle     CarWashVehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  vehicleType String          @default("Car")
+  washTypeId  Int?
+  washType    CarWashWashType? @relation(fields: [washTypeId], references: [id], onDelete: SetNull)
+  amount      Float           @default(0)
+  date        DateTime?
+  startsAt    DateTime?
+  washId      Int?
+  wash        CarWash?        @relation(fields: [washId], references: [id], onDelete: SetNull)
+  createdAt   DateTime        @default(now())
+
+  @@index([tenantId])
+  @@index([bookingId])
 }
 
 model CarWash {
@@ -3627,6 +3654,7 @@ model CarWash {
   recordedBy         User?           @relation("CarWashRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
+  bookingItems       CarWashBookingItem[]
 
   @@index([tenantId, date])
   @@index([tenantId, washerId])

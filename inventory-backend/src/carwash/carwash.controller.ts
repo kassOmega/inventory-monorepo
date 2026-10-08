@@ -46,8 +46,21 @@ export class CarWashController {
 
   @Get('dashboard')
   @Permissions('carwash.washes.view')
-  dashboard(@Req() req: RequestWithUser) {
-    return this.carwash.dashboard(req.user);
+  dashboard(
+    @Req() req: RequestWithUser,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('washerId') washerId?: string,
+    @Query('washTypeId') washTypeId?: string,
+    @Query('vehicleType') vehicleType?: string,
+  ) {
+    return this.carwash.dashboard(req.user, {
+      startDate,
+      endDate,
+      washerId: washerId ? Number(washerId) : undefined,
+      washTypeId: washTypeId ? Number(washTypeId) : undefined,
+      vehicleType,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -166,8 +179,11 @@ export class CarWashController {
   // -------------------------------------------------------------------------
   @Get('vehicles')
   @Permissions('carwash.vehicles.view')
-  listVehicles(@Query('search') search?: string) {
-    return this.carwash.listVehicles(search);
+  listVehicles(
+    @Query('search') search?: string,
+    @Query('customerId') customerId?: string,
+  ) {
+    return this.carwash.listVehicles(search, customerId ? Number(customerId) : undefined);
   }
 
   @Post('vehicles')
@@ -196,8 +212,19 @@ export class CarWashController {
   // -------------------------------------------------------------------------
   @Get('bookings')
   @Permissions('carwash.bookings.view')
-  listBookings(@Query('date') date?: string) {
-    return this.carwash.listBookings(date);
+  listBookings(
+    @Query('date') date?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('washerId') washerId?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.carwash.listBookings(date, {
+      startDate,
+      endDate,
+      washerId: washerId ? Number(washerId) : undefined,
+      status,
+    });
   }
 
   @Get('bookings/availability')
@@ -244,8 +271,13 @@ export class CarWashController {
     @Req() req: RequestWithUser,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('washerId') washerId?: string,
+    @Query('washTypeId') washTypeId?: string,
   ) {
-    return this.carwash.listWashes(startDate, endDate, req.user);
+    return this.carwash.listWashes(startDate, endDate, req.user, {
+      washerId: washerId ? Number(washerId) : undefined,
+      washTypeId: washTypeId ? Number(washTypeId) : undefined,
+    });
   }
 
   @Post('washes')
@@ -285,10 +317,22 @@ export class CarWashController {
   @Get('reports/washers')
   @Permissions('carwash.reports.view')
   washerReports(
+    @Req() req: RequestWithUser,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {
-    return this.carwash.washerReports(startDate, endDate);
+    return this.carwash.washerReports(startDate, endDate, req.user);
+  }
+
+  @Get('reports/washers/:washerId/washes')
+  @Permissions('carwash.reports.view')
+  washerWashes(
+    @Req() req: RequestWithUser,
+    @Param('washerId', ParseIntPipe) washerId: number,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.carwash.washerWashes(washerId, startDate, endDate, req.user);
   }
 
   @Get('reports/breakdown')
@@ -372,8 +416,10 @@ export class CarWashController {
   listExpenses(
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('category') category?: string,
+    @Query('search') search?: string,
   ) {
-    return this.carwash.listExpenses(startDate, endDate);
+    return this.carwash.listExpenses(startDate, endDate, category, search);
   }
 
   @Post('expenses')
@@ -405,14 +451,22 @@ export class CarWashController {
   // -------------------------------------------------------------------------
   @Get('summary')
   @Permissions('carwash.collections.view', 'carwash.reports.view')
-  dailySummary(@Query('date') date?: string) {
-    return this.carwash.dailySummary(date);
+  dailySummary(
+    @Query('date') date?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    // `date` is the legacy single-day param; startDate/endDate supersede it.
+    return this.carwash.dailySummary(date ?? startDate, endDate);
   }
 
   @Get('collections')
   @Permissions('carwash.collections.view')
-  listCollections() {
-    return this.carwash.listCollections();
+  listCollections(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.carwash.listCollections(startDate, endDate);
   }
 
   @Post('collections')

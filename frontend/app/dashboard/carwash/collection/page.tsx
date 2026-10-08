@@ -2,6 +2,8 @@
 
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { getDateRange, type DatePreset } from "@/app/components/DateFilter";
+import FilterPanel from "@/app/components/FilterPanel";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -11,22 +13,47 @@ export default function CarWashCollectionPage() {
   const { t } = useTranslation();
   const [summary, setSummary] = useState<any>(null);
   const [collections, setCollections] = useState<any[]>([]);
+  const [todayCollections, setTodayCollections] = useState<any[]>([]);
   const [error, setError] = useState("");
   const canRecord = hasPermission("carwash.collections.create");
 
+  const init = getDateRange("month");
+  const [datePreset, setDatePreset] = useState<DatePreset>("month");
+  const [startDate, setStartDate] = useState(init.start);
+  const [endDate, setEndDate] = useState(init.end);
+  const [search, setSearch] = useState("");
+
   const load = useCallback(async () => {
     try {
-      const [s, c] = await Promise.all([api.get("/carwash/summary"), api.get("/carwash/collections")]);
+      const today = new Date().toISOString().slice(0, 10);
+      const [s, c, tc] = await Promise.all([
+        api.get(`/carwash/summary?startDate=${startDate}&endDate=${endDate}`),
+        api.get(`/carwash/collections?startDate=${startDate}&endDate=${endDate}`),
+        // Today's collections decide whether the daily collection is already settled.
+        api.get(`/carwash/collections?startDate=${today}&endDate=${today}`).catch(() => ({ data: [] })),
+      ]);
       setSummary(s.data);
       setCollections(c.data);
+      setTodayCollections(Array.isArray(tc.data) ? tc.data : []);
     } catch (e: any) {
       setError(e?.response?.data?.message ?? t("carwash.failedLoad"));
     }
-  }, [t]);
+  }, [t, startDate, endDate]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // A day is settled once a collection exists whose remaining balance is zero
+  // (the owner share for the day has been handed over in full).
+  const settledToday = todayCollections.some(
+    (c) => (c.remainingBalance ?? 0) <= 0.0001,
+  );
+
+  // The gap is the money still on the air for the selected range: enable the
+  // button only while something is left to collect.
+  const gap = summary?.gap ?? 0;
+  const canCollect = canRecord && gap > 0.0001 && !settledToday;
 
   const recordCollection = async () => {
     setError("");
@@ -43,6 +70,8 @@ export default function CarWashCollectionPage() {
         [t("carwash.totalRevenue"), summary.totalRevenue],
         [t("carwash.totalCommission"), summary.totalCommission],
         [t("carwash.ownerShare"), summary.ownerShare],
+        [t("carwash.collected"), summary.collectedAmount],
+        [t("carwash.gap"), summary.gap],
         [t("carwash.equipmentRevenue"), summary.equipmentRevenue],
         [t("carwash.totalExpenses"), summary.totalExpenses],
         [t("carwash.netProfit"), summary.netProfit],
@@ -62,12 +91,38 @@ export default function CarWashCollectionPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-800">{t("carwash.collection")}</h1>
         {canRecord && (
-          <button onClick={recordCollection} className="bg-gray-800 text-white rounded px-4 py-2 text-sm font-medium">
-            {t("carwash.recordCollection")}
+          <button
+            onClick={recordCollection}
+            disabled={!canCollect}
+            title={!canCollect ? t("carwash.noGap") : undefined}
+            className={
+              !canCollect
+                ? "bg-gray-300 text-gray-600 rounded px-4 py-2 text-sm font-medium cursor-not-allowed"
+                : "bg-gray-800 text-white rounded px-4 py-2 text-sm font-medium"
+            }
+          >
+            {settledToday
+              ? t("carwash.collectionSettled")
+              : gap > 0.0001
+                ? `${t("carwash.recordCollection")} (${t("carwash.gap")}: ${gap.toLocaleString()})`
+                : t("carwash.noGap")}
           </button>
         )}
       </div>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
+
+      <FilterPanel
+        showDateFilter
+        datePreset={datePreset}
+        onDatePresetChange={setDatePreset}
+        startDate={startDate}
+        onStartDateChange={setStartDate}
+        endDate={endDate}
+        onEndDateChange={setEndDate}
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("carwash.collection")}
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         {tiles.map(([label, value]) => (

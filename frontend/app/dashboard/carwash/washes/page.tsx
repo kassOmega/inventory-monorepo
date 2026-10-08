@@ -1,7 +1,8 @@
 "use client";
 
 import api from "@/lib/api";
-import { ListFilters, SearchField, SelectField } from "@/app/components/ListFilters";
+import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
+import { getDateRange, type DatePreset } from "@/app/components/DateFilter";
 import Modal from "@/app/components/Modal";
 import SearchableSelect from "@/app/components/SearchableSelect";
 import AiAutofillCapture from "@/app/components/AiAutofillCapture";
@@ -23,6 +24,12 @@ export default function CarWashWashesPage() {
   const [lastCommission, setLastCommission] = useState<{ ownerShare: number; totalCommission: number } | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [washerId, setWasherId] = useState("");
+  const [washTypeId, setWashTypeId] = useState("");
+  const wsInit = getDateRange("month");
+  const [datePreset, setDatePreset] = useState<DatePreset>("month");
+  const [startDate, setStartDate] = useState(wsInit.start);
+  const [endDate, setEndDate] = useState(wsInit.end);
   const [aiDetected, setAiDetected] = useState<string | null>(null);
   const [customers, setCustomers] = useState<any[]>([]);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
@@ -34,8 +41,14 @@ export default function CarWashWashesPage() {
 
   const load = useCallback(async () => {
     try {
+      const q = new URLSearchParams({
+        startDate,
+        endDate,
+        ...(washerId ? { washerId } : {}),
+        ...(washTypeId ? { washTypeId } : {}),
+      });
       const [w, list, wt, pr, vt] = await Promise.all([
-        api.get("/carwash/washes"),
+        api.get(`/carwash/washes?${q.toString()}`),
         api.get("/carwash/washers"),
         api.get("/carwash/wash-types"),
         api.get("/carwash/prices"),
@@ -49,7 +62,7 @@ export default function CarWashWashesPage() {
     } catch (e: any) {
       setError(e?.response?.data?.message ?? t("carwash.failedLoad"));
     }
-  }, [t]);
+  }, [t, startDate, endDate, washerId, washTypeId]);
 
   useEffect(() => {
     load();
@@ -170,7 +183,12 @@ export default function CarWashWashesPage() {
       (w.washer?.name ?? "").toLowerCase().includes(q) ||
       w.participantWashers.some((p: any) => p.name.toLowerCase().includes(q));
     const matchesStatus = !statusFilter || w.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesWasher =
+      !washerId ||
+      String(w.washerId) === washerId ||
+      w.participantWashers.some((p: any) => String(p.id) === washerId);
+    const matchesWashType = !washTypeId || String(w.washTypeId) === washTypeId;
+    return matchesSearch && matchesStatus && matchesWasher && matchesWashType;
   });
 
   return (
@@ -190,18 +208,46 @@ export default function CarWashWashesPage() {
         </div>
       )}
 
-      <ListFilters>
-        <SearchField value={search} onChange={setSearch} placeholder={t("carwash.washer") + " / " + t("carwash.vehicleType")} />
-        <SelectField
-          value={statusFilter}
-          onChange={setStatusFilter}
-          allLabel={t("carwash.status")}
-          options={[
-            { value: "IN_PROGRESS", label: "IN_PROGRESS" },
-            { value: "COMPLETED", label: "COMPLETED" },
-          ]}
-        />
-      </ListFilters>
+      <FilterPanel
+        showDateFilter
+        datePreset={datePreset}
+        onDatePresetChange={setDatePreset}
+        startDate={startDate}
+        onStartDateChange={setStartDate}
+        endDate={endDate}
+        onEndDateChange={setEndDate}
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("carwash.washer") + " / " + t("carwash.vehicleType")}
+        extra={
+          <>
+            <FilterSelect
+              value={washerId}
+              onChange={setWasherId}
+              label={t("carwash.washer")}
+              allLabel={t("carwash.allWashers")}
+              options={washers.map((w) => ({ value: String(w.id), label: w.name }))}
+            />
+            <FilterSelect
+              value={washTypeId}
+              onChange={setWashTypeId}
+              label={t("carwash.washType")}
+              allLabel={t("carwash.allWashTypes")}
+              options={washTypes.map((w) => ({ value: String(w.id), label: w.name }))}
+            />
+            <FilterSelect
+              value={statusFilter}
+              onChange={setStatusFilter}
+              label={t("carwash.status")}
+              allLabel={t("carwash.allStatus")}
+              options={[
+                { value: "IN_PROGRESS", label: "IN_PROGRESS" },
+                { value: "COMPLETED", label: "COMPLETED" },
+              ]}
+            />
+          </>
+        }
+      />
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
         <table className="w-full text-sm">

@@ -253,6 +253,22 @@ export function verticalForRoute(
   return null;
 }
 
+/**
+ * Shared accounting/reporting routes that only certain business types use. The
+ * generic chart-of-accounts finance surface and the retail reports page are not
+ * meaningful for CAR_WASH (which has its own /dashboard/carwash/* finance and
+ * report pages), so a typed URL must not render them. This mirrors the nav
+ * gating in `buildDashboardNav` and the backend's per-vertical permission
+ * catalog so request, response and display agree.
+ */
+export const routeBusinessTypes: Record<string, string[]> = {
+};
+
+/** Business types allowed to open a shared route, or null when unrestricted. */
+export function businessTypesForRoute(pathname: string): string[] | null {
+  return routeBusinessTypes[pathname] ?? null;
+}
+
 export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
   const t = ctx.t;
   /** Whether the active hospitality business has a given service enabled. */
@@ -410,6 +426,9 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
         label: t("nav.usersAndRoles"),
         permission: ["users.view", "users.manage", "roles.manage"],
       },
+      // One shared reports page for every business; it renders the tab set for
+      // the active business type (retail/manufacturing/hospitality/service/
+      // car wash).
       { href: "/dashboard/reports", label: t("nav.reports"), permission: "reports.view" },
       { href: "/dashboard/forecast", label: t("nav.aiForecast"), permission: "ai.view" },
       { href: "/dashboard/purchase-orders", label: t("nav.purchaseOrders"), permission: "ai.view" },

@@ -1,7 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
-import { ListFilters, SearchField } from "@/app/components/ListFilters";
+import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
 import Modal from "@/app/components/Modal";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useAuth } from "@/context/AuthContext";
@@ -29,6 +29,8 @@ export default function CarWashPricesPage() {
   const [editing, setEditing] = useState<any | null>(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [vehicleTypeFilter, setVehicleTypeFilter] = useState("");
+  const [washTypeFilter, setWashTypeFilter] = useState("");
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"prices" | "washTypes" | "vehicleTypes">("prices");
 
@@ -191,7 +193,15 @@ export default function CarWashPricesPage() {
 
   const filtered = prices.filter((p) => {
     const q = search.toLowerCase();
-    return !q || (p.vehicleType ?? "").toLowerCase().includes(q) || (p.washType?.name ?? "").toLowerCase().includes(q);
+    const matchesSearch =
+      !q ||
+      (p.vehicleType ?? "").toLowerCase().includes(q) ||
+      (p.washType?.name ?? "").toLowerCase().includes(q);
+    const matchesVehicleType =
+      !vehicleTypeFilter || (p.vehicleType ?? "") === vehicleTypeFilter;
+    const matchesWashType =
+      !washTypeFilter || String(p.washTypeId) === washTypeFilter;
+    return matchesSearch && matchesVehicleType && matchesWashType;
   });
 
   return (
@@ -270,9 +280,29 @@ export default function CarWashPricesPage() {
 
       {tab === "prices" && (
         <>
-          <ListFilters>
-            <SearchField value={search} onChange={setSearch} placeholder={t("carwash.vehicleType")} />
-          </ListFilters>
+          <FilterPanel
+            search={search}
+            onSearchChange={setSearch}
+            searchPlaceholder={t("carwash.vehicleType")}
+            extra={
+              <>
+                <FilterSelect
+                  value={vehicleTypeFilter}
+                  onChange={setVehicleTypeFilter}
+                  label={t("carwash.vehicleType")}
+                  allLabel={t("carwash.allVehicleTypes")}
+                  options={vehicleTypes.map((v: any) => ({ value: v.name, label: v.name }))}
+                />
+                <FilterSelect
+                  value={washTypeFilter}
+                  onChange={setWashTypeFilter}
+                  label={t("carwash.washType")}
+                  allLabel={t("carwash.allWashTypes")}
+                  options={washTypes.map((w: any) => ({ value: String(w.id), label: w.name }))}
+                />
+              </>
+            }
+          />
 
           <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
         <table className="w-full text-sm">

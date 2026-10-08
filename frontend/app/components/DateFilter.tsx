@@ -2,7 +2,7 @@
 
 import { useTranslation } from "react-i18next";
 
-type DatePreset = "today" | "week" | "month" | "year";
+export type DatePreset = "today" | "week" | "month" | "year";
 
 /**
  * Compute start → end for a date preset.

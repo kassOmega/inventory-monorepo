@@ -1,7 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
-import { ListFilters, SearchField } from "@/app/components/ListFilters";
+import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
 import Modal from "@/app/components/Modal";
 import { useAuth } from "@/context/AuthContext";
 import { useTranslation } from "react-i18next";
@@ -17,6 +17,7 @@ export default function CarWashWashersPage() {
   const [editing, setEditing] = useState<any | null>(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [error, setError] = useState("");
 
   const canCreate = hasPermission("carwash.washers.create");
@@ -89,7 +90,14 @@ export default function CarWashWashersPage() {
 
   const filtered = washers.filter((w) => {
     const q = search.toLowerCase();
-    return !q || (w.name ?? "").toLowerCase().includes(q) || (w.user?.email ?? "").toLowerCase().includes(q);
+    const matchesSearch =
+      !q ||
+      (w.name ?? "").toLowerCase().includes(q) ||
+      (w.user?.email ?? "").toLowerCase().includes(q);
+    const matchesStatus =
+      !statusFilter ||
+      (statusFilter === "active" ? w.isActive !== false : w.isActive === false);
+    return matchesSearch && matchesStatus;
   });
 
   return (
@@ -104,9 +112,23 @@ export default function CarWashWashersPage() {
       </div>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
 
-      <ListFilters>
-        <SearchField value={search} onChange={setSearch} placeholder={t("carwash.name")} />
-      </ListFilters>
+      <FilterPanel
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("carwash.name")}
+        extra={
+          <FilterSelect
+            value={statusFilter}
+            onChange={setStatusFilter}
+            label={t("carwash.status")}
+            allLabel={t("carwash.allStatus")}
+            options={[
+              { value: "active", label: t("carwash.active") },
+              { value: "inactive", label: t("carwash.inactive") },
+            ]}
+          />
+        }
+      />
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
         <table className="w-full text-sm">

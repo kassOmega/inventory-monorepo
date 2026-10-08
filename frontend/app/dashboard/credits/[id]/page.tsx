@@ -498,12 +498,12 @@ export default function CustomerDetailPage() {
       {tab === "payments" && (
         <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs sm:text-sm">
+            <table className="w-full text-left text-xs sm:text-sm min-w-[640px]">
               <thead className="bg-gray-50 border-b">
                 <tr>
-                  <th className="p-2 sm:p-3 md:p-4">{t("common.date")}</th>
-                  <th className="p-2 sm:p-3 md:p-4 text-right">{t("credits.amount")}</th>
-                  <th className="p-2 sm:p-3 md:p-4">{t("common.notes")}</th>
+                  <th className="p-2 sm:p-3 md:p-4 whitespace-nowrap">{t("common.date")}</th>
+                  <th className="p-2 sm:p-3 md:p-4 text-right whitespace-nowrap">{t("credits.amount")}</th>
+                  <th className="p-2 sm:p-3 md:p-4 whitespace-nowrap">{t("common.notes")}</th>
                   <th className="p-2 sm:p-3 md:p-4">{t("credits.method")}</th>
                   <th className="p-2 sm:p-3 md:p-4 text-right">{t("common.actions")}</th>
                 </tr>

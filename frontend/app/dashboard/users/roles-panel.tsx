@@ -79,20 +79,11 @@ export default function RolesPanel() {
     for (const p of permissions) {
       (map[p.group] ||= []).push(p);
     }
-    // The catalog is filtered to the business type, so include any permission
-    // the role being edited already has that falls outside that filter (e.g.
-    // granted before the vertical filter existed) under its own group — that
-    // way saving the role never silently drops it.
-    if (editing) {
-      for (const rp of editing.permissions) {
-        const p = rp.permission;
-        if (!permissions.some((x) => x.key === p.key)) {
-          (map[p.group] ||= []).push(p);
-        }
-      }
-    }
+    // Every role (system or custom) is strictly limited to the business
+    // catalog: `/roles/permissions` already returns only this business's
+    // groups, and held grants outside it are pruned on save by the backend.
     return map;
-  }, [permissions, editing]);
+  }, [permissions]);
 
   const openCreate = () => {
     setEditing(null);
@@ -238,18 +229,20 @@ export default function RolesPanel() {
                   className="p-2 sm:p-3 md:p-4"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {!role.isSystem && (
-                    <RowActionsMenu
-                      items={[
-                        { label: t("roles.edit"), onClick: () => openEdit(role) },
-                        {
-                          label: t("roles.delete"),
-                          color: "text-red-500",
-                          onClick: () => remove(role),
-                        },
-                      ]}
-                    />
-                  )}
+                  <RowActionsMenu
+                    items={[
+                      { label: t("roles.edit"), onClick: () => openEdit(role) },
+                      ...(role.isSystem
+                        ? []
+                        : [
+                            {
+                              label: t("roles.delete"),
+                              color: "text-red-500",
+                              onClick: () => remove(role),
+                            },
+                          ]),
+                    ]}
+                  />
                 </td>
               </tr>
             ))}
@@ -270,7 +263,9 @@ export default function RolesPanel() {
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="border p-2 rounded-lg w-full text-sm"
+              disabled={!!editing?.isSystem}
+              readOnly={!!editing?.isSystem}
+              className="border p-2 rounded-lg w-full text-sm disabled:bg-gray-100 disabled:text-gray-500"
               placeholder={t("roles.namePh")}
             />
           </div>
@@ -378,7 +373,11 @@ export default function RolesPanel() {
                 {t("roles.permissions")}
               </p>
               <p className="text-xl font-bold text-gray-800 mt-1">
-                {viewing?.permissions.length ?? 0}
+                {
+                  (viewing?.permissions ?? []).filter((rp) =>
+                    permissions.some((p) => p.key === rp.permission.key),
+                  ).length
+                }
               </p>
             </div>
           </div>
@@ -388,7 +387,11 @@ export default function RolesPanel() {
             </p>
             <div className="max-h-72 overflow-y-auto space-y-3">
               {viewing?.permissions.length ? (
-                groupPermissions(viewing.permissions).map(([group, perms]) => (
+                groupPermissions(
+                  viewing.permissions.filter((rp) =>
+                    permissions.some((p) => p.key === rp.permission.key),
+                  ),
+                ).map(([group, perms]) => (
                   <div key={group}>
                     <p className="font-semibold text-xs uppercase tracking-wide text-gray-500 mb-1">
                       {group}

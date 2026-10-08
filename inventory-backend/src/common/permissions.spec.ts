@@ -88,4 +88,41 @@ describe('permission catalog', () => {
       expect(`${role}: ${unknown.join(',')}`).toBe(`${role}: `);
     }
   });
+
+  it('keeps the CAR_WASH catalog car-wash specific', () => {
+    // The Roles & Permissions editor renders exactly this group list, so it must
+    // never leak another vertical's groups (the bug this guards against is a
+    // car-wash role editor showing Products/Categories/Reports/Finance).
+    const allowed = PERMISSION_GROUPS_BY_BUSINESS_TYPE[BusinessType.CAR_WASH];
+    const foreign = [
+      'Products',
+      'Categories',
+      'Reports',
+      'Finance',
+      'Restaurant',
+      'Hotel',
+      'Kitchen',
+      'Bar',
+      'Barista',
+      'Sales',
+      'Credits',
+      'Manufacturing',
+    ];
+    for (const group of foreign) {
+      expect(allowed).not.toContain(group);
+    }
+    // …and it still lets a car-wash owner assign every car-wash module group.
+    for (const group of [
+      'Car Wash - Washers',
+      'Car Wash - Washes',
+      'Car Wash - Reports',
+      'Car Wash - Collections',
+      'Car Wash - Expenses',
+      'Customers',
+      'Users',
+      'Roles',
+    ]) {
+      expect(allowed).toContain(group);
+    }
+  });
 });

@@ -52,6 +52,9 @@ export default function SearchableSelect({
   const { t } = useTranslation();
   const ph = placeholder ?? t("common.select");
   const clearTitle = clearLabel ?? t("common.clear");
+  // Defensive default: a page that passes `undefined` options must not crash the
+  // whole route.
+  const opts = options ?? [];
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   /** True while the field has been emptied by hand (display-only, not the value). */
@@ -59,9 +62,9 @@ export default function SearchableSelect({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const selected = options.find((o) => o.value === value);
+  const selected = opts.find((o) => o.value === value);
 
-  const filtered = options.filter(
+  const filtered = opts.filter(
     (o) =>
       !o.disabled &&
       (o.searchText ?? o.label).toLowerCase().includes(query.toLowerCase()),

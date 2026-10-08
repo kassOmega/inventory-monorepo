@@ -9,6 +9,7 @@ import ProfitLossSummary from "@/app/components/ProfitLossSummary";
 import HospitalityInventoryReport from "@/app/components/HospitalityInventoryReport";
 import HospitalityReport from "@/app/components/HospitalityReport";
 import ManufacturingReport from "@/app/components/ManufacturingReport";
+import CarWashReport from "@/app/components/CarWashReport";
 import Modal from "@/app/components/Modal";
 import SalesReport from "@/app/components/SalesReport";
 import { useToast } from "@/app/components/ToastProvider";
@@ -33,6 +34,12 @@ export default function ReportsPage() {
   const isHospitality = !vertical.inventory;
   const businessType = activeMembership?.businessType ?? user?.businessType ?? "";
   const isManufacturing = businessType === "MANUFACTURING";
+  const isCarWash = businessType === "CAR_WASH";
+  const carWashTabs = [
+    { id: "sales", label: t("carwash.reports"), permission: "carwash.reports.view" },
+    { id: "audit-trail", label: t("reports.tabAudit"), permission: "reports.full" },
+  ];
+  const isReportingCarWash = isCarWash && tab === "sales";
   const manufacturingTabs = [
     { id: "production", label: t("reports.tabProduction"), permission: "reports.full" },
     { id: "finance", label: t("reports.tabFinance"), permission: "finance.view" },
@@ -43,7 +50,9 @@ export default function ReportsPage() {
   ];
   const tabs = (isManufacturing
     ? manufacturingTabs
-    : isHospitality
+    : isCarWash
+      ? carWashTabs
+      : isHospitality
       ? [
           { id: "sales", label: t("reports.tabSalesOrders"), permission: "reports.full" },
           { id: "finance", label: t("reports.tabFinance"), permission: "finance.view" },
@@ -135,7 +144,7 @@ export default function ReportsPage() {
     });
 
   useEffect(() => {
-    if (isHospitality) return;
+    if (isHospitality || isCarWash) return;
     api.get("/categories").then((r) => setCategories(r.data));
     if (isOwner) api.get("/locations").then((r) => setLocations(r.data));
     if (user?.locationType === "SHOP") {
@@ -143,10 +152,14 @@ export default function ReportsPage() {
         .get("/locations")
         .then((r) => setStores(r.data.filter((l: any) => l.type === "STORE")));
     }
-  }, [user, isOwner, isHospitality]);
+  }, [user, isOwner, isHospitality, isCarWash]);
 
   useEffect(() => {
     const query = `search=${search}&categoryId=${category}&locationId=${location}&startDate=${startDate}&endDate=${endDate}`;
+
+    // CAR_WASH surfaces its report body via /carwash/reports/breakdown, so none
+    // of the retail report endpoints should fire for it.
+    if (isCarWash) return;
 
     if (tab === "inventory" && !isHospitality) {
       api
@@ -161,7 +174,7 @@ export default function ReportsPage() {
     } else if (tab === "audit-trail" && canViewFull) {
       api.get("/reports/audit-trail").then((r) => setAuditTrail(r.data));
     }
-  }, [tab, search, category, location, startDate, endDate, canViewFull]);
+  }, [tab, search, category, location, startDate, endDate, canViewFull, isCarWash]);
 
   const handleQuickRequest = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -281,27 +294,27 @@ export default function ReportsPage() {
           </div>
         ) : (
           <FilterPanel
-            showDateFilter={tab === "sales" || tab === "production" || tab === "finance" || tab === "inventory"}
+            showDateFilter={isCarWash || tab === "sales" || tab === "production" || tab === "finance" || tab === "inventory"}
             datePreset={datePreset}
             onDatePresetChange={setDatePreset}
             startDate={startDate}
             onStartDateChange={setStartDate}
             endDate={endDate}
             onEndDateChange={setEndDate}
-            search={search}
-            onSearchChange={setSearch}
-            category={category}
-            onCategoryChange={setCategory}
+            search={isCarWash ? undefined : search}
+            onSearchChange={isCarWash ? undefined : setSearch}
+            category={isCarWash ? undefined : category}
+            onCategoryChange={isCarWash ? undefined : setCategory}
             categories={categories}
-            location={location}
-            onLocationChange={setLocation}
+            location={isCarWash ? undefined : location}
+            onLocationChange={isCarWash ? undefined : setLocation}
             locations={locations}
-            showLocation={isOwner}
+            showLocation={isOwner && !isCarWash}
           />
         ))}
 
-      {/* Export buttons — Sale/inventory-based exports don't apply to hospitality */}
-      {!isHospitality && (
+      {/* Export buttons — Sale/inventory-based exports don't apply to hospitality or car wash */}
+      {!isHospitality && !isCarWash && (
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <span className="text-sm text-gray-500">{t("reports.exportColon")}</span>
         {exportCfg && (
@@ -352,6 +365,10 @@ export default function ReportsPage() {
           locationId={location ? Number(location) : undefined}
         />
       )}
+
+      {/* CAR WASH — shared reports page renders the car-wash breakdown so a
+          car-wash business sees its own data here, not the retail tabs. */}
+      {isReportingCarWash && <CarWashReport startDate={startDate} endDate={endDate} />}
 
       {/* FINANCE */}
       {tab === "finance" && (
@@ -620,6 +637,7 @@ export default function ReportsPage() {
       )}
 
       {/* SALES */}      {tab === "sales" &&
+        !isCarWash &&
         canViewFull &&
         (isHospitality ? (
           <div className="space-y-6">

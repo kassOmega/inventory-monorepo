@@ -1,7 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
-import { ListFilters, SearchField } from "@/app/components/ListFilters";
+import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
 import Modal from "@/app/components/Modal";
 import SearchableSelect from "@/app/components/SearchableSelect";
 import { useAuth } from "@/context/AuthContext";
@@ -17,6 +17,7 @@ export default function CarWashVehiclesPage() {
   const [editing, setEditing] = useState<any | null>(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [customerFilter, setCustomerFilter] = useState("");
   const [error, setError] = useState("");
 
   const canCreate = hasPermission("carwash.vehicles.create");
@@ -74,7 +75,12 @@ export default function CarWashVehiclesPage() {
 
   const filtered = vehicles.filter((v) => {
     const q = search.toLowerCase();
-    return !q || (v.plateNumber ?? "").toLowerCase().includes(q) || (v.vehicleType ?? "").toLowerCase().includes(q);
+    const matchesSearch =
+      !q ||
+      (v.plateNumber ?? "").toLowerCase().includes(q) ||
+      (v.vehicleType ?? "").toLowerCase().includes(q);
+    const matchesCustomer = !customerFilter || String(v.customerId) === customerFilter;
+    return matchesSearch && matchesCustomer;
   });
 
   return (
@@ -89,9 +95,20 @@ export default function CarWashVehiclesPage() {
       </div>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
 
-      <ListFilters>
-        <SearchField value={search} onChange={setSearch} placeholder={t("carwash.plateNumber")} />
-      </ListFilters>
+      <FilterPanel
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("carwash.plateNumber")}
+        extra={
+          <FilterSelect
+            value={customerFilter}
+            onChange={setCustomerFilter}
+            label={t("carwash.customer")}
+            allLabel={t("carwash.customer")}
+            options={customers.map((c: any) => ({ value: String(c.id), label: c.name }))}
+          />
+        }
+      />
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
         <table className="w-full text-sm">

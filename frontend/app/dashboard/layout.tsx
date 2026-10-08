@@ -2,7 +2,7 @@
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import { getVerticalFeatures } from "@/lib/verticals";
-import { buildDashboardNav, routeFeatureMap, routePermissionMap, verticalForRoute } from "@/lib/dashboardNavigation";
+import { buildDashboardNav, businessTypesForRoute, routeFeatureMap, routePermissionMap, verticalForRoute } from "@/lib/dashboardNavigation";
 import { User } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -137,8 +137,16 @@ export default function DashboardLayout({
   // mirrors the backend's @Vertical(...) enforcement so the two agree.
   useEffect(() => {
     const owner = verticalForRoute(pathname);
-    if (!owner || !businessType || isLoading) return;
-    if (businessType !== owner) router.replace("/dashboard");
+    if (owner && businessType && !isLoading) {
+      if (businessType !== owner) router.replace("/dashboard");
+      return;
+    }
+    // Shared accounting/reporting routes are only meaningful for certain
+    // business types (CAR_WASH has its own finance/report pages).
+    const allowed = businessTypesForRoute(pathname);
+    if (allowed && businessType && !isLoading && !allowed.includes(businessType)) {
+      router.replace("/dashboard");
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, businessType, isLoading, router]);
 

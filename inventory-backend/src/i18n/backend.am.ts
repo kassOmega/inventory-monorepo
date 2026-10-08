@@ -26,6 +26,10 @@ export const amMessages: Record<string, any> = {
     slugInUse: 'ይህ አጭር ስም ቀድሞ ጥቅም ላይ ውሏል',
     businessRequiredForCustomer: 'ደንበኛ ለመፍጠር ንግድ መመረጥ አለበት።',
     mustBeAssignedToShop: 'ወደ ሱቅ መመደብ አለብዎት',
+    collectionAlreadySettled:
+      'ይህ ቀን አስቀድሞ ተሰብስቧል። ስብስቡ ሙሉ በሙሉ ተመዝግቧል።',
+    carWashExpenseAccountMissing:
+      'ከ"{category}" ጋር የሚዛመድ የሂሳብ ዝርዝር ወጪ ሂሳብ አልተገኘም። በፋይናንስ → የሂሳብ ዝርዝር ያክሉት።',
     onlyShopkeepersCreatePurchases: 'ግዢ መፍጠር የሚችሉት የሱቅ ጠባቂዎች ብቻ ናቸው',
     cashMethodRequired: '«Cash» የክፍያ ዘዴ አልተገኘም። እባክዎ መጀመሪያ ያክሉ።',
     purchaseNotFound: 'ግዢ አልተገኘም',
