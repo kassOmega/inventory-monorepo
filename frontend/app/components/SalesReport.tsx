@@ -8,6 +8,7 @@ import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart,
   Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
+import ChartCard, { NumericTable, StatGrid } from "./ChartCard";
 
 const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"];
 
@@ -158,8 +159,9 @@ export default function SalesReport({ startDate, endDate, categoryId, locationId
       {view === "charts" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
           {/* Sales Trend */}
-        <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-          <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{t("sr.salesTrend")}</h3>
+        <ChartCard
+          title={t("sr.salesTrend")}
+          chart={
           <div className="h-[300px]">
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={trend} margin={{ top: 20, right: 30, left: 40, bottom: 0 }}>
@@ -174,11 +176,43 @@ export default function SalesReport({ startDate, endDate, categoryId, locationId
               </LineChart>
             </ResponsiveContainer>
           </div>
-        </div>
+          }
+          numeric={
+            <div className="space-y-3">
+              <StatGrid
+                cols={4}
+                items={[
+                  { label: t("sr.seriesSales"), value: fmtCurrency(trend.reduce((s, r) => s + (Number(r.sales) || 0), 0)), accent: "text-blue-600" },
+                  { label: t("sr.seriesQuick"), value: fmtCurrency(trend.reduce((s, r) => s + (Number(r.flips) || 0), 0)), accent: "text-amber-600" },
+                  { label: t("sr.seriesCollections"), value: fmtCurrency(trend.reduce((s, r) => s + (Number(r.collections) || 0), 0)), accent: "text-violet-600" },
+                  { label: t("sr.count"), value: trend.length },
+                ]}
+              />
+              <NumericTable
+                columns={[
+                  { key: "date", label: t("common.date") },
+                  { key: "sales", label: t("sr.seriesSales"), align: "right" },
+                  { key: "flips", label: t("sr.seriesQuick"), align: "right" },
+                  { key: "collections", label: t("sr.seriesCollections"), align: "right" },
+                ]}
+                rows={trend}
+                totals={{
+                  date: t("common.total"),
+                  sales: trend.reduce((s, r) => s + (Number(r.sales) || 0), 0),
+                  flips: trend.reduce((s, r) => s + (Number(r.flips) || 0), 0),
+                  collections: trend.reduce((s, r) => s + (Number(r.collections) || 0), 0),
+                }}
+                totalsLabel={t("common.total")}
+                money={fmtCurrency}
+              />
+            </div>
+          }
+        />
 
         {/* Sales Distribution */}
-        <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-          <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{t("sr.salesDistribution")}</h3>
+        <ChartCard
+          title={t("sr.salesDistribution")}
+          chart={
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart margin={{ top: 10, right: 10, left: 10, bottom: 32 }}>
@@ -193,12 +227,26 @@ export default function SalesReport({ startDate, endDate, categoryId, locationId
               </PieChart>
             </ResponsiveContainer>
           </div>
-        </div>
+          }
+          numeric={
+            <NumericTable
+              columns={[
+                { key: "name", label: t("sr.product") },
+                { key: "qty", label: t("sr.qty"), align: "right" },
+              ]}
+              rows={mostSold.slice(0, 8)}
+              shareKey="qty"
+              totals={{ name: t("common.total"), qty: mostSold.reduce((s, r) => s + (Number(r.qty) || 0), 0) }}
+              totalsLabel={t("common.total")}
+            />
+          }
+        />
 
         {/* Payment Methods Pie */}
         {paymentBreakdown.length > 0 && (
-          <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-            <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{t("sr.paymentMethods")}</h3>
+          <ChartCard
+            title={t("sr.paymentMethods")}
+            chart={
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart margin={{ top: 10, right: 40, left: 40, bottom: 16 }}>
@@ -234,12 +282,33 @@ export default function SalesReport({ startDate, endDate, categoryId, locationId
                 </PieChart>
               </ResponsiveContainer>
             </div>
-          </div>
+            }
+            numeric={
+              <NumericTable
+                columns={[
+                  { key: "method", label: t("sr.method") },
+                  { key: "count", label: t("sr.count"), align: "right" },
+                  { key: "totalAmount", label: t("sr.total"), align: "right" },
+                ]}
+                rows={paymentBreakdown}
+                shareKey="totalAmount"
+                totals={{
+                  method: t("common.total"),
+                  count: paymentBreakdown.reduce((s, r) => s + (Number(r.count) || 0), 0),
+                  totalAmount: paymentBreakdown.reduce((s, r) => s + (Number(r.totalAmount) || 0), 0),
+                }}
+                totalsLabel={t("common.total")}
+                money={fmtCurrency}
+              />
+            }
+          />
         )}
 
         {/* Top Selling Products */}
-        <div className={`bg-white rounded-xl shadow-sm border p-4 sm:p-6 ${compact ? "lg:col-span-2" : "lg:col-span-1"}`}>
-          <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{t("sr.topProducts")}</h3>
+        <ChartCard
+          title={t("sr.topProducts")}
+          className={compact ? "lg:col-span-2" : "lg:col-span-1"}
+          chart={
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={mostSold} margin={{ top: 10, right: 20, bottom: 20, left: 5 }}>
@@ -255,7 +324,20 @@ export default function SalesReport({ startDate, endDate, categoryId, locationId
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
+          }
+          numeric={
+            <NumericTable
+              columns={[
+                { key: "name", label: t("sr.product") },
+                { key: "qty", label: t("sr.qty"), align: "right" },
+              ]}
+              rows={mostSold}
+              shareKey="qty"
+              totals={{ name: t("common.total"), qty: mostSold.reduce((s, r) => s + (Number(r.qty) || 0), 0) }}
+              totalsLabel={t("common.total")}
+            />
+          }
+        />
       </div>
       )}
 

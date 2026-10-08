@@ -10,6 +10,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import ChartCard, { NumericTable } from "./ChartCard";
 
 const fmt = (n: number) =>
   (n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -70,8 +71,9 @@ export default function CarWashReport({
           </div>
 
           <div className="grid md:grid-cols-2 gap-6">
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <h3 className="font-semibold text-gray-800 mb-3">📊 {t("carwash.revenueBreakdown")}</h3>
+            <ChartCard
+              title={`📊 ${t("carwash.revenueBreakdown")}`}
+              chart={
               <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={[
@@ -89,10 +91,28 @@ export default function CarWashReport({
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            </div>
+              }
+              numeric={
+                <NumericTable
+                  columns={[
+                    { key: "name", label: t("carwash.total") },
+                    { key: "value", label: t("carwash.amount"), align: "right" },
+                  ]}
+                  rows={[
+                    { name: t("carwash.totalRevenue"), value: data.totalRevenue },
+                    { name: t("carwash.totalCommission"), value: data.totalCommission },
+                    { name: t("carwash.ownerShare"), value: data.ownerShare },
+                    { name: t("carwash.totalExpenses"), value: data.totalExpenses },
+                    { name: t("carwash.netProfit"), value: data.netProfit },
+                  ]}
+                  money={fmt}
+                />
+              }
+            />
 
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <h3 className="font-semibold text-gray-800 mb-3">👷 {t("carwash.washerEarnings")}</h3>
+            <ChartCard
+              title={`👷 ${t("carwash.washerEarnings")}`}
+              chart={
               <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={(data.washerEarnings ?? []).map((w: any) => ({ name: w.name, commission: w.commission }))}>
@@ -104,11 +124,29 @@ export default function CarWashReport({
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            </div>
+              }
+              numeric={
+                <NumericTable
+                  columns={[
+                    { key: "name", label: t("carwash.washer") },
+                    { key: "commission", label: t("carwash.totalCommission"), align: "right" },
+                  ]}
+                  rows={(data.washerEarnings ?? []).map((w: any) => ({ name: w.name, commission: w.commission }))}
+                  shareKey="commission"
+                  totals={{
+                    name: t("common.total"),
+                    commission: (data.washerEarnings ?? []).reduce((s: number, w: any) => s + (w.commission || 0), 0),
+                  }}
+                  totalsLabel={t("common.total")}
+                  money={fmt}
+                />
+              }
+            />
           </div>
 
-          <div className="bg-white p-4 rounded-lg border border-gray-200">
-            <h3 className="font-semibold text-gray-800 mb-3">💳 {t("carwash.paidVsUnpaid")}</h3>
+          <ChartCard
+            title={`💳 ${t("carwash.paidVsUnpaid")}`}
+            chart={
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -132,7 +170,27 @@ export default function CarWashReport({
                 </PieChart>
               </ResponsiveContainer>
             </div>
-          </div>
+            }
+            numeric={
+              <NumericTable
+                columns={[
+                  { key: "name", label: t("carwash.status") },
+                  { key: "value", label: t("carwash.amount"), align: "right" },
+                ]}
+                rows={[
+                  { name: t("carwash.paid"), value: data.paidEquipmentRevenue },
+                  { name: t("carwash.unpaid"), value: data.unpaidEquipmentRevenue },
+                ]}
+                shareKey="value"
+                totals={{
+                  name: t("common.total"),
+                  value: (data.paidEquipmentRevenue || 0) + (data.unpaidEquipmentRevenue || 0),
+                }}
+                totalsLabel={t("common.total")}
+                money={fmt}
+              />
+            }
+          />
 
           <div className="grid md:grid-cols-2 gap-6">
             <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">

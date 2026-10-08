@@ -7,6 +7,7 @@ import FilterPanel from "@/app/components/FilterPanel";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import ChartCard, { NumericTable } from "@/app/components/ChartCard";
 
 export default function CarWashCollectionPage() {
   const { hasPermission } = useAuth();
@@ -134,8 +135,9 @@ export default function CarWashCollectionPage() {
       </div>
 
       {chartData.length > 0 && (
-        <div className="bg-white p-4 rounded-lg border border-gray-200">
-          <h2 className="font-semibold text-gray-800 mb-3">{t("carwash.todayBreakdown")}</h2>
+        <ChartCard
+          title={t("carwash.todayBreakdown")}
+          chart={
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData}>
@@ -147,7 +149,18 @@ export default function CarWashCollectionPage() {
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
+          }
+          numeric={
+            <NumericTable
+              columns={[
+                { key: "name", label: t("carwash.total") },
+                { key: "value", label: t("carwash.amount"), align: "right" },
+              ]}
+              rows={chartData}
+              money={(n) => (n ?? 0).toLocaleString()}
+            />
+          }
+        />
       )}
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">

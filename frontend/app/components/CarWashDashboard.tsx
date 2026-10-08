@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import ChartCard, { NumericTable } from "./ChartCard";
 
 // Car-wash vertical overview (stat tiles + quick actions), consumed by
 // `/dashboard/carwash` and the dashboard home for CAR_WASH users.
@@ -181,20 +182,38 @@ export default function CarWashDashboard() {
         </div>
 
         {dailyChart.length > 0 && (
-          <div className="bg-white p-4 rounded-lg border border-gray-200">
-            <h2 className="font-semibold text-gray-800 mb-3">{t("carwash.myCommission")} — {t("carwash.last7Days")}</h2>
-            <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={dailyChart}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip />
-                  <Bar dataKey="commission" fill="#16a34a" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+          <ChartCard
+            title={`${t("carwash.myCommission")} — ${t("carwash.last7Days")}`}
+            chart={
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dailyChart}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                    <YAxis tick={{ fontSize: 12 }} />
+                    <Tooltip />
+                    <Bar dataKey="commission" fill="#16a34a" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            }
+            numeric={
+              <NumericTable
+                columns={[
+                  { key: "name", label: t("carwash.date") },
+                  { key: "commission", label: t("carwash.myCommission"), align: "right" },
+                ]}
+                rows={dailyChart}
+                shareKey="commission"
+                totals={{
+                  name: t("common.total"),
+                  commission: dailyChart.reduce((s: number, d: any) => s + (d.commission || 0), 0),
+                }}
+                totalsLabel={t("common.total")}
+                money={fmt}
+              />
+            }
+          />
         )}
 
         <div className="flex gap-2 flex-wrap text-sm">
@@ -235,24 +254,40 @@ export default function CarWashDashboard() {
       </div>
 
       {summary && (
-        <div className="bg-white p-4 rounded-lg border border-gray-200">
-          <h2 className="font-semibold text-gray-800 mb-3">{t("carwash.todayIncome")}</h2>
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={[
+        <ChartCard
+          title={t("carwash.todayIncome")}
+          chart={
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={[
+                  { name: t("carwash.totalRevenue"), value: summary.totalRevenue },
+                  { name: t("carwash.totalCommission"), value: summary.totalCommission },
+                  { name: t("carwash.ownerShare"), value: summary.ownerShare },
+                ]}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 12 }} />
+                  <Tooltip />
+                  <Bar dataKey="value" fill="#2563eb" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          }
+          numeric={
+            <NumericTable
+              columns={[
+                { key: "name", label: t("carwash.total"), },
+                { key: "value", label: t("carwash.amount"), align: "right" },
+              ]}
+              rows={[
                 { name: t("carwash.totalRevenue"), value: summary.totalRevenue },
                 { name: t("carwash.totalCommission"), value: summary.totalCommission },
                 { name: t("carwash.ownerShare"), value: summary.ownerShare },
-              ]}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Bar dataKey="value" fill="#2563eb" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+              ]}
+              money={fmt}
+            />
+          }
+        />
       )}
 
       <div className="bg-white rounded-lg border border-gray-200 p-5">

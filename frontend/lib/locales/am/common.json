@@ -706,7 +706,10 @@
     "timeHourOne": "1 ሰዓት በፊት",
     "timeHourMany": "{{count}} ሰዓታት በፊት",
     "timeYesterday": "ትናንት",
-    "timeDaysMany": "{{count}} ቀናት በፊት"
+    "timeDaysMany": "{{count}} ቀናት በፊት",
+    "chartView": "የገበታ እይታ",
+    "tableView": "የሠንጠረዥ እይታ",
+    "share": "ድርሻ"
   },
   "notifications": {
     "lowStockAlert": "ዝቅተኛ ክምችት ማስጠንቀቂያ",
@@ -2111,7 +2114,8 @@
     "cash": "ጥሬ ገንዘብ",
     "cardCarWashRevenue": "የመኪና ማጠቢያ ገቢ",
     "cardEquipmentRevenue": "የመሳሪያ ገቢ",
-    "cardWasherCommission": "የሰራተኛ ኮሚሽን"
+    "cardWasherCommission": "የሰራተኛ ኮሚሽን",
+    "groupLabel": "ቡድን"
   },
   "sr": {
     "viewSummary": "ማጠቃለያ",
@@ -2139,7 +2143,9 @@
     "amount": "መጠን",
     "seriesSales": "ሽያጮች",
     "seriesQuick": "ፈጣን ግዢዎች",
-    "seriesCollections": "የብድር ስብስብ"
+    "seriesCollections": "የብድር ስብስብ",
+    "product": "ምርት",
+    "qty": "ብዛት"
   },
   "hr": {
     "orders": "ትዕዛዞች",
@@ -2155,7 +2161,9 @@
     "topSellingItems": "ከፍተኛ የሚሸጡ እቃዎች",
     "noItemsSold": "በዚህ ወቅት ምንም እቃ አልተሸጠም።",
     "noPayments": "በዚህ ወቅት ምንም ክፍያ አልተመዘገበም።",
-    "itemsLabel": "{{qty}} እቃዎች"
+    "itemsLabel": "{{qty}} እቃዎች",
+    "station": "ጣቢያ",
+    "item": "ዕቃ"
   },
   "hinv": {
     "stockValue": "የክምችት ዋጋ",
@@ -2689,7 +2697,10 @@
     "thTable": "ጠረጴዛ",
     "thOrder": "ትዕዛዝ",
     "thStatus": "ሁኔታ",
-    "thTotal": "ጠቅላላ"
+    "thTotal": "ጠቅላላ",
+    "item": "ዕቃ",
+    "category": "ምድብ",
+    "qty": "ብዛት"
   },
   "pg": {
     "showing": "ከ{{total}} {{from}}–{{to}} እየታየ ነው",
@@ -2863,7 +2874,9 @@
     "yourShopInventory": "የሱቅዎ ክምችት",
     "yourStoreInventory": "የመጋዘንዎ ክምችት",
     "noInventory": "እስካሁን ክምችት የለም። ለመጀመር ከመደብርዎ ክምችት ይጠይቁ።",
-    "stockOverview": "የክምችት አጠቃላይ እይታ"
+    "stockOverview": "የክምችት አጠቃላይ እይታ",
+    "product": "ምርት",
+    "quantity": "ብዛት"
   },
   "paymentMethods": {
     "subtitle": "ባንኮች እና ቻናሎች",

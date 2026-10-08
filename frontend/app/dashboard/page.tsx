@@ -5,6 +5,7 @@ import FilterPanel from "@/app/components/FilterPanel";
 import SalesReport from "@/app/components/SalesReport";
 import HospitalityDashboard from "@/app/components/HospitalityDashboard";
 import ManufacturingDashboard from "@/app/components/ManufacturingDashboard";
+import ChartCard, { NumericTable } from "@/app/components/ChartCard";
 import ServiceDashboard from "@/app/components/ServiceDashboard";
 import CarWashDashboard from "@/app/components/CarWashDashboard";
 import Loading from "@/app/components/Loading";
@@ -361,16 +362,11 @@ export default function DashboardPage() {
           </div>
 
           {/* Bar chart */}
-          <div
-            className="bg-white rounded-xl shadow-sm border overflow-hidden flex flex-col"
-            style={{ height: "calc(100vh - 12rem)" }}
-          >
-            <div className="px-4 sm:px-6 py-3 sm:py-4 border-b flex-shrink-0">
-              <h3 className="text-gray-700 text-base sm:text-lg font-semibold">
-                {t("home.stockOverview")}
-              </h3>
-            </div>
-            <div className="p-3 sm:p-4 overflow-auto flex-1 flex items-center justify-center">
+          <ChartCard
+            title={t("home.stockOverview")}
+            className="overflow-hidden flex flex-col"
+            bodyClassName="overflow-auto flex-1 flex items-center justify-center p-3 sm:p-4"
+            chart={
               <div
                 className="w-full"
                 style={{ minHeight: `${groupedInventory.slice(0, 20).length * 32}px` }}
@@ -417,8 +413,22 @@ export default function DashboardPage() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            </div>
-          </div>
+            }
+            numeric={
+              <NumericTable
+                columns={[
+                  { key: "productName", label: t("home.product") },
+                  { key: "total", label: t("home.quantity"), align: "right" },
+                ]}
+                rows={groupedInventory.slice(0, 20)}
+                totals={{
+                  productName: t("common.total"),
+                  total: groupedInventory.slice(0, 20).reduce((s, r) => s + (Number(r.total) || 0), 0),
+                }}
+                totalsLabel={t("common.total")}
+              />
+            }
+          />
         </div>
       </div>
     );

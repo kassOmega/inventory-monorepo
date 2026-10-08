@@ -1,6 +1,7 @@
 "use client";
 
 import DateFilter, { getDateRange } from "@/app/components/DateFilter";
+import ChartCard, { NumericTable } from "@/app/components/ChartCard";
 import api from "@/lib/api";
 import i18n from "@/lib/i18n";
 import { useTranslation } from "react-i18next";
@@ -112,9 +113,11 @@ export default function HospitalityDashboard() {
           )}
         </div>
 
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border p-4 sm:p-5">
-          <h3 className="text-base font-semibold mb-3">{t("hdb.topSelling")}</h3>
-          {(data?.topItems ?? []).length === 0 ? (
+        <ChartCard
+          className="lg:col-span-2"
+          title={t("hdb.topSelling")}
+          chart={
+          (data?.topItems ?? []).length === 0 ? (
             <p className="text-gray-400 text-sm">{t("hdb.noItemsSold")}</p>
           ) : (
             <ul className="space-y-2">
@@ -133,15 +136,28 @@ export default function HospitalityDashboard() {
                 </li>
               ))}
             </ul>
-          )}
-        </div>
+          )
+          }
+          numeric={
+            <NumericTable
+              columns={[
+                { key: "name", label: t("hdb.item") },
+                { key: "qty", label: t("hdb.qty"), align: "right" },
+              ]}
+              rows={data.topItems ?? []}
+              shareKey="qty"
+              emptyLabel={t("hdb.noItemsSold")}
+            />
+          }
+        />
       </div>
 
 
       {/* Top categories */}
-      <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-5">
-        <h3 className="text-base font-semibold mb-3">{t("hdb.topCategories")}</h3>
-        {(data?.topCategories ?? []).length === 0 ? (
+      <ChartCard
+        title={t("hdb.topCategories")}
+        chart={
+        (data?.topCategories ?? []).length === 0 ? (
           <p className="text-gray-400 text-sm">{t("hdb.noCategorySales")}</p>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -162,8 +178,20 @@ export default function HospitalityDashboard() {
               </div>
             ))}
           </div>
-        )}
-      </div>
+        )
+        }
+        numeric={
+          <NumericTable
+            columns={[
+              { key: "name", label: t("hdb.category") },
+              { key: "qty", label: t("hdb.qty"), align: "right" },
+            ]}
+            rows={data.topCategories ?? []}
+            shareKey="qty"
+            emptyLabel={t("hdb.noCategorySales")}
+          />
+        }
+      />
 
       {/* Live guest folio */}
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">

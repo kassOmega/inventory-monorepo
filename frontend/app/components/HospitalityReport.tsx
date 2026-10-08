@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import {
   Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
+import ChartCard, { NumericTable } from "./ChartCard";
 
 const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"];
 
@@ -55,9 +56,10 @@ export default function HospitalityReport({ startDate, endDate }: Props) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-          <h3 className="text-base font-semibold mb-3">{t("hr.revenueByStation")}</h3>
-          {stationData.length === 0 ? (
+        <ChartCard
+          title={t("hr.revenueByStation")}
+          chart={
+          stationData.length === 0 ? (
             <p className="text-gray-400 text-sm">{t("hr.noSettled")}</p>
           ) : (
             <div className="h-64">
@@ -78,25 +80,33 @@ export default function HospitalityReport({ startDate, endDate }: Props) {
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          )}
-          {stationData.length > 0 && (
-            <ul className="mt-3 space-y-1 text-sm">
-              {stationData.map((s: any, i: number) => (
-                <li key={s.station} className="flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full" style={{ background: COLORS[i % COLORS.length] }} />
-                    {s.station}
-                  </span>
-                  <span className="text-gray-500">{t("hr.itemsLabel", { qty: s.qty })} · {money(s.revenue)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+          )
+          }
+          numeric={
+            <NumericTable
+              columns={[
+                { key: "station", label: t("hr.station") },
+                { key: "revenue", label: t("hr.revenue"), align: "right" },
+                { key: "qty", label: t("hr.qty"), align: "right" },
+              ]}
+              rows={stationData}
+              shareKey="revenue"
+              totals={{
+                station: t("common.total"),
+                revenue: stationData.reduce((s: number, x: any) => s + (Number(x.revenue) || 0), 0),
+                qty: stationData.reduce((s: number, x: any) => s + (Number(x.qty) || 0), 0),
+              }}
+              totalsLabel={t("common.total")}
+              money={money}
+              emptyLabel={t("hr.noSettled")}
+            />
+          }
+        />
 
-        <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-          <h3 className="text-base font-semibold mb-3">{t("hr.topSellingItems")}</h3>
-          {data.topItems?.length === 0 ? (
+        <ChartCard
+          title={t("hr.topSellingItems")}
+          chart={
+          data.topItems?.length === 0 ? (
             <p className="text-gray-400 text-sm">{t("hr.noItemsSold")}</p>
           ) : (
             <ul className="space-y-2.5">
@@ -115,8 +125,22 @@ export default function HospitalityReport({ startDate, endDate }: Props) {
                 </li>
               ))}
             </ul>
-          )}
-        </div>
+          )
+          }
+          numeric={
+            <NumericTable
+              columns={[
+                { key: "name", label: t("hr.item") },
+                { key: "qty", label: t("hr.qty"), align: "right" },
+                { key: "revenue", label: t("hr.revenue"), align: "right" },
+              ]}
+              rows={data.topItems ?? []}
+              shareKey="qty"
+              money={money}
+              emptyLabel={t("hr.noItemsSold")}
+            />
+          }
+        />
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">

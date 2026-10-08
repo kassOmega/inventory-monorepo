@@ -706,7 +706,10 @@
     "timeHourOne": "1 hour ago",
     "timeHourMany": "{{count}} hours ago",
     "timeYesterday": "yesterday",
-    "timeDaysMany": "{{count}} days ago"
+    "timeDaysMany": "{{count}} days ago",
+    "chartView": "Chart view",
+    "tableView": "Table view",
+    "share": "Share"
   },
   "notifications": {
     "lowStockAlert": "Low Stock Alert",
@@ -2111,7 +2114,8 @@
     "cash": "Cash",
     "cardCarWashRevenue": "Car Wash Revenue",
     "cardEquipmentRevenue": "Equipment Revenue",
-    "cardWasherCommission": "Washer Commission"
+    "cardWasherCommission": "Washer Commission",
+    "groupLabel": "Group"
   },
   "sr": {
     "viewSummary": "Summary",
@@ -2139,7 +2143,9 @@
     "amount": "Amount",
     "seriesSales": "Sales",
     "seriesQuick": "Quick Purchases",
-    "seriesCollections": "Credit Collections"
+    "seriesCollections": "Credit Collections",
+    "product": "Product",
+    "qty": "Qty"
   },
   "hr": {
     "orders": "Orders",
@@ -2155,7 +2161,9 @@
     "topSellingItems": "Top Selling Items",
     "noItemsSold": "No items sold in this period.",
     "noPayments": "No payments recorded in this period.",
-    "itemsLabel": "{{qty}} items"
+    "itemsLabel": "{{qty}} items",
+    "station": "Station",
+    "item": "Item"
   },
   "hinv": {
     "stockValue": "Stock Value",
@@ -2689,7 +2697,10 @@
     "thTable": "Table",
     "thOrder": "Order",
     "thStatus": "Status",
-    "thTotal": "Total"
+    "thTotal": "Total",
+    "item": "Item",
+    "category": "Category",
+    "qty": "Qty"
   },
   "pg": {
     "showing": "Showing {{from}}–{{to}} of {{total}}",
@@ -2863,7 +2874,9 @@
     "yourShopInventory": "Your Shop Inventory",
     "yourStoreInventory": "Your Store Inventory",
     "noInventory": "No inventory yet. Request stock from your store to get started.",
-    "stockOverview": "Stock Overview"
+    "stockOverview": "Stock Overview",
+    "product": "Product",
+    "quantity": "Quantity"
   },
   "paymentMethods": {
     "subtitle": "Banks & Channels",

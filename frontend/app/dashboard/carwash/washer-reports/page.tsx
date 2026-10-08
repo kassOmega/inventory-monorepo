@@ -6,6 +6,7 @@ import { getDateRange, type DatePreset } from "@/app/components/DateFilter";
 import { useTranslation } from "react-i18next";
 import { useEffect, useState, Fragment } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import ChartCard, { NumericTable } from "@/app/components/ChartCard";
 
 export default function CarWashWasherReportsPage() {
   const { t } = useTranslation();
@@ -81,8 +82,9 @@ export default function CarWashWasherReportsPage() {
       />
 
       {chartData.length > 0 && (
-        <div className="bg-white p-4 rounded-lg border border-gray-200">
-          <h2 className="font-semibold text-gray-800 mb-3">{t("carwash.washerPerformance")}</h2>
+        <ChartCard
+          title={t("carwash.washerPerformance")}
+          chart={
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData}>
@@ -94,7 +96,23 @@ export default function CarWashWasherReportsPage() {
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
+          }
+          numeric={
+            <NumericTable
+              columns={[
+                { key: "name", label: t("carwash.washer") },
+                { key: "commission", label: t("carwash.totalCommission"), align: "right" },
+              ]}
+              rows={chartData}
+              shareKey="commission"
+              totals={{
+                name: t("common.total"),
+                commission: chartData.reduce((s: number, d: any) => s + (d.commission || 0), 0),
+              }}
+              totalsLabel={t("common.total")}
+            />
+          }
+        />
       )}
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">

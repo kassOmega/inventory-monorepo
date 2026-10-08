@@ -17,6 +17,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import ChartCard, { NumericTable } from "./ChartCard";
 
 interface ComparisonPoint {
   date: string;
@@ -95,16 +96,15 @@ export default function FinanceComparison({
       {chartData.length > 0 && (
         <>
           {/* Revenue vs COGS */}
-          <div className="bg-white rounded-xl border shadow-sm p-4 sm:p-6">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-              <h3 className="text-sm sm:text-base font-semibold text-gray-800">
-                {t("fin.revVsCogs")}
-              </h3>
+          <ChartCard
+            title={t("fin.revVsCogs")}
+            headerExtra={
               <span className="text-[10px] sm:text-xs text-gray-400">
                 {t("fin.grossProfit")}{" "}
                 {fmt(chartData.reduce((s, p) => s + p.grossProfit, 0))} {t("orders.birr")}
               </span>
-            </div>
+            }
+            chart={
             <div className="h-64 sm:h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ top: 5, right: 16, bottom: 5, left: 0 }}>
@@ -121,13 +121,32 @@ export default function FinanceComparison({
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          </div>
+            }
+            numeric={
+              <NumericTable
+                columns={[
+                  { key: "label", label: t("fin.groupLabel") },
+                  { key: "revenue", label: t("fin.chartRevenue"), align: "right" },
+                  { key: "cogs", label: t("fin.chartCogs"), align: "right" },
+                  { key: "grossProfit", label: t("fin.grossProfit"), align: "right" },
+                ]}
+                rows={chartData}
+                totals={{
+                  label: t("common.total"),
+                  revenue: chartData.reduce((s, p) => s + p.revenue, 0),
+                  cogs: chartData.reduce((s, p) => s + p.cogs, 0),
+                  grossProfit: chartData.reduce((s, p) => s + p.grossProfit, 0),
+                }}
+                totalsLabel={t("common.total")}
+                money={(n) => `${fmt(n)} ${t("orders.birr")}`}
+              />
+            }
+          />
 
           {/* Revenue vs Overhead */}
-          <div className="bg-white rounded-xl border shadow-sm p-4 sm:p-6">
-            <h3 className="text-sm sm:text-base font-semibold text-gray-800 mb-3">
-              {t("fin.revVsOverhead")}
-            </h3>
+          <ChartCard
+            title={t("fin.revVsOverhead")}
+            chart={
             <div className="h-64 sm:h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ top: 5, right: 16, bottom: 5, left: 0 }}>
@@ -144,13 +163,30 @@ export default function FinanceComparison({
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          </div>
+            }
+            numeric={
+              <NumericTable
+                columns={[
+                  { key: "label", label: t("fin.groupLabel") },
+                  { key: "revenue", label: t("fin.chartRevenue"), align: "right" },
+                  { key: "overhead", label: t("fin.chartOverhead"), align: "right" },
+                ]}
+                rows={chartData}
+                totals={{
+                  label: t("common.total"),
+                  revenue: chartData.reduce((s, p) => s + p.revenue, 0),
+                  overhead: chartData.reduce((s, p) => s + p.overhead, 0),
+                }}
+                totalsLabel={t("common.total")}
+                money={(n) => `${fmt(n)} ${t("orders.birr")}`}
+              />
+            }
+          />
 
           {/* Net profit + margin */}
-          <div className="bg-white rounded-xl border shadow-sm p-4 sm:p-6">
-            <h3 className="text-sm sm:text-base font-semibold text-gray-800 mb-3">
-              {t("fin.netProfitMargin")}
-            </h3>
+          <ChartCard
+            title={t("fin.netProfitMargin")}
+            chart={
             <div className="h-64 sm:h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ top: 5, right: 16, bottom: 5, left: 0 }}>
@@ -188,7 +224,24 @@ export default function FinanceComparison({
                 </LineChart>
               </ResponsiveContainer>
             </div>
-          </div>
+            }
+            numeric={
+              <NumericTable
+                columns={[
+                  { key: "label", label: t("fin.groupLabel") },
+                  { key: "netProfit", label: t("fin.chartNetProfit"), align: "right" },
+                  { key: "margin", label: t("fin.chartMargin"), align: "right" },
+                ]}
+                rows={chartData.map((p) => ({ ...p, margin: `${Number(p.margin).toFixed(1)}%` }))}
+                totals={{
+                  label: t("common.total"),
+                  netProfit: chartData.reduce((s, p) => s + p.netProfit, 0),
+                }}
+                totalsLabel={t("common.total")}
+                money={(n) => `${fmt(n)} ${t("orders.birr")}`}
+              />
+            }
+          />
         </>
       )}
     </div>
