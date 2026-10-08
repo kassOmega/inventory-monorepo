@@ -6,6 +6,8 @@
 // range is owned by the caller (via the shared FilterPanel), keeping the
 // filtering flow identical to every other business.
 import api from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { canAccess } from "@/lib/dashboardRoutes";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
@@ -25,6 +27,7 @@ export default function CarWashReport({
   showQuickLinks?: boolean;
 }) {
   const { t } = useTranslation();
+  const { hasPermission } = useAuth();
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState("");
 
@@ -37,17 +40,25 @@ export default function CarWashReport({
       .catch(() => setError(t("carwash.failedLoad")));
   }, [startDate, endDate, t]);
 
+  // Each tile belongs to a report section; a tile renders only when its section
+  // is allowed (server redacts the value too). `sections` comes from the API.
+  const S = data?.sections ?? {
+    financials: true,
+    commission: true,
+    inventory: true,
+    equipment: true,
+  };
   const tiles = data
     ? [
-        { label: t("carwash.totalRevenue"), value: data.totalRevenue, icon: "💰", accent: "text-emerald-600" },
-        { label: t("carwash.totalCommission"), value: data.totalCommission, icon: "👷", accent: "text-violet-600" },
-        { label: t("carwash.ownerShare"), value: data.ownerShare, icon: "🏦", accent: "text-blue-600" },
-        { label: t("carwash.totalExpenses"), value: data.totalExpenses, icon: "🧾", accent: "text-rose-600" },
-        { label: t("carwash.equipmentRevenue"), value: data.totalEquipmentRevenue, icon: "🧽", accent: "text-cyan-600" },
-        { label: t("carwash.netProfit"), value: data.netProfit, icon: "📈", accent: "text-green-600" },
-        { label: t("carwash.totalIncome"), value: data.totalIncome, icon: "💵", accent: "text-amber-600" },
-        { label: t("carwash.washCount"), value: data.washCount, icon: "🚗", accent: "text-slate-600" },
-      ]
+        { label: t("carwash.totalRevenue"), value: data.totalRevenue, icon: "💰", accent: "text-emerald-600", show: S.financials },
+        { label: t("carwash.totalCommission"), value: data.totalCommission, icon: "👷", accent: "text-violet-600", show: S.commission },
+        { label: t("carwash.ownerShare"), value: data.ownerShare, icon: "🏦", accent: "text-blue-600", show: S.financials },
+        { label: t("carwash.totalExpenses"), value: data.totalExpenses, icon: "🧾", accent: "text-rose-600", show: S.financials },
+        { label: t("carwash.equipmentRevenue"), value: data.totalEquipmentRevenue, icon: "🧽", accent: "text-cyan-600", show: S.equipment },
+        { label: t("carwash.netProfit"), value: data.netProfit, icon: "📈", accent: "text-green-600", show: S.financials },
+        { label: t("carwash.totalIncome"), value: data.totalIncome, icon: "💵", accent: "text-amber-600", show: S.financials },
+        { label: t("carwash.washCount"), value: data.washCount, icon: "🚗", accent: "text-slate-600", show: data.washCount != null },
+      ].filter((c) => c.show)
     : [];
 
   if (error) {
@@ -71,8 +82,9 @@ export default function CarWashReport({
           </div>
 
           <div className="grid md:grid-cols-2 gap-6">
-            <ChartCard
-              title={`📊 ${t("carwash.revenueBreakdown")}`}
+            {S.financials && (
+              <ChartCard
+                title={`📊 ${t("carwash.revenueBreakdown")}`}
               chart={
               <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
@@ -109,7 +121,9 @@ export default function CarWashReport({
                 />
               }
             />
+            )}
 
+            {S.commission && (
             <ChartCard
               title={`👷 ${t("carwash.washerEarnings")}`}
               chart={
@@ -142,8 +156,10 @@ export default function CarWashReport({
                 />
               }
             />
+            )}
           </div>
 
+          {S.equipment && (
           <ChartCard
             title={`💳 ${t("carwash.paidVsUnpaid")}`}
             chart={
@@ -191,8 +207,10 @@ export default function CarWashReport({
               />
             }
           />
+          )}
 
           <div className="grid md:grid-cols-2 gap-6">
+            {S.commission && (
             <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
               <div className="px-4 py-3 border-b border-gray-100 font-semibold text-gray-800">{t("carwash.washerEarnings")}</div>
               <table className="w-full text-sm">
@@ -213,7 +231,9 @@ export default function CarWashReport({
                 </tbody>
               </table>
             </div>
+            )}
 
+            {S.inventory && (
             <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
               <div className="px-4 py-3 border-b border-gray-100 font-semibold text-gray-800">{t("carwash.popularItems")}</div>
               <table className="w-full text-sm">
@@ -234,7 +254,9 @@ export default function CarWashReport({
                 </tbody>
               </table>
             </div>
+            )}
 
+            {S.equipment && (
             <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
               <div className="px-4 py-3 border-b border-gray-100 font-semibold text-gray-800">{t("carwash.paidEquipment")}</div>
               <table className="w-full text-sm">
@@ -255,7 +277,9 @@ export default function CarWashReport({
                 </tbody>
               </table>
             </div>
+            )}
 
+            {S.equipment && (
             <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
               <div className="px-4 py-3 border-b border-gray-100 font-semibold text-gray-800">{t("carwash.unpaidEquipment")}</div>
               <table className="w-full text-sm">
@@ -276,8 +300,10 @@ export default function CarWashReport({
                 </tbody>
               </table>
             </div>
+            )}
           </div>
 
+          {S.inventory && (
           <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
             <div className="px-4 py-3 border-b border-gray-100 font-semibold text-gray-800">{t("carwash.lowStockItems")}</div>
             <table className="w-full text-sm">
@@ -300,14 +326,21 @@ export default function CarWashReport({
               </tbody>
             </table>
           </div>
+          )}
         </>
       )}
 
       {showQuickLinks && (
         <div className="flex gap-2 text-sm">
-          <Link href="/dashboard/carwash/washes" className="px-3 py-2 rounded border border-gray-300 text-gray-700">{t("carwash.carWashList")}</Link>
-          <Link href="/dashboard/carwash/collection" className="px-3 py-2 rounded border border-gray-300 text-gray-700">{t("carwash.collection")}</Link>
-          <Link href="/dashboard/carwash/expenses" className="px-3 py-2 rounded border border-gray-300 text-gray-700">{t("carwash.expenses")}</Link>
+          {canAccess("/dashboard/carwash/washes", hasPermission) && (
+            <Link href="/dashboard/carwash/washes" className="px-3 py-2 rounded border border-gray-300 text-gray-700">{t("carwash.carWashList")}</Link>
+          )}
+          {canAccess("/dashboard/carwash/collection", hasPermission) && (
+            <Link href="/dashboard/carwash/collection" className="px-3 py-2 rounded border border-gray-300 text-gray-700">{t("carwash.collection")}</Link>
+          )}
+          {canAccess("/dashboard/carwash/expenses", hasPermission) && (
+            <Link href="/dashboard/carwash/expenses" className="px-3 py-2 rounded border border-gray-300 text-gray-700">{t("carwash.expenses")}</Link>
+          )}
         </div>
       )}
     </div>

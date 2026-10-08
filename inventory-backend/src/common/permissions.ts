@@ -385,6 +385,26 @@ export const PERMISSIONS: PermissionDefinition[] = [
     group: 'Car Wash - Reports',
   },
   {
+    key: 'carwash.reports.financials',
+    label: 'Reports: Financials (revenue, owner share, expenses, profit)',
+    group: 'Car Wash - Reports',
+  },
+  {
+    key: 'carwash.reports.commission',
+    label: 'Reports: Washer Commission & Earnings',
+    group: 'Car Wash - Reports',
+  },
+  {
+    key: 'carwash.reports.inventory',
+    label: 'Reports: Popular Items & Low Stock',
+    group: 'Car Wash - Reports',
+  },
+  {
+    key: 'carwash.reports.equipment',
+    label: 'Reports: Equipment (Paid / Unpaid)',
+    group: 'Car Wash - Reports',
+  },
+  {
     key: 'carwash.settings.view',
     label: 'View Car Wash Settings',
     group: 'Car Wash - Settings',
@@ -492,6 +512,8 @@ export const PERMISSION_GROUPS_BY_BUSINESS_TYPE: Record<
     'Customers',
     'Users',
     'Roles',
+    'Finance',
+    'Reports',
     'AI',
     'Agent',
   ],
@@ -602,6 +624,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'carwash.expenses.edit',
     'carwash.expenses.delete',
     'carwash.reports.view',
+    'carwash.reports.financials',
+    'carwash.reports.commission',
+    'carwash.reports.inventory',
+    'carwash.reports.equipment',
     'carwash.settings.view',
     'carwash.settings.edit',
   ],
@@ -640,12 +666,16 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'carwash.collections.create',
     'carwash.expenses.view',
     'carwash.reports.view',
+    'carwash.reports.equipment',
   ],
   // Car-wash washer: records nothing by default — only the dashboard and their
   // OWN wash report. The business owner grants additional permissions as needed.
   WASHER: [
     'dashboard.view',
     'carwash.reports.view',
+    // Own commission/earnings only; the report redacts company financials,
+    // inventory and equipment unless the owner grants the extra detail keys.
+    'carwash.reports.commission',
   ],
   // Front desk: checks guests in/out, takes reservations and settles folios.
   // `folios.view` / `folios.charge` / `folios.settle` are what the unified folio

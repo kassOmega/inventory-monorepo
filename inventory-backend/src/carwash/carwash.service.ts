@@ -1468,7 +1468,12 @@ export class CarWashService {
         include: { washer: true, participantWashers: true },
       }),
       this.prisma.carWashEquipmentIssue.findMany({
-        where: { issuedAt: { gte: start, lte: end } },
+        // A washer only sees equipment issued to THEM (own scope); owner/manager
+        // sees everyone's.
+        where: {
+          issuedAt: { gte: start, lte: end },
+          ...(washerId != null ? { washerId } : {}),
+        },
         include: { washer: true, product: true },
       }),
       this.prisma.expense.findMany({
@@ -1478,7 +1483,12 @@ export class CarWashService {
         include: { inventory: true },
         take: 200,
       }),
-      this.prisma.carWashWasher.findMany({ orderBy: { name: 'asc' } }),
+      this.prisma.carWashWasher.findMany({
+        // A washer sees only their own row (so "Washer earnings" can never show
+        // other washers); owner/manager sees all.
+        where: washerId != null ? { id: washerId } : undefined,
+        orderBy: { name: 'asc' },
+      }),
     ]);
 
     const summary = this.summarizeWashes(washes);
@@ -1546,28 +1556,60 @@ export class CarWashService {
       })
       .filter((x) => x.stock <= x.minimumStock);
 
-    return {
+    // --- Per-detail visibility (server-side redaction) ---
+    // A caller sees a section when they hold its detail key. A washer (who only
+    // has `carwash.reports.commission`) additionally always sees their OWN row,
+    // because `washCount` and `washerEarnings` are already scoped by
+    // `washerScope` to their own washes. Company financials/inventory/equipment
+    // are nulled/emptied so the data never leaves the API for unpermitted users.
+    const perms = user?.permissions ?? [];
+    const canFinancials =
+      perms.includes('carwash.reports.financials') ||
+      perms.includes('carwash.collections.view');
+    const canCommission = perms.includes('carwash.reports.commission');
+    const canInventory = perms.includes('carwash.reports.inventory');
+    const canEquipment = perms.includes('carwash.reports.equipment');
+    // A washer viewing their own scoped data keeps their own commission row even
+    // without the company-wide `carwash.reports.commission` key.
+    const isOwnScope = washerId != null;
+    const showCommission = canCommission || isOwnScope;
+
+    const redacted = {
       start,
       end,
-      totalRevenue: summary.totalRevenue,
-      totalCommission: summary.totalCommission,
-      ownerShare: summary.ownerShare,
-      totalExpenses,
-      paidEquipmentRevenue,
-      unpaidEquipmentRevenue,
-      totalEquipmentRevenue,
-      netProfit: summary.ownerShare - totalExpenses,
-      totalIncome: summary.totalRevenue + totalEquipmentRevenue,
-      washCount: washes.length,
-      equipmentIssueCount: equipment.length,
-      paidEquipmentCount: paid.length,
-      unpaidEquipmentCount: unpaid.length,
-      washerEarnings,
-      paidEquipmentByWasher: equipmentByWasher(paid),
-      unpaidEquipmentByWasher: equipmentByWasher(unpaid),
-      popularItems,
-      lowStockItems,
+      // Financials (owner money)
+      totalRevenue: canFinancials ? summary.totalRevenue : null,
+      ownerShare: canFinancials ? summary.ownerShare : null,
+      totalExpenses: canFinancials ? totalExpenses : null,
+      netProfit: canFinancials ? summary.ownerShare - totalExpenses : null,
+      totalIncome: canFinancials
+        ? summary.totalRevenue + totalEquipmentRevenue
+        : null,
+      // Commission
+      totalCommission: showCommission ? summary.totalCommission : null,
+      washCount: isOwnScope || canCommission || canFinancials ? washes.length : null,
+      washerEarnings: showCommission ? washerEarnings : [],
+      // Equipment
+      paidEquipmentRevenue: canEquipment ? paidEquipmentRevenue : null,
+      unpaidEquipmentRevenue: canEquipment ? unpaidEquipmentRevenue : null,
+      totalEquipmentRevenue: canEquipment ? totalEquipmentRevenue : null,
+      equipmentIssueCount: canEquipment ? equipment.length : null,
+      paidEquipmentCount: canEquipment ? paid.length : null,
+      unpaidEquipmentCount: canEquipment ? unpaid.length : null,
+      paidEquipmentByWasher: canEquipment ? equipmentByWasher(paid) : [],
+      unpaidEquipmentByWasher: canEquipment ? equipmentByWasher(unpaid) : [],
+      // Inventory
+      popularItems: canInventory ? popularItems : [],
+      lowStockItems: canInventory ? lowStockItems : [],
+      // Which sections the client may render (drives the card visibility).
+      sections: {
+        financials: canFinancials,
+        commission: showCommission,
+        inventory: canInventory,
+        equipment: canEquipment,
+      },
     };
+    return redacted;
   }
 
   // -------------------------------------------------------------------------

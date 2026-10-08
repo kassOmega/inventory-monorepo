@@ -2,7 +2,8 @@
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import { getVerticalFeatures } from "@/lib/verticals";
-import { buildDashboardNav, businessTypesForRoute, routeFeatureMap, routePermissionMap, verticalForRoute } from "@/lib/dashboardNavigation";
+import { buildDashboardNav } from "@/lib/dashboardNavigation";
+import { routeFor } from "@/lib/dashboardRoutes";
 import { User } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -112,11 +113,9 @@ export default function DashboardLayout({
 
   // Redirect users away from routes their business type does not enable.
   useEffect(() => {
-    const feature =
-      routeFeatureMap[pathname] ??
-      (pathname.startsWith("/dashboard/food/station")
-        ? "pos"
-        : undefined);
+    if (isLoading) return;
+    const entry = routeFor(pathname);
+    const feature = entry?.feature;
     if (!feature) return;
     if (feature === "inventory" && !vertical.inventory) {
       router.replace("/dashboard");
@@ -128,63 +127,46 @@ export default function DashboardLayout({
       router.replace("/dashboard");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, vertical.inventory, vertical.retail, vertical.pos, vertical.rooms, router]);
+  }, [pathname, vertical.inventory, vertical.retail, vertical.pos, vertical.rooms, router, isLoading]);
 
-  // Vertical-exclusive modules (SERVICE / MANUFACTURING / HOSPITALITY) are only
-  // reachable inside the matching business type. The menu already hides them, but
-  // a typed URL would otherwise render another vertical's module for an
-  // organization whose role template happens to hold the permission key. This
-  // mirrors the backend's @Vertical(...) enforcement so the two agree.
+  // Vertical-exclusive modules (SERVICE / MANUFACTURING / HOSPITALITY / CAR WASH)
+  // are only reachable inside the matching business type, and shared routes may
+  // restrict which business types may open them. Both come from the registry so
+  // the sidebar and the guard agree.
   useEffect(() => {
-    const owner = verticalForRoute(pathname);
-    if (owner && businessType && !isLoading) {
-      if (businessType !== owner) router.replace("/dashboard");
+    if (isLoading || !businessType) return;
+    const entry = routeFor(pathname);
+    if (entry?.vertical && businessType !== entry.vertical) {
+      router.replace("/dashboard");
       return;
     }
-    // Shared accounting/reporting routes are only meaningful for certain
-    // business types (CAR_WASH has its own finance/report pages).
-    const allowed = businessTypesForRoute(pathname);
-    if (allowed && businessType && !isLoading && !allowed.includes(businessType)) {
+    if (entry?.businessTypes && !entry.businessTypes.includes(businessType)) {
       router.replace("/dashboard");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, businessType, isLoading, router]);
 
-  // Redirect users away from routes they lack the permission for.
+  // Redirect users away from routes they lack the read permission for. Uses the
+  // single route registry so menu visibility and route access share one rule.
   useEffect(() => {
+    if (isLoading || !user) return;
     const stationMatch = pathname.match(/^\/dashboard\/food\/station\/([^/]+)$/);
     const isStationRoute = !!stationMatch;
-    // Custom hospitality service lines are owner-created, so their route cannot
-    // live in the static map: /dashboard/hospitality/service/<customKey> is a
-    // generic facility dashboard and follows the same facility.view gate.
-    const customServiceRoute = /^\/dashboard\/hospitality\/service\/[^/]+$/.test(
-      pathname,
-    );
-    // CRM: /dashboard/customers/<id|publicId> is the customer profile. The
-    // static map cannot hold a dynamic segment, so it falls back to the same
-    // read permission the directory itself uses.
-    const customerProfileRoute = /^\/dashboard\/customers\/[^/]+$/.test(
-      pathname,
-    );
-    // A route may accept any of several permissions (e.g. /dashboard/users is
-    // opened by users.view, users.manage or roles.manage because Users & Roles
-    // share one tabbed page) — mirroring the backend PermissionsGuard, which
-    // passes when any of the required keys is held.
-    let required: string | string[] | undefined =
-      routePermissionMap[pathname] ??
-      (customerProfileRoute ? "customers.view" : undefined) ??
-      (customServiceRoute ? "facility.view" : undefined);
-    if (!required && stationMatch) {
+    const entry = routeFor(pathname);
+
+    // Station boards: the read key is per-station (food/station/:key), which the
+    // registry narrows to kitchen.view; a manager may open any board.
+    let required: string | string[] | undefined = entry?.read;
+    if (isStationRoute) {
       if (stations.length === 0) return; // station list still loading
-      const st = stations.find((s) => s.key === stationMatch[1]);
-      required = st?.permissionView ?? "kitchen.view";
+      const st = stations.find((s) => s.key === stationMatch![1]);
+      required = st?.permissionView ?? required;
     }
-    if (!required || !user || isLoading) return;
-    if (user.isSuperuser) return;
-    // Managers can open any station board (matches the backend check).
+    if (!required) return;
+    if (user.isSuperuser) return; // owner bypass (matches hasPermission)
     if (isStationRoute && user.permissions?.includes("restaurant.manage")) return;
     const needed = Array.isArray(required) ? required : [required];
-    if (!needed.some((key) => user.permissions?.includes(key))) {
+    if (needed.length > 0 && !needed.some((key) => user.permissions?.includes(key))) {
       router.replace("/dashboard");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

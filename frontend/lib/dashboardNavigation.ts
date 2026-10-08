@@ -12,6 +12,8 @@
 // returned as a loose link so it keeps today's flat behaviour until it is
 // grouped too.
 
+import { routeFor } from "./dashboardRoutes";
+
 export interface DashboardNavItem {
   href: string;
   label: string;
@@ -126,151 +128,28 @@ export interface NavBuildContext {
 }
 
 // Which feature a dashboard route requires, for per-business-type route guarding.
-export const routeFeatureMap: Record<
-  string,
-  "inventory" | "retail" | "pos" | "rooms"
-> = {
-  "/dashboard/products": "inventory",
-  "/dashboard/adjust-stock": "inventory",
-  "/dashboard/inventory": "inventory",
-  "/dashboard/locations": "inventory",
-  "/dashboard/restock": "inventory",
-  "/dashboard/requests": "retail",
-  "/dashboard/sales": "retail",
-  "/dashboard/purchases": "retail",
-  "/dashboard/prices": "retail",
-  "/dashboard/credits": "retail",
-  "/dashboard/food/orders": "pos",
-  "/dashboard/food/kitchen": "pos",
-  "/dashboard/food/bar": "pos",
-  "/dashboard/food/barista": "pos",
-  "/dashboard/food/station": "pos",
-  "/dashboard/food/menu": "pos",
-  "/dashboard/hotel": "rooms",
-};
-
-/** Routes that require a specific permission (checked on top of the feature map). */
-// A value may be one permission key or a list of them, where holding any one
-// key grants access — e.g. /dashboard/users hosts the Users & Roles tabs
-// (users.view | users.manage | roles.manage), the union the backend allows.
-export const routePermissionMap: Record<string, string | string[]> = {
-  // Retail / shared
-  "/dashboard/products": "products.view",
-  "/dashboard/adjust-stock": "products.adjust-stock",
-  "/dashboard/inventory": "products.view",
-  "/dashboard/restock": "restock.create",
-  "/dashboard/requests": "requests.view",
-  "/dashboard/sales": "sales.view",
-  "/dashboard/purchases": "purchases.view",
-  "/dashboard/prices": "prices.view",
-  "/dashboard/credits": "credits.view",
-  // CRM: deliberately not in routeFeatureMap — the directory serves every
-  // business type (retail, hospitality guests, service clients, manufacturing
-  // dealers), so only the permission gates it.
-  "/dashboard/customers": "customers.view",
-  "/dashboard/customers/settings": "customers.manage",
-  "/dashboard/locations": "locations.manage",
-  "/dashboard/users": ["users.view", "users.manage", "roles.manage"],
-  "/dashboard/reports": "reports.view",
-  "/dashboard/finance": "finance.view",
-  "/dashboard/food/orders": "restaurant.take-orders",
-  "/dashboard/food/kitchen": "kitchen.view",
-  "/dashboard/food/bar": "bar.view",
-  "/dashboard/food/barista": "barista.view",
-  "/dashboard/food/station": "kitchen.view",
-  "/dashboard/food/menu": "restaurant.manage",
-  // Hospitality vertical — every deep route is listed because the guard is an
-  // exact path lookup. Custom service lines are handled by prefix in the layout.
-  "/dashboard/hotel": "hotel.view",
-  "/dashboard/hospitality/packages": "packages.view",
-  "/dashboard/hospitality/folios": "folios.view",
-  "/dashboard/hospitality/memberships": "memberships.view",
-  "/dashboard/hospitality/memberships/types": "memberships.view",
-  "/dashboard/hospitality/spa": "facility.view",
-  "/dashboard/hospitality/gym": "facility.view",
-  "/dashboard/hospitality/pool": "facility.view",
-  "/dashboard/hospitality/events": "facility.view",
-  "/dashboard/cashier": "cashier.view",
-  // Service vertical (owner-only business type) — mirrors the backend's
-  // service.view / service.manage gates on /service/*.
-  "/dashboard/service": "service.view",
-  "/dashboard/service/catalog": "service.view",
-  "/dashboard/service/bookings": "service.view",
-  "/dashboard/service/tickets": "service.view",
-  "/dashboard/service/clients": "service.view",
-  "/dashboard/service/settings": "service.manage",
-  // Car wash vertical — mirrors the backend's carwash.* gates on /carwash/*.
-  "/dashboard/carwash": "carwash.washes.view",
-  "/dashboard/carwash/washers": "carwash.washers.view",
-  "/dashboard/carwash/prices": "carwash.prices.view",
-  "/dashboard/carwash/vehicles": "carwash.vehicles.view",
-  "/dashboard/carwash/bookings": "carwash.bookings.view",
-  "/dashboard/carwash/washes": "carwash.washes.view",
-  "/dashboard/carwash/equipment": "carwash.equipment.view",
-  "/dashboard/carwash/store-items": "carwash.equipment.view",
-  "/dashboard/carwash/expenses": "carwash.expenses.view",
-  "/dashboard/carwash/reports": "carwash.reports.view",
-  "/dashboard/carwash/washer-reports": "carwash.reports.view",
-  "/dashboard/carwash/collection": "carwash.collections.view",
-  "/dashboard/carwash/settings": "carwash.settings.view",
-  "/dashboard/payment-methods": "finance.view",
-  "/dashboard/taxes": "finance.view",
-  "/dashboard/accounts": "finance.view",
-  "/dashboard/finance/ledger": "finance.view",
-  "/dashboard/finance/settings/mappings": "finance.view",
-  "/dashboard/forecast": "ai.view",
-  "/dashboard/purchase-orders": "ai.view",
-  "/dashboard/agent": "agent.manage",
-};
-
-// Routes that belong to exactly one vertical. The sidebar already hides them, but
-// routePermissionMap is an exact-path lookup, so a typed URL (or a stale
-// bookmark) used to render another vertical's module for an organization that
-// merely happens to hold the key — role templates are shared across verticals
-// (e.g. a hospitality Manager carries `service.*`, a retail Storekeeper carries
-// `manufacturing.*`). This mirrors the backend's @Vertical(...) enforcement.
-export type VerticalRouteOwner = "HOSPITALITY" | "MANUFACTURING" | "SERVICE" | "CAR_WASH";
-
-export const verticalRoutePrefixes: Array<{
-  prefix: string;
-  type: VerticalRouteOwner;
-}> = [
-  { prefix: "/dashboard/service", type: "SERVICE" },
-  { prefix: "/dashboard/carwash", type: "CAR_WASH" },
-  { prefix: "/dashboard/manufacturing", type: "MANUFACTURING" },
-  { prefix: "/dashboard/hotel", type: "HOSPITALITY" },
-  { prefix: "/dashboard/food", type: "HOSPITALITY" },
-  { prefix: "/dashboard/hospitality", type: "HOSPITALITY" },
-];
-
-/** The vertical that owns a route, or null when the route is shared. */
-export function verticalForRoute(
-  pathname: string,
-): VerticalRouteOwner | null {
-  for (const { prefix, type } of verticalRoutePrefixes) {
-    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return type;
-  }
-  return null;
-}
-
-/**
- * Shared accounting/reporting routes that only certain business types use. The
- * generic chart-of-accounts finance surface and the retail reports page are not
- * meaningful for CAR_WASH (which has its own /dashboard/carwash/* finance and
- * report pages), so a typed URL must not render them. This mirrors the nav
- * gating in `buildDashboardNav` and the backend's per-vertical permission
- * catalog so request, response and display agree.
- */
-export const routeBusinessTypes: Record<string, string[]> = {
-};
-
-/** Business types allowed to open a shared route, or null when unrestricted. */
-export function businessTypesForRoute(pathname: string): string[] | null {
-  return routeBusinessTypes[pathname] ?? null;
-}
+// The maps below are DERIVED from the single route registry so the sidebar and
+// the route guard can never disagree. See lib/dashboardRoutes.ts.
+export {
+  routePermissionMap,
+  routeFeatureMap,
+  verticalRoutePrefixes,
+  routeBusinessTypes,
+  businessTypesForRoute,
+  verticalForRoute,
+} from "./dashboardRoutes";
 
 export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
   const t = ctx.t;
+  /**
+   * The read permission(s) for a route, sourced from the registry so the menu
+   * and the route guard always agree (see lib/dashboardRoutes.ts). Falls back to
+   * the passed value only if the route is not yet registered.
+   */
+  const routeRead = (href: string): string | string[] | undefined => {
+    const entry = routeFor(href);
+    return entry ? entry.read : undefined;
+  };
   /** Whether the active hospitality business has a given service enabled. */
   const serviceEnabled = (type: string) =>
     ctx.services.some((s) => s.serviceType === type && s.isEnabled);
@@ -351,45 +230,53 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
     inventory.items.push({
       href: "/dashboard/products",
       label: t("nav.products"),
-      permission: "products.view",
+      permission: routeRead("/dashboard/products"),
     });
     // Stock is one menu item whose three pages are tabs: the stock tasks overview,
     // receiving stock and counting it. The item lands on the first tab the user may
     // open and stays highlighted on all three (see `match`).
     const stockTabs = [
-      { href: "/dashboard/inventory", permission: "products.view" },
-      { href: "/dashboard/restock", permission: "restock.create" },
-      { href: "/dashboard/adjust-stock", permission: "products.adjust-stock" },
+      "/dashboard/inventory",
+      "/dashboard/restock",
+      "/dashboard/adjust-stock",
     ];
-    const openTabs = stockTabs.filter((tab) => ctx.hasPermission(tab.permission));
+    const holdsRead = (href: string) => {
+      const entry = routeFor(href);
+      const read = entry ? (Array.isArray(entry.read) ? entry.read : [entry.read]) : [];
+      return read.length === 0 || read.some((k) => ctx.hasPermission(k));
+    };
+    const openTabs = stockTabs.filter(holdsRead);
     if (openTabs.length > 0) {
       inventory.items.push({
-        href: openTabs[0].href,
+        href: openTabs[0],
         label: t("nav.stock"),
-        permission: openTabs.map((tab) => tab.permission),
-        match: stockTabs.map((tab) => tab.href),
+        permission: openTabs.flatMap((href) => {
+          const entry = routeFor(href);
+          return entry ? [entry.read].flat() : [];
+        }),
+        match: stockTabs,
       });
     }
     if (!ctx.standalone) {
       inventory.items.push({
         href: "/dashboard/locations",
         label: t("nav.locations"),
-        permission: "locations.manage",
+        permission: routeRead("/dashboard/locations"),
       });
     }
     if (ctx.staffCount > 0) {
       inventory.items.push({
         href: "/dashboard/requests",
         label: t("nav.requests"),
-        permission: "requests.view",
+        permission: routeRead("/dashboard/requests"),
       });
     }
     sales.items.push(
-      { href: "/dashboard/sales", label: t("nav.sales"), permission: "sales.view" },
-      { href: "/dashboard/purchases", label: t("nav.purchases"), permission: "purchases.view" },
-      { href: "/dashboard/prices", label: t("nav.prices"), permission: "prices.view" },
-      { href: "/dashboard/credits", label: t("nav.credits"), permission: "credits.view" },
-      { href: "/dashboard/customers", label: t("nav.customers"), permission: "customers.view" },
+      { href: "/dashboard/sales", label: t("nav.sales"), permission: routeRead("/dashboard/sales") },
+      { href: "/dashboard/purchases", label: t("nav.purchases"), permission: routeRead("/dashboard/purchases") },
+      { href: "/dashboard/prices", label: t("nav.prices"), permission: routeRead("/dashboard/prices") },
+      { href: "/dashboard/credits", label: t("nav.credits"), permission: routeRead("/dashboard/credits") },
+      { href: "/dashboard/customers", label: t("nav.customers"), permission: routeRead("/dashboard/customers") },
     );
   }
 
@@ -401,19 +288,19 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
     sales.items.push({
       href: "/dashboard/customers",
       label: t("nav.customers"),
-      permission: ["customers.view", "credits.view"],
+      permission: routeRead("/dashboard/customers"),
       match: ["/dashboard/credits"],
     });
   }
 
   if (ctx.hasBusiness && ctx.hasFinance) {
     finance.items.push(
-      { href: "/dashboard/finance", label: t("nav.finance"), permission: "finance.view" },
-      { href: "/dashboard/payment-methods", label: t("nav.paymentMethods"), permission: "finance.view" },
-      { href: "/dashboard/taxes", label: t("nav.taxes"), permission: "finance.view" },
-      { href: "/dashboard/accounts", label: t("nav.accounts"), permission: "finance.view" },
-      { href: "/dashboard/finance/ledger", label: t("nav.generalLedger"), permission: "finance.view" },
-      { href: "/dashboard/finance/settings/mappings", label: t("nav.accountMappings"), permission: "finance.view" },
+      { href: "/dashboard/finance", label: t("nav.finance"), permission: routeRead("/dashboard/finance") },
+      { href: "/dashboard/payment-methods", label: t("nav.paymentMethods"), permission: routeRead("/dashboard/payment-methods") },
+      { href: "/dashboard/taxes", label: t("nav.taxes"), permission: routeRead("/dashboard/taxes") },
+      { href: "/dashboard/accounts", label: t("nav.accounts"), permission: routeRead("/dashboard/accounts") },
+      { href: "/dashboard/finance/ledger", label: t("nav.generalLedger"), permission: routeRead("/dashboard/finance/ledger") },
+      { href: "/dashboard/finance/settings/mappings", label: t("nav.accountMappings"), permission: routeRead("/dashboard/finance/settings/mappings") },
     );
   }
 
@@ -424,52 +311,52 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
       {
         href: "/dashboard/users",
         label: t("nav.usersAndRoles"),
-        permission: ["users.view", "users.manage", "roles.manage"],
+        permission: routeRead("/dashboard/users"),
       },
       // One shared reports page for every business; it renders the tab set for
       // the active business type (retail/manufacturing/hospitality/service/
       // car wash).
-      { href: "/dashboard/reports", label: t("nav.reports"), permission: "reports.view" },
-      { href: "/dashboard/forecast", label: t("nav.aiForecast"), permission: "ai.view" },
-      { href: "/dashboard/purchase-orders", label: t("nav.purchaseOrders"), permission: "ai.view" },
-      { href: "/dashboard/agent", label: t("nav.aiAgent"), permission: "agent.manage" },
+      { href: "/dashboard/reports", label: t("nav.reports"), permission: routeRead("/dashboard/reports") },
+      { href: "/dashboard/forecast", label: t("nav.aiForecast"), permission: routeRead("/dashboard/forecast") },
+      { href: "/dashboard/purchase-orders", label: t("nav.purchaseOrders"), permission: routeRead("/dashboard/purchase-orders") },
+      { href: "/dashboard/agent", label: t("nav.aiAgent"), permission: routeRead("/dashboard/agent") },
     );
   }
 
   if (ctx.hasBusiness && ctx.isManufacturing) {
     manufacturing.items.push(
-      { href: "/dashboard/manufacturing/production", label: t("nav.production"), permission: "manufacturing.view" },
-      { href: "/dashboard/manufacturing/boms", label: t("nav.billOfMaterials"), permission: "manufacturing.view" },
-      { href: "/dashboard/manufacturing/catalog", label: t("nav.designCatalog"), permission: "manufacturing.view" },
-      { href: "/dashboard/manufacturing/orders", label: t("nav.jobs"), permission: "manufacturing.view" },
-      { href: "/dashboard/manufacturing/teams", label: t("nav.teams"), permission: "manufacturing.view" },
-      { href: "/dashboard/manufacturing/flows", label: t("nav.flows"), permission: "manufacturing.view" },
-      { href: "/dashboard/manufacturing/services", label: t("nav.servicesIncome"), permission: "manufacturing.view" },
-      { href: "/dashboard/manufacturing/materials", label: t("nav.materialsIssues"), permission: "manufacturing.view" },
-      { href: "/dashboard/manufacturing/purchasing", label: t("nav.purchasing"), permission: "manufacturing.view" },
-      { href: "/dashboard/manufacturing/receipts", label: t("nav.stockReceipts"), permission: "manufacturing.view" },
-      { href: "/dashboard/manufacturing/machines", label: t("nav.machines"), permission: "manufacturing.view" },
-      { href: "/dashboard/manufacturing/shifts", label: t("nav.shifts"), permission: "manufacturing.view" },
-      { href: "/dashboard/manufacturing/workers", label: t("nav.workers"), permission: "manufacturing.view" },
-      { href: "/dashboard/manufacturing/settings", label: t("nav.settings"), permission: "manufacturing.manage" },
+      { href: "/dashboard/manufacturing/production", label: t("nav.production"), permission: routeRead("/dashboard/manufacturing/production") },
+      { href: "/dashboard/manufacturing/boms", label: t("nav.billOfMaterials"), permission: routeRead("/dashboard/manufacturing/boms") },
+      { href: "/dashboard/manufacturing/catalog", label: t("nav.designCatalog"), permission: routeRead("/dashboard/manufacturing/catalog") },
+      { href: "/dashboard/manufacturing/orders", label: t("nav.jobs"), permission: routeRead("/dashboard/manufacturing/orders") },
+      { href: "/dashboard/manufacturing/teams", label: t("nav.teams"), permission: routeRead("/dashboard/manufacturing/teams") },
+      { href: "/dashboard/manufacturing/flows", label: t("nav.flows"), permission: routeRead("/dashboard/manufacturing/flows") },
+      { href: "/dashboard/manufacturing/services", label: t("nav.servicesIncome"), permission: routeRead("/dashboard/manufacturing/services") },
+      { href: "/dashboard/manufacturing/materials", label: t("nav.materialsIssues"), permission: routeRead("/dashboard/manufacturing/materials") },
+      { href: "/dashboard/manufacturing/purchasing", label: t("nav.purchasing"), permission: routeRead("/dashboard/manufacturing/purchasing") },
+      { href: "/dashboard/manufacturing/receipts", label: t("nav.stockReceipts"), permission: routeRead("/dashboard/manufacturing/receipts") },
+      { href: "/dashboard/manufacturing/machines", label: t("nav.machines"), permission: routeRead("/dashboard/manufacturing/machines") },
+      { href: "/dashboard/manufacturing/shifts", label: t("nav.shifts"), permission: routeRead("/dashboard/manufacturing/shifts") },
+      { href: "/dashboard/manufacturing/workers", label: t("nav.workers"), permission: routeRead("/dashboard/manufacturing/workers") },
+      { href: "/dashboard/manufacturing/settings", label: t("nav.settings"), permission: routeRead("/dashboard/manufacturing/settings") },
     );
   }
 
   if (ctx.hasBusiness && ctx.isCarWash) {
     carWash.items.push(
-      { href: "/dashboard/carwash/bookings", label: t("nav.carwashBookings"), permission: "carwash.bookings.view" },
-      { href: "/dashboard/carwash/washes", label: t("nav.carwashWashes"), permission: "carwash.washes.view" },
-      { href: "/dashboard/carwash/collection", label: t("nav.carwashCollection"), permission: "carwash.collections.view" },
-      { href: "/dashboard/carwash/washers", label: t("nav.carwashWashers"), permission: "carwash.washers.view" },
-      { href: "/dashboard/carwash/prices", label: t("nav.carwashPrices"), permission: "carwash.prices.view" },
-      { href: "/dashboard/carwash/vehicles", label: t("nav.carwashVehicles"), permission: "carwash.vehicles.view" },
-      { href: "/dashboard/carwash/store-items", label: t("nav.carwashStoreItems"), permission: "carwash.equipment.view" },
-      { href: "/dashboard/carwash/equipment", label: t("nav.carwashEquipment"), permission: "carwash.equipment.view" },
-      { href: "/dashboard/carwash/expenses", label: t("nav.carwashExpenses"), permission: "carwash.expenses.view" },
-      { href: "/dashboard/carwash/reports", label: t("nav.carwashReports"), permission: "carwash.reports.view" },
-      { href: "/dashboard/carwash/washer-reports", label: t("nav.carwashWasherReports"), permission: "carwash.reports.view" },
-      { href: "/dashboard/carwash/settings", label: t("nav.settings"), permission: "carwash.settings.view" },
-      { href: "/dashboard/customers", label: t("nav.customers"), permission: "customers.view" },
+      { href: "/dashboard/carwash/bookings", label: t("nav.carwashBookings"), permission: routeRead("/dashboard/carwash/bookings") },
+      { href: "/dashboard/carwash/washes", label: t("nav.carwashWashes"), permission: routeRead("/dashboard/carwash/washes") },
+      { href: "/dashboard/carwash/collection", label: t("nav.carwashCollection"), permission: routeRead("/dashboard/carwash/collection") },
+      { href: "/dashboard/carwash/washers", label: t("nav.carwashWashers"), permission: routeRead("/dashboard/carwash/washers") },
+      { href: "/dashboard/carwash/prices", label: t("nav.carwashPrices"), permission: routeRead("/dashboard/carwash/prices") },
+      { href: "/dashboard/carwash/vehicles", label: t("nav.carwashVehicles"), permission: routeRead("/dashboard/carwash/vehicles") },
+      { href: "/dashboard/carwash/store-items", label: t("nav.carwashStoreItems"), permission: routeRead("/dashboard/carwash/store-items") },
+      { href: "/dashboard/carwash/equipment", label: t("nav.carwashEquipment"), permission: routeRead("/dashboard/carwash/equipment") },
+      { href: "/dashboard/carwash/expenses", label: t("nav.carwashExpenses"), permission: routeRead("/dashboard/carwash/expenses") },
+      { href: "/dashboard/carwash/reports", label: t("nav.carwashReports"), permission: routeRead("/dashboard/carwash/reports") },
+      { href: "/dashboard/carwash/washer-reports", label: t("nav.carwashWasherReports"), permission: routeRead("/dashboard/carwash/washer-reports") },
+      { href: "/dashboard/carwash/settings", label: t("nav.settings"), permission: routeRead("/dashboard/carwash/settings") },
+      { href: "/dashboard/customers", label: t("nav.customers"), permission: routeRead("/dashboard/customers") },
     );
   }
 
@@ -485,7 +372,7 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
     // FOOD_AND_BEVERAGE — orders, station boards, menu.
     if (serviceEnabled("FOOD_AND_BEVERAGE")) {
       loose.push(
-        { href: "/dashboard/food/orders", label: t("nav.orders"), permission: "restaurant.take-orders" },
+        { href: "/dashboard/food/orders", label: t("nav.orders"), permission: routeRead("/dashboard/food/orders") },
         ...ctx.stations.map((s) => ({
           href: `/dashboard/food/station/${s.key}`,
           label: s.nameLocalized ?? s.name,
@@ -493,40 +380,40 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
             ? undefined
             : (s.permissionView ?? "kitchen.view"),
         })),
-        { href: "/dashboard/food/menu", label: t("nav.menu"), permission: "restaurant.manage" },
+        { href: "/dashboard/food/menu", label: t("nav.menu"), permission: routeRead("/dashboard/food/menu") },
       );
     }
     // ACCOMMODATION — rooms, reservations and front-desk billing.
     if (serviceEnabled("ACCOMMODATION")) {
-      loose.push({ href: "/dashboard/hotel", label: t("nav.roomService"), permission: "hotel.view" });
+      loose.push({ href: "/dashboard/hotel", label: t("nav.roomService"), permission: routeRead("/dashboard/hotel") });
     }
     // Facility dashboards per enabled service line.
     if (serviceEnabled("SPA_AND_WELLNESS")) {
       loose.push({
         href: "/dashboard/hospitality/spa",
         label: t("hospitalityServices.SPA_AND_WELLNESS"),
-        permission: "facility.view",
+        permission: routeRead("/dashboard/hospitality/spa"),
       });
     }
     if (serviceEnabled("GYM_AND_FITNESS")) {
       loose.push({
         href: "/dashboard/hospitality/gym",
         label: t("hospitalityServices.GYM_AND_FITNESS"),
-        permission: "facility.view",
+        permission: routeRead("/dashboard/hospitality/gym"),
       });
     }
     if (serviceEnabled("SWIMMING_POOL")) {
       loose.push({
         href: "/dashboard/hospitality/pool",
         label: t("hospitalityServices.SWIMMING_POOL"),
-        permission: "facility.view",
+        permission: routeRead("/dashboard/hospitality/pool"),
       });
     }
     if (serviceEnabled("EVENT_AND_HALL_RENTAL")) {
       loose.push({
         href: "/dashboard/hospitality/events",
         label: t("hospitalityServices.EVENT_AND_HALL_RENTAL"),
-        permission: "facility.view",
+        permission: routeRead("/dashboard/hospitality/events"),
       });
     }
     // Owner-created custom services → generic facility dashboards.
@@ -534,7 +421,7 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
       loose.push({
         href: `/dashboard/hospitality/service/${s.customKey}`,
         label: s.customName ?? s.customKey ?? t("terms.svc.service"),
-        permission: "facility.view",
+        permission: routeRead("/dashboard/hospitality/service/:key"),
       });
     }
     // Memberships — shown when any membership-capable service is enabled.
@@ -545,8 +432,8 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
       customServices.length > 0
     ) {
       loose.push(
-        { href: "/dashboard/hospitality/memberships", label: t("nav.memberships"), permission: "memberships.view" },
-        { href: "/dashboard/hospitality/memberships/types", label: t("nav.membershipTypes"), permission: "memberships.view" },
+        { href: "/dashboard/hospitality/memberships", label: t("nav.memberships"), permission: routeRead("/dashboard/hospitality/memberships") },
+        { href: "/dashboard/hospitality/memberships/types", label: t("nav.membershipTypes"), permission: routeRead("/dashboard/hospitality/memberships/types") },
       );
     }
     // Packages & guest folios (package / entitlement routing).
@@ -556,8 +443,8 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
       customServices.length > 0
     ) {
       loose.push(
-        { href: "/dashboard/hospitality/packages", label: t("nav.packages"), permission: "packages.view" },
-        { href: "/dashboard/hospitality/folios", label: t("nav.folios"), permission: "folios.view" },
+        { href: "/dashboard/hospitality/packages", label: t("nav.packages"), permission: routeRead("/dashboard/hospitality/packages") },
+        { href: "/dashboard/hospitality/folios", label: t("nav.folios"), permission: routeRead("/dashboard/hospitality/folios") },
       );
     }
     // Owner-only: upgrade/toggle the service lines as the business expands.
@@ -568,16 +455,16 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
       });
     }
     // Shared — always visible for a hospitality business.
-    loose.push({ href: "/dashboard/cashier", label: t("nav.cashier"), permission: "cashier.view" });
+    loose.push({ href: "/dashboard/cashier", label: t("nav.cashier"), permission: routeRead("/dashboard/cashier") });
   }
   if (ctx.hasBusiness && ctx.isService) {
     loose.push(
-      { href: "/dashboard/service", label: t("nav.serviceOverview"), permission: "service.view" },
-      { href: "/dashboard/service/catalog", label: t("nav.serviceCatalog"), permission: "service.view" },
-      { href: "/dashboard/service/bookings", label: t("nav.serviceBookings"), permission: "service.view" },
-      { href: "/dashboard/service/tickets", label: t("nav.serviceTickets"), permission: "service.view" },
-      { href: "/dashboard/service/clients", label: t("nav.serviceClients"), permission: "service.view" },
-      { href: "/dashboard/service/settings", label: t("nav.settings"), permission: "service.manage" },
+      { href: "/dashboard/service", label: t("nav.serviceOverview"), permission: routeRead("/dashboard/service") },
+      { href: "/dashboard/service/catalog", label: t("nav.serviceCatalog"), permission: routeRead("/dashboard/service/catalog") },
+      { href: "/dashboard/service/bookings", label: t("nav.serviceBookings"), permission: routeRead("/dashboard/service/bookings") },
+      { href: "/dashboard/service/tickets", label: t("nav.serviceTickets"), permission: routeRead("/dashboard/service/tickets") },
+      { href: "/dashboard/service/clients", label: t("nav.serviceClients"), permission: routeRead("/dashboard/service/clients") },
+      { href: "/dashboard/service/settings", label: t("nav.settings"), permission: routeRead("/dashboard/service/settings") },
     );
   }
   /** An item shows when it declares no permission, or any one of them. */

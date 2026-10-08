@@ -98,8 +98,25 @@ NODE
     fi
   fi
 
-  # Idempotent data backfills (role permissions, default vehicle/wash types for
-  # pre-existing Car Wash orgs). These are NOT run by default so container
+  # Role-permission reconciliation is idempotent and cheap, and keeps the menu
+  # consistent with each role's real permissions (a stale grant would otherwise
+  # show menu items the role can no longer use). Always reconcile role perms.
+  for script in \
+    backfill-hospitality-role-permissions \
+    backfill-customer-permissions \
+    backfill-carwash-role-permissions \
+    backfill-carwash-permission-prune; do
+    file="dist/prisma/${script}.js"
+    if [ -f "$file" ]; then
+      echo "[entrypoint] reconciling roles -> ${script}"
+      node "$file" || {
+        echo "[entrypoint] backfill ${script} failed - refusing to start the API" >&2
+        exit 1
+      }
+    fi
+  done
+
+  # Heavier data backfills (default seed data). NOT run by default so container
   # starts stay fast; set RUN_BACKFILLS=1 for the deploy that introduces new
   # default data. Each script is safe to re-run.
   if [ "${RUN_BACKFILLS:-0}" = "1" ]; then
@@ -107,10 +124,6 @@ NODE
     for script in \
       backfill-guest-id-types \
       backfill-room-charges \
-      backfill-hospitality-role-permissions \
-      backfill-customer-permissions \
-      backfill-carwash-role-permissions \
-      backfill-carwash-permission-prune \
       backfill-carwash-vehicle-types \
       backfill-carwash-wash-types; do
       file="dist/prisma/${script}.js"

@@ -6,25 +6,23 @@ import {
   ALL_PERMISSION_KEYS,
   DEFAULT_ROLE_PERMISSIONS,
   PERMISSIONS,
+  PERMISSION_GROUPS_BY_BUSINESS_TYPE,
 } from './permissions';
 
-/** Catalog groups that belong to the car-wash module. */
+/**
+ * The full set of groups a car-wash business may use (not just the `Car Wash - *`
+ * module): the shared catalog groups (Dashboard, Customers, Users, Roles,
+ * Finance, AI, Agent) are valid for a car-wash owner/manager too. Derived from
+ * the business-type allow-list so the roles editor, the nav, and the reconcile
+ * backfill all agree.
+ */
 export const CAR_WASH_PERMISSION_GROUPS = [
-  'Car Wash - Washers',
-  'Car Wash - Prices',
-  'Car Wash - Vehicles',
-  'Car Wash - Bookings',
-  'Car Wash - Washes',
-  'Car Wash - Equipment',
-  'Car Wash - Expenses',
-  'Car Wash - Collections',
-  'Car Wash - Reports',
-  'Car Wash - Settings',
+  ...(PERMISSION_GROUPS_BY_BUSINESS_TYPE.CAR_WASH ?? []),
 ] as const;
 
 const CAR_WASH_GROUP_SET = new Set<string>(CAR_WASH_PERMISSION_GROUPS);
 
-/** Every car-wash permission key, in catalog order, plus `dashboard.view`. */
+/** Every permission key a car-wash business may hold, in catalog order. */
 export const CAR_WASH_PERMISSION_KEYS: string[] = [
   ...PERMISSIONS.filter((p) => CAR_WASH_GROUP_SET.has(p.group)).map(
     (p) => p.key,

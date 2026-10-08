@@ -1,6 +1,8 @@
 "use client";
 
 import api from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { canAccess } from "@/lib/dashboardRoutes";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,6 +19,7 @@ interface ServiceDashboardData {
 
 export default function ServiceDashboard() {
   const { t } = useTranslation();
+  const { hasPermission } = useAuth();
   const [data, setData] = useState<ServiceDashboardData | null>(null);
   const [error, setError] = useState("");
 
@@ -56,9 +59,15 @@ export default function ServiceDashboard() {
       <div className="bg-white rounded-lg border border-gray-200 p-5">
         <h2 className="font-semibold text-gray-800 mb-2">{t("svc.quickActions")}</h2>
         <div className="flex gap-2 flex-wrap text-sm">
-          <Link href="/dashboard/service/bookings" className="px-3 py-2 rounded bg-blue-600 text-white">{t("svc.newBooking")}</Link>
-          <Link href="/dashboard/service/tickets" className="px-3 py-2 rounded bg-gray-800 text-white">{t("svc.newTicket")}</Link>
-          <Link href="/dashboard/service/catalog" className="px-3 py-2 rounded border border-gray-300 text-gray-700">{t("svc.manageCatalog")}</Link>
+          {canAccess("/dashboard/service/bookings", hasPermission) && (
+            <Link href="/dashboard/service/bookings" className="px-3 py-2 rounded bg-blue-600 text-white">{t("svc.newBooking")}</Link>
+          )}
+          {canAccess("/dashboard/service/tickets", hasPermission) && (
+            <Link href="/dashboard/service/tickets" className="px-3 py-2 rounded bg-gray-800 text-white">{t("svc.newTicket")}</Link>
+          )}
+          {canAccess("/dashboard/service/catalog", hasPermission) && (
+            <Link href="/dashboard/service/catalog" className="px-3 py-2 rounded border border-gray-300 text-gray-700">{t("svc.manageCatalog")}</Link>
+          )}
         </div>
       </div>
     </div>

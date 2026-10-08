@@ -92,13 +92,13 @@ describe('permission catalog', () => {
   it('keeps the CAR_WASH catalog car-wash specific', () => {
     // The Roles & Permissions editor renders exactly this group list, so it must
     // never leak another vertical's groups (the bug this guards against is a
-    // car-wash role editor showing Products/Categories/Reports/Finance).
+    // car-wash role editor showing Products/Categories/Sales/…). `Reports` and
+    // `Finance` ARE allowed: the car-wash vertical shows the shared reports page
+    // and the standard finance surface.
     const allowed = PERMISSION_GROUPS_BY_BUSINESS_TYPE[BusinessType.CAR_WASH];
     const foreign = [
       'Products',
       'Categories',
-      'Reports',
-      'Finance',
       'Restaurant',
       'Hotel',
       'Kitchen',
@@ -111,7 +111,7 @@ describe('permission catalog', () => {
     for (const group of foreign) {
       expect(allowed).not.toContain(group);
     }
-    // …and it still lets a car-wash owner assign every car-wash module group.
+    // …and it still lets a car-wash owner assign every relevant group.
     for (const group of [
       'Car Wash - Washers',
       'Car Wash - Washes',
@@ -121,6 +121,8 @@ describe('permission catalog', () => {
       'Customers',
       'Users',
       'Roles',
+      'Finance',
+      'Reports',
     ]) {
       expect(allowed).toContain(group);
     }
