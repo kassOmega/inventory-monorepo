@@ -3,6 +3,7 @@
 // card plus small labeled fields, so every page's filter bar looks and behaves
 // the same on desktop and mobile.
 import { type ReactNode } from "react";
+import ClearableInput from "./ClearableInput";
 
 const controlClass = "border border-gray-300 rounded p-2 text-sm";
 
@@ -28,11 +29,11 @@ export function SearchField({
   return (
     <label className="text-sm text-gray-600">
       {label && <span className="mb-1 block">{label}</span>}
-      <input
+      <ClearableInput
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={onChange}
         placeholder={placeholder}
-        className={controlClass}
+        inputClassName={controlClass}
       />
     </label>
   );

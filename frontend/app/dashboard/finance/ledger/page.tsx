@@ -1,5 +1,6 @@
 "use client";
 import api from "@/lib/api";
+import ClearableInput from "@/app/components/ClearableInput";
 import DateFilter, { getDateRange } from "@/app/components/DateFilter";
 import Modal from "@/app/components/Modal";
 import { useAuth } from "@/context/AuthContext";
@@ -911,11 +912,12 @@ export default function LedgerPage() {
               <option key={s.key} value={s.key}>{t(s.labelKey)}</option>
             ))}
           </select>
-          <input
+          <ClearableInput
             value={filters.search}
-            onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+            onChange={(v) => setFilters((f) => ({ ...f, search: v }))}
             placeholder={t("ledger.searchPh")}
-            className="border border-gray-300 rounded p-2 text-sm flex-1 min-w-[180px]"
+            className="flex-1 min-w-[180px]"
+            inputClassName="border border-gray-300 rounded p-2 text-sm w-full"
           />
           {(filters.locationId || filters.moduleSource !== "ALL" || filters.status !== "ALL" || filters.search) && (
             <button

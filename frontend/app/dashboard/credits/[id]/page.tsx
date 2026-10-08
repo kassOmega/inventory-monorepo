@@ -2,6 +2,7 @@
 import PurchaseForm from "@/app/components/PurchaseForm";
 import SaleForm from "@/app/components/SaleForm";
 import Modal from "@/app/components/Modal";
+import ClearableInput from "@/app/components/ClearableInput";
 import Loading from "@/app/components/Loading";
 import RowActionsMenu from "@/app/components/RowActionsMenu";
 import CreditLedgerList, {
@@ -474,11 +475,12 @@ export default function CustomerDetailPage() {
           </select>
         )}
         {tab === "sales" && (
-          <input
+          <ClearableInput
             placeholder={t("restock.searchProduct")}
             value={productSearch}
-            onChange={(e) => setProductSearch(e.target.value)}
-            className="border p-2 rounded-lg flex-1 text-sm"
+            onChange={setProductSearch}
+            className="flex-1"
+            inputClassName="border p-2 rounded-lg w-full text-sm"
           />
         )}
       </div>

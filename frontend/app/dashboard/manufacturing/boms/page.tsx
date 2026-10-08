@@ -1,6 +1,7 @@
 "use client";
 
 import Loading from "@/app/components/Loading";
+import ClearableInput from "@/app/components/ClearableInput";
 import Modal from "@/app/components/Modal";
 import RowActionsMenu from "@/app/components/RowActionsMenu";
 import { useConfirm } from "@/app/components/ConfirmProvider";
@@ -185,12 +186,12 @@ export default function ManufacturingBomsPage() {
         )}
       </div>
 
-      <input
+      <ClearableInput
         value={search}
-        onChange={(e) => setSearch(e.target.value)}
+        onChange={setSearch}
         placeholder={t("mfg.boms.searchPlaceholder")}
-        aria-label={t("mfg.boms.searchPlaceholder")}
-        className="border p-2 rounded-lg w-full sm:w-96 mb-6 text-sm"
+        inputClassName="border p-2 rounded-lg w-full sm:w-96 text-sm"
+        className="w-full sm:w-96 mb-6"
       />
 
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">

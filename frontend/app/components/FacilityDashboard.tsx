@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "@/context/AuthContext";
+import ClearableInput from "@/app/components/ClearableInput";
 import api from "@/lib/api";
 import { hospitalityServiceName } from "@/lib/verticals";
 import { useCallback, useEffect, useState } from "react";
@@ -315,12 +316,13 @@ export default function FacilityDashboard({
       <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
         <h2 className="font-semibold text-gray-800 mb-2">{t("facility.checkInMember")}</h2>
         <div className="flex flex-col sm:flex-row gap-2">
-          <input
+          <ClearableInput
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={setSearch}
             onKeyDown={(e) => e.key === "Enter" && searchMembers()}
             placeholder={t("facility.searchMembersPh")}
-            className="border border-gray-300 rounded-lg p-2 text-sm flex-1"
+            className="flex-1"
+            inputClassName="border border-gray-300 rounded-lg p-2 text-sm w-full"
           />
           <button
             onClick={searchMembers}

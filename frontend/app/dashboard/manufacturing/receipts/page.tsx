@@ -1,6 +1,7 @@
 "use client";
 
 import Loading from "@/app/components/Loading";
+import ClearableInput from "@/app/components/ClearableInput";
 import Modal from "@/app/components/Modal";
 import { useToast } from "@/app/components/ToastProvider";
 import { fmtCurrency } from "@/lib/currency";
@@ -131,7 +132,7 @@ export default function ManufacturingReceiptsPage() {
         </div>
         {canManage && <button onClick={openReceive} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm whitespace-nowrap">{t("mfg.receipts.receiveStock")}</button>}
       </div>
-      <div className="mb-3"><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("mfg.receipts.searchPlaceholder")} className="border p-2 rounded-lg text-sm w-64" /></div>
+      <div className="mb-3"><ClearableInput value={search} onChange={setSearch} placeholder={t("mfg.receipts.searchPlaceholder")} className="w-64" inputClassName="border p-2 rounded-lg w-full text-sm" /></div>
       <div className="bg-white rounded-xl shadow-sm border overflow-x-auto">
         <table className="w-full text-left min-w-[820px] text-xs sm:text-sm">
           <thead className="bg-gray-50 border-b">

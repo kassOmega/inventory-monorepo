@@ -1,6 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
+import ClearableInput from "@/app/components/ClearableInput";
 import { useAuth } from "@/context/AuthContext";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useTranslation } from "react-i18next";
@@ -675,11 +676,12 @@ export default function FoodMenuPage() {
             )}
           </div>
           {selected && (
-            <input
+            <ClearableInput
               value={itemSearch}
-              onChange={(e) => setItemSearch(e.target.value)}
+              onChange={setItemSearch}
               placeholder={t("menu.searchItems")}
-              className="border border-gray-300 rounded p-2 text-sm w-full mb-2"
+              className="mb-2"
+              inputClassName="border border-gray-300 rounded p-2 text-sm w-full"
             />
           )}
           {selected ? (
@@ -1103,11 +1105,11 @@ export default function FoodMenuPage() {
 
                 {/* Ingredient picker */}
                 <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <input
+                  <ClearableInput
                     value={productSearch}
-                    onChange={(e) => setProductSearch(e.target.value)}
+                    onChange={setProductSearch}
                     placeholder={t("menu.searchIngredients")}
-                    className="w-full px-3 py-2 text-sm border-b border-gray-100 outline-none"
+                    inputClassName="w-full px-3 py-2 text-sm border-b border-gray-100 outline-none"
                   />
                   <div className="max-h-32 overflow-y-auto divide-y divide-gray-50">
                     {filteredProducts.slice(0, 12).map((p) => (

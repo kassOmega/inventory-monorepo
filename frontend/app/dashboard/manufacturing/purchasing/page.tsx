@@ -1,6 +1,7 @@
 "use client";
 
 import Loading from "@/app/components/Loading";
+import ClearableInput from "@/app/components/ClearableInput";
 import Modal from "@/app/components/Modal";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useToast } from "@/app/components/ToastProvider";
@@ -237,7 +238,7 @@ export default function ManufacturingPurchasingPage() {
             {s ? t(STATUS_KEY[s] ?? "") || s : t("mfg.purchasing.stAll")}
           </button>
         ))}
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("mfg.purchasing.searchPlaceholder")} className="ml-auto border p-2 rounded-lg text-sm w-56" />
+        <ClearableInput value={search} onChange={setSearch} placeholder={t("mfg.purchasing.searchPlaceholder")} className="ml-auto w-56" inputClassName="border p-2 rounded-lg w-full text-sm" />
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border overflow-x-auto">

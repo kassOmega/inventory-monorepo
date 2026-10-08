@@ -1,6 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
+import ClearableInput from "@/app/components/ClearableInput";
 import { newClientRef } from "@/lib/clientRef";
 import { useAuth } from "@/context/AuthContext";
 import { getVerticalTerminology } from "@/lib/verticals";
@@ -658,11 +659,12 @@ export default function FoodServicePanel({ title }: { title: string }) {
           <h2 className="font-semibold text-gray-800 mb-3">{terms.catalog}</h2>
 
           <div className="flex flex-wrap items-center gap-2 mb-4">
-            <input
+            <ClearableInput
               placeholder={t("orders.searchItems")}
               value={menuSearch}
-              onChange={(e) => setMenuSearch(e.target.value)}
-              className="border border-gray-300 rounded p-2 text-sm flex-1 min-w-[140px]"
+              onChange={setMenuSearch}
+              className="flex-1 min-w-[140px]"
+              inputClassName="border border-gray-300 rounded p-2 text-sm w-full"
             />
             <button
               onClick={() => setActiveCategory("all")}
@@ -1067,11 +1069,12 @@ export default function FoodServicePanel({ title }: { title: string }) {
           <div className="flex flex-wrap items-center gap-2">
             <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="border border-gray-300 rounded p-2 text-sm" aria-label={t("orders.fromDate")} />
             <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="border border-gray-300 rounded p-2 text-sm" aria-label={t("orders.toDate")} />
-            <input
+            <ClearableInput
               value={orderSearch}
-              onChange={(e) => setOrderSearch(e.target.value)}
+              onChange={setOrderSearch}
               placeholder={t("orders.searchOrder")}
-              className="border border-gray-300 rounded p-2 text-sm w-full sm:w-56"
+              className="w-full sm:w-56"
+              inputClassName="border border-gray-300 rounded p-2 text-sm w-full"
             />
           </div>
         </div>

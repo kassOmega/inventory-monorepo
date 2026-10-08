@@ -1,5 +1,6 @@
 "use client";
 import api from "@/lib/api";
+import ClearableInput from "@/app/components/ClearableInput";
 import Modal from "@/app/components/Modal";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useAuth } from "@/context/AuthContext";
@@ -289,11 +290,12 @@ export default function DesignCatalogPage() {
         {/* Items */}
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
-            <input
+            <ClearableInput
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={setSearch}
               placeholder={t("mfg.catalog.searchPlaceholder")}
-              className="border border-gray-300 rounded p-2 text-sm flex-1 min-w-[180px]"
+              inputClassName="border border-gray-300 rounded p-2 text-sm w-full"
+              className="flex-1 min-w-[180px]"
             />
             <span className="text-xs text-gray-400 self-center">
               {t("mfg.catalog.designsCount", { count: shown.length })}

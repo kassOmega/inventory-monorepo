@@ -1,5 +1,6 @@
 "use client";
 import CategoriesManager from "@/app/components/CategoriesManager";
+import ClearableInput from "@/app/components/ClearableInput";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import Loading from "@/app/components/Loading";
 import Modal from "@/app/components/Modal";
@@ -358,11 +359,12 @@ export default function ProductsPage() {
       ) : (
         <>
           <div className="flex w-full items-start md:items-center mb-6 gap-3">
-            <input
+            <ClearableInput
               placeholder={t("products.searchPlaceholder")}
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="border p-2 rounded-lg flex-1 text-sm"
+              onChange={setSearch}
+              className="flex-1"
+              inputClassName="border p-2 rounded-lg w-full text-sm"
             />
             {/* Count many items (and variants, across locations) in one sheet. */}
             {canAdjust && (

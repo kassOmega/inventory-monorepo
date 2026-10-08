@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 export interface SearchableOption {
@@ -24,12 +25,13 @@ interface SearchableSelectProps {
    */
   onInputChange?: (query: string) => void;
   /**
-   * Optional: show a small ✕ inside the field that empties it (the typed text and
-   * the selected label) so a fresh search can be typed straight away. It is a pure
-   * field clear — `onChange` is not called and the selected value is untouched.
+   * Optional: accepted for backward compatibility. The clear (X) button now
+   * always shows when the field has typed text or a selected value (Option B),
+   * so this prop no longer gates its visibility. `clearLabel` customises the
+   * button's tooltip/aria-label.
    */
   clearable?: boolean;
-  /** Tooltip for that ✕, so callers can pass a translated label. */
+  /** Tooltip for the clear (X) button, so callers can pass a translated label. */
   clearLabel?: string;
 }
 
@@ -46,7 +48,9 @@ export default function SearchableSelect({
   required = false,
   className = "",
   onInputChange,
-  clearable = false,
+  // `clearable` is accepted for backward compatibility but no longer gates the
+  // clear button (it always shows per Option B).
+  clearable: _clearable,
   clearLabel,
 }: SearchableSelectProps) {
   const { t } = useTranslation();
@@ -69,6 +73,24 @@ export default function SearchableSelect({
       !o.disabled &&
       (o.searchText ?? o.label).toLowerCase().includes(query.toLowerCase()),
   );
+
+  // The displayed text: the typed query while open, otherwise the selected label
+  // (or empty when cleared by hand).
+  const display = open ? query : cleared ? "" : (selected?.label ?? "");
+  // Option B: show the clear (X) when the field has typed text OR a selection.
+  const showClear = !disabled && (query.trim() !== "" || value !== "");
+
+  const clearField = () => {
+    // Full reset of this field: drop the typed text and release the selection,
+    // keep the dropdown open so the option list resets, and refocus for a fresh
+    // search. onInputChange lets a server-driven search reset too.
+    setCleared(false);
+    setQuery("");
+    setOpen(true);
+    if (value !== "") onChange("");
+    onInputChange?.("");
+    inputRef.current?.focus();
+  };
 
   useEffect(() => {
     if (selected && !open) setQuery(selected.label);
@@ -94,7 +116,7 @@ export default function SearchableSelect({
       <input
         ref={inputRef}
         type="text"
-        value={open ? query : cleared ? "" : (selected?.label ?? "")}
+        value={display}
         placeholder={ph}
         disabled={disabled}
         required={required}
@@ -108,35 +130,30 @@ export default function SearchableSelect({
           setOpen(true);
           onInputChange?.(e.target.value);
         }}
-        className={`border p-2 rounded-lg w-full bg-white text-sm ${
-          clearable ? "pr-8" : ""
-        }`}
+        className={`border p-2 rounded-lg w-full bg-white text-sm pr-8`}
       />
-      {clearable &&
-        !disabled &&
-        (open ? query : cleared ? "" : (selected?.label ?? "")) !== "" && (
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label={clearTitle}
-            title={clearTitle}
-            // preventDefault keeps the click from blurring the input or tripping
-            // the outside-click handler before it lands.
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
-              // Empty the field so a fresh search can be typed at once. The value
-              // itself is untouched: onChange is deliberately not called.
-              setCleared(true);
-              setQuery("");
-              setOpen(true);
-              onInputChange?.("");
-              inputRef.current?.focus();
-            }}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 text-base leading-none px-1"
-          >
-            ✕
-          </button>
-        )}
+      {showClear && (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label={clearTitle}
+          title={clearTitle}
+          // preventDefault keeps the click from blurring the input or tripping
+          // the outside-click handler; stopPropagation keeps it from reaching a
+          // dropdown item / closing the menu first.
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            clearField();
+          }}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 flex items-center justify-center p-0.5"
+        >
+          <X size={14} aria-hidden />
+        </button>
+      )}
       {open && (
         <ul className="absolute z-40 w-full mt-1 max-h-60 overflow-auto bg-white border border-gray-200 rounded-lg shadow-lg">
           {filtered.length === 0 && (

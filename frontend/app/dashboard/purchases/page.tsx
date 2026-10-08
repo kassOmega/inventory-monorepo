@@ -7,6 +7,7 @@
 // draws attention to is how the buy side settles. The tabs filter that one list;
 // they do not switch to a second implementation.
 import { getDateRange } from "@/app/components/DateFilter";
+import ClearableInput from "@/app/components/ClearableInput";
 import { useSingleLocationAutofill } from "@/lib/singleLocation";
 import Loading from "@/app/components/Loading";
 import PurchaseForm, { PurchaseMode } from "@/app/components/PurchaseForm";
@@ -247,11 +248,12 @@ export default function PurchasesPage() {
           visible; the date range hides behind Filters and reports itself as a
           chip, so the list gets the room instead of the chrome. */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
-        <input
+        <ClearableInput
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={setSearch}
           placeholder={t("filters.searchProducts")}
-          className="border p-1.5 sm:p-2 rounded-lg flex-1 min-w-[150px] text-xs sm:text-sm"
+          className="flex-1 min-w-[150px]"
+          inputClassName="border p-1.5 sm:p-2 rounded-lg w-full text-xs sm:text-sm"
         />
         <select
           value={statusFilter}

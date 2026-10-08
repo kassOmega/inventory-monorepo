@@ -22,6 +22,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight, Share2 } from "lucide-react";
 import Modal from "./Modal";
+import ClearableInput from "./ClearableInput";
 import Loading from "./Loading";
 import { useToast } from "./ToastProvider";
 import { useAuth } from "@/context/AuthContext";
@@ -360,12 +361,12 @@ export default function PriceListModal({ isOpen, onClose }: PriceListModalProps)
       <div className="flex flex-col gap-3">
         {/* Search + bulk selection */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-          <input
-            type="text"
+          <ClearableInput
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={setSearch}
             placeholder={t("products.priceList.searchPlaceholder")}
-            className="border rounded-lg px-3 py-2 text-sm w-full sm:max-w-sm"
+            className="w-full sm:max-w-sm"
+            inputClassName="border rounded-lg px-3 py-2 text-sm w-full"
           />
           <button
             type="button"

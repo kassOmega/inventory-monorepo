@@ -2,6 +2,7 @@
 
 import { type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import ClearableInput from "./ClearableInput";
 
 interface Location {
   id: number;
@@ -53,11 +54,11 @@ export default function FilterBar({
           <label className="flex-1 block text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">
             {t("filters.search")}
           </label>
-          <input
+          <ClearableInput
             placeholder={searchPlaceholder ?? t("filters.searchProducts")}
             value={search ?? ""}
-            onChange={(e) => onSearchChange?.(e.target.value)}
-            className="border p-1.5 sm:p-2 rounded-lg w-full text-xs sm:text-sm"
+            onChange={(v) => onSearchChange?.(v)}
+            inputClassName="border p-1.5 sm:p-2 rounded-lg w-full text-xs sm:text-sm"
           />
         </div>
       )}

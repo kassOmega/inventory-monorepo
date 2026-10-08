@@ -4,6 +4,7 @@ import SaleForm from "@/app/components/SaleForm";
 import { useSingleLocationAutofill } from "@/lib/singleLocation";
 import CustomerForm from "@/app/components/CustomerForm";
 import Modal from "@/app/components/Modal";
+import ClearableInput from "@/app/components/ClearableInput";
 import Loading from "@/app/components/Loading";
 import RowActionsMenu from "@/app/components/RowActionsMenu";
 import { useToast } from "@/app/components/ToastProvider";
@@ -128,11 +129,12 @@ export default function CreditsPage() {
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2 mb-4">
-        <input
+        <ClearableInput
           placeholder={t("credits.searchByName")}
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="border p-2 rounded-lg flex-1 text-sm"
+          onChange={setSearch}
+          className="flex-1"
+          inputClassName="border p-2 rounded-lg w-full text-sm"
         />
         {isOwner && (
           <select

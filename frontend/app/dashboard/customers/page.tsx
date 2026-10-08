@@ -3,6 +3,7 @@
 // same reusable form the till uses so a profile created here and one created
 // mid-sale are identical.
 import { useConfirm } from "@/app/components/ConfirmProvider";
+import ClearableInput from "@/app/components/ClearableInput";
 import CustomerForm from "@/app/components/CustomerForm";
 import Loading from "@/app/components/Loading";
 import Modal from "@/app/components/Modal";
@@ -176,11 +177,12 @@ export default function CustomersPage() {
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2 mb-4">
-        <input
+        <ClearableInput
           placeholder={t("crm.searchPlaceholder")}
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="border p-2 rounded-lg flex-1 text-sm"
+          onChange={setSearch}
+          className="flex-1"
+          inputClassName="border p-2 rounded-lg w-full text-sm"
         />
         <div className="flex gap-1 overflow-x-auto">
           {(

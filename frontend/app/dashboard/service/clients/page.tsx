@@ -1,6 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
+import ClearableInput from "@/app/components/ClearableInput";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -19,11 +20,12 @@ export default function ServiceClientsPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-800">{t("nav.serviceClients")}</h1>
-      <input
+      <ClearableInput
         value={search}
-        onChange={(e) => setSearch(e.target.value)}
+        onChange={setSearch}
         placeholder={t("facility.searchMembersPh")}
-        className="border border-gray-300 rounded p-2 text-sm w-full max-w-sm"
+        className="w-full max-w-sm"
+        inputClassName="border border-gray-300 rounded p-2 text-sm w-full"
       />
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         <ul className="divide-y divide-gray-100">

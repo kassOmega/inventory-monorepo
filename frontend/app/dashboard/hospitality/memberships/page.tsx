@@ -3,6 +3,7 @@
 import { useAuth } from "@/context/AuthContext";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import api from "@/lib/api";
+import ClearableInput from "@/app/components/ClearableInput";
 import {
   hospitalityServiceName as serviceDisplayName,
   isMembershipCapableService as isMembershipCapable,
@@ -300,12 +301,13 @@ export default function CustomerMembershipsPage() {
                 <option key={f.id} value={f.id}>{facilityName(f)}</option>
               ))}
             </select>
-            <input
+            <ClearableInput
               value={checkInSearch}
-              onChange={(e) => setCheckInSearch(e.target.value)}
+              onChange={setCheckInSearch}
               onKeyDown={(e) => e.key === "Enter" && searchCheckIn()}
               placeholder={t("facility.searchMembersPh")}
-              className="border border-gray-300 rounded p-2 text-sm flex-1"
+              className="flex-1"
+              inputClassName="border border-gray-300 rounded p-2 text-sm w-full"
             />
             <button
               onClick={searchCheckIn}

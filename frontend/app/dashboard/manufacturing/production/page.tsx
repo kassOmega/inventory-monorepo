@@ -1,6 +1,7 @@
 "use client";
 
 import Loading from "@/app/components/Loading";
+import ClearableInput from "@/app/components/ClearableInput";
 import Modal from "@/app/components/Modal";
 import RowActionsMenu from "@/app/components/RowActionsMenu";
 import { useConfirm } from "@/app/components/ConfirmProvider";
@@ -220,12 +221,12 @@ export default function ManufacturingProductionPage() {
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2 mb-6">
-        <input
+        <ClearableInput
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={setSearch}
           placeholder={t("mfg.workOrders.searchPlaceholder")}
-          aria-label={t("mfg.workOrders.searchPlaceholder")}
-          className="border p-2 rounded-lg flex-1 text-sm"
+          inputClassName="border p-2 rounded-lg w-full text-sm"
+          className="flex-1"
         />
         <select
           value={statusFilter}
