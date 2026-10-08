@@ -1456,6 +1456,11 @@ export class RestockService {
       });
 
       // --- 5. Procurement journal: Debit Inventory Asset <-> Credit Cash/AP ---
+      // The reference is namespaced `RST-<requestId>` (matching the per-item
+      // `RST-<requestId>-<itemId>` rows booked earlier). It must NOT share the
+      // `PUR-` prefix with purchases: both sides key off their own table's id,
+      // so a purchase and a stock request with the same id would collide and,
+      // because the posting is idempotent by reference, silently drop one.
       const purchaseSummary =
         variantLines.length > 0
           ? `Purchase ${variantLines.length} variants × ${productName}${
@@ -1466,7 +1471,7 @@ export class RestockService {
             }`;
       await this.finance
         .postProcurement({
-          ref: `PUR-${req.id}`,
+          ref: `RST-${req.id}`,
           description: `${purchaseSummary} at ${targetLoc.name}${
             dto.vendor ? ` from ${dto.vendor}` : ''
           }`,

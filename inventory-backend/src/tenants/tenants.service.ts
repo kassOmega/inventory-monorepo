@@ -596,6 +596,7 @@ export class TenantsService {
       await tx.stockRequest.deleteMany({ where: { tenantId } });
       await tx.inventory.deleteMany({ where: { tenantId } });
       await tx.priceHistory.deleteMany({ where: { tenantId } });
+      await tx.purchasePayment.deleteMany({ where: { tenantId } });
       await tx.purchase.deleteMany({ where: { tenantId } });
       await tx.reservation.deleteMany({ where: { tenantId } });
       await tx.hotelReservation.deleteMany({ where: { tenantId } });

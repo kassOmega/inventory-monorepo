@@ -34,6 +34,8 @@ export const enMessages: Record<string, any> = {
       'No "Cash" payment method found. Please add one first.',
     purchaseNotFound: 'Purchase not found',
     purchaseNotPending: 'Purchase is not pending',
+    purchaseApprovedLocked:
+      'An approved purchase can no longer be changed. Add a note, or void it and enter it again.',
     purchaseHasLinkedSale: 'Purchase already has a linked sale',
     stationKeyExists: 'A station with that key already exists.',
     stationNotFound: 'Station not found',
@@ -312,6 +314,16 @@ export const enMessages: Record<string, any> = {
     recordExists: 'This record already exists.',
     purchaseAlreadySubmitted:
       'This purchase was already submitted. Please refresh and try again.',
+    purchaseItemsRequired: 'A purchase needs at least one line item',
+    vendorRequired: 'Select the vendor you took these items from',
+    shopRequired: 'Select a shop for this purchase',
+    purchaseVendorMismatch: 'The vendor does not match the one on this purchase.',
+    purchaseNotCredit: 'Vendor payments only apply to credit purchases',
+    purchaseNotApproved: 'The purchase must be approved before it can be paid',
+    purchaseHasPayments:
+      'This purchase already has vendor payments recorded. Remove them first.',
+    purchasePaymentExceedsRemaining:
+      'Payment exceeds the remaining balance ({{remaining}}).',
     saleAlreadySubmitted:
       'This sale was already submitted. Please refresh and try again.',
     orderAlreadySubmitted:

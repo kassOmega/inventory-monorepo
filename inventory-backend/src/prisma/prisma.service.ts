@@ -28,6 +28,7 @@ const TENANT_MODELS = new Set([
   'CreditSaleItem',
   'CreditPayment',
   'Purchase',
+  'PurchasePayment',
   'PurchaseOrderDraft',
   'Notification',
   'AuditLog',

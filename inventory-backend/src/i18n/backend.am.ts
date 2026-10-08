@@ -30,6 +30,7 @@ export const amMessages: Record<string, any> = {
     cashMethodRequired: '«Cash» የክፍያ ዘዴ አልተገኘም። እባክዎ መጀመሪያ ያክሉ።',
     purchaseNotFound: 'ግዢ አልተገኘም',
     purchaseNotPending: 'ግዢው በመጠባበቅ ላይ አይደለም',
+    purchaseApprovedLocked: 'የጸደቀ ግዢ ከዚያ በኋላ ማስተካከል አይቻልም። ማስታወሻ ይጨምሩ፣ ወይም ሰርዘው እንደገና ያስገቡ።',
     purchaseHasLinkedSale: 'ግዢው ቀድሞ የተገናኘ ሽያጭ አለው',
     stationKeyExists: 'በዚያ ስም ያለ ጣቢያ ቀድሞ አለ።',
     stationNotFound: 'ጣቢያ አልተገኘም',
@@ -304,6 +305,16 @@ export const amMessages: Record<string, any> = {
     recordExists: 'ይህ መዝገብ ቀድሞ አለ።',
     purchaseAlreadySubmitted:
       'ይህ ግዢ ቀድሞ ገብቷል። እባክዎ ገጹን አድስተው እንደገና ይሞክሩ።',
+    purchaseItemsRequired: 'አንድ ግዢ ቢያንስ አንድ የዕቃ መስመር ያስፈልገዋል',
+    vendorRequired: 'ዕቃውን የወሰዱበትን አቅራቢ ይምረጡ',
+    shopRequired: 'ለዚህ ግዢ ሱቅ ይምረጡ',
+    purchaseVendorMismatch: 'አቅራቢው በዚህ ግዢ ላይ ካለው ጋር አይዛመድም።',
+    purchaseNotCredit: 'የአቅራቢ ክፍያ የሚተገበረው በዕዳ ግዢዎች ላይ ብቻ ነው',
+    purchaseNotApproved: 'ክፍያ ከመፈጸሙ በፊት ግዢው መጽደቅ አለበት',
+    purchaseHasPayments:
+      'ይህ ግዢ ቀድሞ የአቅራቢ ክፍያዎች አሉት። መጀመሪያ እነሱን ያስወግዱ።',
+    purchasePaymentExceedsRemaining:
+      'ክፍያው ከቀሪው ሂሳብ ({{remaining}}) ይበልጣል።',
     saleAlreadySubmitted: 'ይህ ሽያጭ ቀድሞ ገብቷል። እባክዎ ገጹን አድስተው እንደገና ይሞክሩ።',
     orderAlreadySubmitted: 'ይህ ትዕዛዝ ቀድሞ ገብቷል። እባክዎ ገጹን አድስተው እንደገና ይሞክሩ።',
     paymentAlreadySubmitted: 'ይህ ክፍያ ቀድሞ ገብቷል። እባክዎ ገጹን አድስተው እንደገና ይሞክሩ።',

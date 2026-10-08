@@ -339,6 +339,37 @@ cd frontend && npm install && npm run dev   # http://localhost:3001
 
 Language: use the 🇪🇹/🇬🇧 pill in the top-right of the dashboard (and on login/signup).
 
+- **Unified purchases (Purchase model refactor).** The credit-purchase split — a second
+  `CreditPurchase` model with its own panel, table, page and `creditPurchases.*` catalog block —
+  is gone: both settlements are now one `Purchase` with `paymentType` (PAID / CREDIT), so one
+  form, one table and one page carry both, and vendor paybacks are `PurchasePayment` rows.
+  Catalog moved with it: `creditPurchases.*` deleted (−31 keys), `purchases.*` grew to cover both
+  (+56), `credits.*` gained the signed net pill and the day-grouped payables headers (+5).
+  Follow-up batch made the sell side unconditional: **both settlements now ask for a sell price**
+  and show the margin it records (`purchases.recordedMargin` / `recordedMarginHint` /
+  `sellPriceRequired`, `credits.purchase` — +5 keys, keying `credits.variants` for the grouped
+  credit-sale row, 4149), and a vendor ledger can take a CREDIT purchase inline instead of
+  sending the user to `/dashboard/purchases`. (`credits.variants` also repairs a key that never
+  existed: the credit-sale group label called `products.variants`, so that count rendered the
+  raw key.) Re-measured after the batch: frontend **4149/4149 parity ✓, 0 identical-value
+  misses**, 13 glossary hits — all pre-existing `carwash.*` (car-wash vertical, not this batch);
+  backend catalog **282/282 clean** and `src/purchases` shows 0 remaining non-localized throws.
+  Both apps type-check (`tsc --noEmit`) and the PWA build is green.
+
+- **Purchases list slimmed + one shared detail modal.** The table had grown a column per fact
+  (vendor, shop, unit buy price, sell price, margin, invoice, paid back, payment status), which was
+  wide enough to scroll sideways on a phone. It now carries only what a shopkeeper scans for — date,
+  item (with the vendor on a second line on credit rows), quantity, total cost, still to pay and
+  status, plus the row menu — and the rest moved into the new `PurchaseDetailModal`
+  (`purchases.detailTitle`), which a row opens on tap and the row menu opens through `common.view`.
+  The vendor ledger's **Payables** tab was rebuilt to mirror **Credit Sales** exactly: same day
+  header, same one-line group header (`shop · 1 item · Remaining: X` + row menu), same four-column
+  item table (Product | Qty | Price | Subtotal), paybacks as indented `↳` sub-rows, and an item row
+  that opens the same modal. The customer KPI cards and both summary strips stop forcing one line
+  (`min-w-0` + wrap), so a 360 px phone no longer scrolls the page horizontally.
+  `customers.service` now includes `paymentMethod` on a vendor purchase's paybacks. Catalog
+  **4150/4150 parity ✓** (+1 key: `purchases.detailTitle`), 0 identical-value misses.
+
 ## 4. Immediate next steps (recommended order)
 1. ~~Convert remaining FE pages module-by-module~~ — **done**: `scripts/i18n-audit.mjs` is clean
    across all 183 frontend files. Keep it green (`--strict` in CI) and re-run `i18n-check.mjs`

@@ -9,6 +9,7 @@ import type { CustomerNoteKind, CustomerSource } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { tr } from '../i18n/i18n.service';
 import { Paging, pagedResult } from '../common/pagination.util';
+import { round2 } from '../common/tax.util';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import {
   asNumericId,
@@ -41,6 +42,30 @@ export interface CustomerFilters {
 
 /** Ceiling on the rows a single page of the directory may return. */
 const MAX_PAGE_SIZE = 100;
+
+/**
+ * Mutual trade: a customer who also sells to us carries a balance on both sides
+ * at once — what they took on credit from us, and what we took on credit from
+ * them. The two cancel, and only the net is what actually changes hands, so
+ * exactly one of the returned pair is ever non-zero.
+ *
+ * The gross figures stay on the row untouched (`totalCredits` / `totalPaid`
+ * versus `totalTakenOnCredit` / `totalPaidToVendor`), so the netting is a
+ * presentation of the same numbers, never a replacement for them. `round2` and
+ * `Math.max(0, …)` together keep a settled pair at exactly 0 instead of a float
+ * tail or a `-0`.
+ */
+function netPair(grossRemaining: number, grossRemainingToPay: number) {
+  // `|| 0` turns the negative zero `round2` yields on a float tail (e.g. 0.1 +
+  // 0.2 against 0.3) into a plain 0 — `Intl.NumberFormat` would otherwise
+  // render that as "-0" in the balance column.
+  const net = round2(grossRemaining - grossRemainingToPay) || 0;
+  return {
+    remaining: Math.max(0, net),
+    remainingToPay: Math.max(0, -net),
+    netBalance: net,
+  };
+}
 
 @Injectable()
 export class CustomersService {
@@ -168,13 +193,23 @@ export class CustomersService {
   ) {
     if (rows.length === 0) return [];
     const ids = rows.map((r) => r.id);
-    const [credits, payments] = await Promise.all([
+    const [credits, payments, taken, takenPayments] = await Promise.all([
       this.prisma.creditSale.groupBy({
         by: ['customerId'],
         where: { customerId: { in: ids } },
         _sum: { totalAmount: true },
       }),
       this.prisma.creditPayment.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: ids } },
+        _sum: { amount: true },
+      }),
+      this.prisma.purchase.groupBy({
+        by: ['vendorCustomerId'],
+        where: { vendorCustomerId: { in: ids }, paymentType: 'CREDIT' },
+        _sum: { totalCost: true },
+      }),
+      this.prisma.purchasePayment.groupBy({
         by: ['customerId'],
         where: { customerId: { in: ids } },
         _sum: { amount: true },
@@ -186,24 +221,44 @@ export class CustomersService {
     const paidBy = new Map(
       payments.map((p) => [p.customerId, p._sum.amount ?? 0]),
     );
+    const takenBy = new Map(
+      taken.map((t) => [t.vendorCustomerId, t._sum.totalCost ?? 0]),
+    );
+    const takenPaidBy = new Map(
+      takenPayments.map((p) => [p.customerId, p._sum.amount ?? 0]),
+    );
 
     return rows.map((c) => {
       const totalCredits = creditBy.get(c.id) ?? 0;
       const totalPaid = paidBy.get(c.id) ?? 0;
+      const totalTakenOnCredit = takenBy.get(c.id) ?? 0;
+      const totalPaidToVendor = takenPaidBy.get(c.id) ?? 0;
+      const { remaining, remainingToPay, netBalance } = netPair(
+        round2(totalCredits - totalPaid),
+        round2(totalTakenOnCredit - totalPaidToVendor),
+      );
       return {
         ...c,
         numberLabel: formatBusinessNumber('CUST', c.number),
         totalCredits,
         totalPaid,
-        remaining: totalCredits - totalPaid,
+        remaining,
+        totalTakenOnCredit,
+        totalPaidToVendor,
+        remainingToPay,
+        netBalance,
       };
     });
   }
 
   /**
-   * Ids of customers whose credits exceed their payments. Correlated subqueries
-   * rather than joins, so a customer with no credit history at all (nothing to
-   * join) is still handled by COALESCE exactly like the previous JS filter.
+   * Ids of customers who still owe us once mutual trade is netted off. The
+   * receivable side (credits minus payments) has to clear both the payable side
+   * (goods taken from them on credit, minus what we paid them) — otherwise a
+   * row listed as "with debt" would read 0 in the Remaining column beside it.
+   * Correlated subqueries rather than joins, so a customer with no credit
+   * history at all (nothing to join) is still handled by COALESCE exactly like
+   * the previous JS filter.
    */
   private async debtorCustomerIds(organizationId: number): Promise<number[]> {
     const rows = await this.prisma.$queryRaw<{ id: number }[]>`
@@ -217,6 +272,15 @@ export class CustomersService {
           - COALESCE((
               SELECT SUM(cp."amount") FROM "CreditPayment" cp
               WHERE cp."customerId" = c."id"
+            ), 0)
+          - COALESCE((
+              SELECT SUM(p."totalCost") FROM "Purchase" p
+              WHERE p."vendorCustomerId" = c."id"
+                AND p."paymentType"::text = 'CREDIT'
+            ), 0)
+          + COALESCE((
+              SELECT SUM(pp."amount") FROM "PurchasePayment" pp
+              WHERE pp."customerId" = c."id"
             ), 0) > 0
     `;
     return rows.map((r) => r.id);
@@ -249,6 +313,25 @@ export class CustomersService {
           orderBy: { paidAt: 'desc' },
           include: { paymentMethod: true },
         },
+        // Items taken on credit from this vendor + the payments we made back.
+        // Credit purchases are Purchases with paymentType = CREDIT.
+        vendorPurchases: {
+          where: { paymentType: 'CREDIT' },
+          // The payback lines carry their method name, so a payback reads the
+          // same here as it does in the purchase detail modal the rows open.
+          include: {
+            shop: true,
+            payments: {
+              include: { paymentMethod: true },
+              orderBy: { paidAt: 'desc' },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+        purchasePayments: {
+          include: { paymentMethod: true, purchase: true },
+          orderBy: { paidAt: 'desc' },
+        },
         // CRM: interaction timeline (the legacy `notes` text column rides along
         // with the customer row itself) + loyalty ledger.
         customerNotes: {
@@ -271,6 +354,21 @@ export class CustomersService {
     // All credits & payments across all shops — consistent since payments have no shopId
     const totalCredits = c.creditSales.reduce((s, cs) => s + cs.totalAmount, 0);
     const totalPaid = c.creditPayments.reduce((s, cp) => s + cp.amount, 0);
+    // The payables side of the same relationship: goods we took on credit from
+    // this customer, minus what we have already paid them.
+    const totalTakenOnCredit = c.vendorPurchases.reduce(
+      (s, cp) => s + cp.totalCost,
+      0,
+    );
+    const totalPaidToVendor = c.purchasePayments.reduce(
+      (s, p) => s + p.amount,
+      0,
+    );
+    // Mutual trade cancels — see netPair(). The gross four stay as they are.
+    const netted = netPair(
+      round2(totalCredits - totalPaid),
+      round2(totalTakenOnCredit - totalPaidToVendor),
+    );
 
     // CRM roll-up + the programme config, so the profile page can show what the
     // customer still earns and how much they have spent overall.
@@ -299,7 +397,9 @@ export class CustomersService {
       numberLabel: formatBusinessNumber('CUST', c.number),
       totalCredits,
       totalPaid,
-      remaining: totalCredits - totalPaid,
+      totalTakenOnCredit,
+      totalPaidToVendor,
+      ...netted,
       loyaltyProgram,
       stats: {
         salesCount,
@@ -347,7 +447,8 @@ export class CustomersService {
     if (dto.source !== undefined)
       data.source = (dto.source as CustomerSource | undefined) ?? null;
     if (dto.shopId !== undefined) data.shopId = dto.shopId ?? null;
-    if (dto.creditLimit !== undefined) data.creditLimit = dto.creditLimit ?? null;
+    if (dto.creditLimit !== undefined)
+      data.creditLimit = dto.creditLimit ?? null;
     if (dto.canTakeCredit !== undefined) data.canTakeCredit = dto.canTakeCredit;
     if (dto.isArchived !== undefined) data.isArchived = dto.isArchived;
     return data;

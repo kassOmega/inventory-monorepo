@@ -141,9 +141,11 @@ describe('RestockService.registerPurchase', () => {
       }),
     );
 
-    // Ledger: Debit Inventory Asset <-> Credit Cash (paid) at the total amount.
+    // Ledger: Debit Inventory Asset <-> Credit Cash (paid) at the total amount,
+    // referenced as RST-<requestId> so it can never collide with a purchase's
+    // own PUR-<purchaseId> entry.
     expect(finance.postProcurement).toHaveBeenCalledWith(
-      expect.objectContaining({ ref: 'PUR-77', amount: 500, paid: true }),
+      expect.objectContaining({ ref: 'RST-77', amount: 500, paid: true }),
     );
     // Cash ledger OUTFLOW recorded for the paid purchase.
     expect(prisma.cashEntry.create).toHaveBeenCalledWith(

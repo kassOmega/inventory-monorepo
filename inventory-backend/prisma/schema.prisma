@@ -65,6 +65,23 @@ enum PurchaseStatus {
   REJECTED
 }
 
+/// How the buy side of a purchase is settled — this is the ONLY difference
+/// between a "quick purchase" and a "credit purchase": both use the same model,
+/// form and endpoints, they just settle differently.
+enum PurchasePaymentType {
+  PAID
+  CREDIT
+}
+
+/// Settlement state of the buy side. A PAID purchase is settled on creation;
+/// a CREDIT purchase moves UNPAID → PARTIALLY_PAID → PAID as the vendor is
+/// paid back (derived from PurchasePayment rows).
+enum PurchasePaymentStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+}
+
 enum OrgStatus {
   ACTIVE
   INACTIVE
@@ -955,6 +972,7 @@ model PaymentMethod {
   sales            Sale[]
   creditPayments   CreditPayment[]
   purchases        Purchase[]
+  purchasePayments PurchasePayment[]
   returns          Return[]
   expenses         Expense[]
   orders           Order[]
@@ -1012,6 +1030,10 @@ model Customer {
   sales               Sale[]
   creditSales         CreditSale[]
   creditPayments      CreditPayment[]
+  /// Purchases where this customer acted as the vendor (items bought from them).
+  /// Credit rows live here too — they are Purchases with paymentType = CREDIT.
+  vendorPurchases     Purchase[]
+  purchasePayments    PurchasePayment[]
   serviceBookings     ServiceBooking[]
   serviceTickets      ServiceTicket[]
   businessInsights    BusinessInsight[]
@@ -1198,31 +1220,77 @@ model AuditLog {
 }
 
 // --- Quick Purchases (Shopkeepers buy from external shops) ---
+/// One row per bought product line — covers BOTH quick (paid) purchases and
+/// credit purchases taken from a vendor. `paymentType` is the only structural
+/// difference: PAID settles from cash on approval, CREDIT books a payable that
+/// is cleared through PurchasePayment rows.
 model Purchase {
-  id              Int            @id @default(autoincrement())
+  id              Int                    @id @default(autoincrement())
+  /// Non-guessable public identifier (DB-generated UUID) for deep links.
+  publicId        String                 @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId        Int?
   shopId          Int
-  shop            Location       @relation(fields: [shopId], references: [id])
+  shop            Location               @relation(fields: [shopId], references: [id])
   productName     String
   quantity        Int
   unitPrice       Float // buying price per unit
-  sellPrice       Float // expected sell price per unit
-  totalCost       Float // unitPrice * quantity
-  revenue         Float // sellPrice * quantity
-  profit          Float // revenue - totalCost
-  status          PurchaseStatus @default(PENDING)
-  createdById     Int
+  sellPrice       Float                  @default(0) // expected sell price per unit
+  totalCost       Float // unitPrice * quantity — what we owe/paid the source
+  revenue         Float                  @default(0) // sellPrice * quantity (PAID flip only)
+  profit          Float                  @default(0) // revenue - totalCost (PAID flip only)
+  /// Approval gate — identical for both payment types.
+  status          PurchaseStatus         @default(PENDING)
+  /// Paid vs credited. The single axis that differentiates the two buttons.
+  paymentType     PurchasePaymentType    @default(PAID)
+  /// Settlement state of the buy side (CREDIT rows derive this from payments).
+  paymentStatus   PurchasePaymentStatus  @default(PAID)
+  /// Cash actually handed back to the vendor so far (CREDIT only; PAID rows
+  /// carry the full totalCost once approved).
+  amountPaid      Float                  @default(0)
+  /// Vendor we took the goods from — modelled as a Customer. Required for
+  /// CREDIT rows, optional for PAID ones, null when unknown.
+  vendorCustomerId Int?
+  vendorCustomer  Customer?              @relation(fields: [vendorCustomerId], references: [id])
+  createdById     Int?
   approvedById    Int?
   paymentMethodId Int?
-  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
-  sale            Sale?
+  paymentMethod   PaymentMethod?         @relation(fields: [paymentMethodId], references: [id])
+  sale            Sale? // the flip sale created when a PAID purchase is approved
+  payments        PurchasePayment[] // vendor paybacks for CREDIT rows
   notes           String?
   clientRef       String? // client-generated idempotency key (double-submit protection)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
 
   @@unique([tenantId, clientRef])
   @@index([tenantId])
+  @@index([tenantId, paymentType])
+  @@index([tenantId, vendorCustomerId])
+}
+
+// --- Inter-Shop Credit (items taken on credit from a vendor/shop) ---
+// Credit purchases now live in `Purchase` with paymentType = CREDIT; the old
+// CreditPurchase/CreditPurchasePayment tables were folded into it.
+
+// --- Payments made to a vendor for items taken on credit ---
+model PurchasePayment {
+  id              Int            @id @default(autoincrement())
+  publicId        String         @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        Int?
+  customerId      Int
+  customer        Customer       @relation(fields: [customerId], references: [id])
+  purchaseId      Int
+  purchase        Purchase       @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  amount          Float
+  paymentMethodId Int?
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  paidAt          DateTime       @default(now())
+  notes           String?
+  clientRef       String?
+
+  @@unique([tenantId, clientRef])
+  @@index([tenantId])
+  @@index([tenantId, customerId])
 }
 
 // --- Cash Ledger (daily cash movements) ---
