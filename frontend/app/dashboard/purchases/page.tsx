@@ -29,6 +29,63 @@ type DatePreset = "today" | "week" | "month" | "year";
 /** ALL shows both settlements side by side; the other two filter the list. */
 type Tab = "ALL" | "PAID" | "CREDIT";
 
+/** Remember the stats summary's open/closed choice across visits. */
+const STATS_OPEN_KEY = "purchases.statsOpen";
+
+/**
+ * One figure of the summary. Deliberately tiny — a label line + a tight value —
+ * so the expanded grid never dominates the page on a phone.
+ */
+function StatCard({
+  label,
+  value,
+  valueClass = "text-gray-800",
+  hint,
+}: {
+  label: string;
+  value: string;
+  valueClass?: string;
+  hint?: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5">
+      <p className="truncate text-[10px] uppercase tracking-wide text-gray-400">
+        {label}
+      </p>
+      <p className={`truncate text-sm font-semibold leading-tight ${valueClass}`}>
+        {value}
+      </p>
+      {hint && (
+        <p className="truncate text-[10px] leading-tight text-gray-400">
+          {hint}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** A titled row of cards for one settlement; the left accent tints the group. */
+function StatGroup({
+  title,
+  accentClass,
+  children,
+}: {
+  title: string;
+  accentClass: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={`border-l-2 pl-2 ${accentClass}`}>
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+        {title}
+      </p>
+      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 /** The range shortcuts behind the Filters toggle; labels live in `filters.*`. */
 const DATE_PRESETS: { key: DatePreset; labelKey: string }[] = [
   { key: "today", labelKey: "filters.dateToday" },
@@ -70,8 +127,23 @@ export default function PurchasesPage() {
   // The date range is the one filter that is not touched on every visit, so it
   // hides behind the Filters toggle.
   const [showFilters, setShowFilters] = useState(false);
+  // The smart-cards summary is collapsible and starts collapsed (its header keeps
+  // the headline number visible); the choice is remembered across visits.
+  const [statsOpen, setStatsOpen] = useState(false);
   // Autofill the sole shop when the business has only one.
   useSingleLocationAutofill(locations, shopFilter, setShopFilter);
+
+  // Remember the summary's open/closed choice. Read on mount (after hydration,
+  // so SSR/first paint stays collapsed), written on every explicit toggle.
+  useEffect(() => {
+    if (localStorage.getItem(STATS_OPEN_KEY) === "1") setStatsOpen(true);
+  }, []);
+  const toggleStats = () =>
+    setStatsOpen((prev) => {
+      const next = !prev;
+      localStorage.setItem(STATS_OPEN_KEY, next ? "1" : "0");
+      return next;
+    });
 
   const fetchPurchases = async () => {
     setFetching(true);
@@ -372,96 +444,152 @@ export default function PurchasesPage() {
         </div>
       )}
 
-      {/* Both settlements on one line, with the till's day figures dimmed after
-          them: the numbers a shopkeeper checks without scrolling past cards. Each
-          figure group may shrink and wrap, so a 360 px phone never scrolls the
-          page sideways to finish reading a number. */}
-      <div className="bg-white rounded-xl shadow-sm border px-3 py-2 mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm overflow-hidden">
-        {tab !== "CREDIT" && stats?.paid && (
-          <span className="min-w-0">
-            <span className="text-gray-400">{t("purchases.modePaid")}</span>{" "}
-            <strong className="text-red-600">
-              {fmtCurrency(stats.paid.totalCost)}
-            </strong>
-            <span className="text-gray-300"> → </span>
-            <strong className="text-blue-700">
-              {fmtCurrency(stats.paid.totalRevenue)}
-            </strong>
-            {isOwner && (
-              <>
-                <span className="text-gray-300"> · </span>
-                <span className="text-gray-400">{t("purchases.profit")}</span>{" "}
-                <strong
-                  className={
-                    stats.paid.totalProfit >= 0
-                      ? "text-green-700"
-                      : "text-red-700"
-                  }
-                >
-                  {fmtCurrency(stats.paid.totalProfit)}
-                </strong>
-              </>
-            )}
-            <span className="text-gray-300"> · </span>
-            <span className="text-yellow-700">
-              {stats.paid.pendingCount} {t("status.pending")}
+      {/* Smart-cards summary: collapsible, starts collapsed with the headline
+          number kept in the header, so on a phone it costs one slim row and the
+          list keeps the room. Expanded, the cards are tiny (2 per row on a
+          phone) and never force a sideways scroll. */}
+      {(stats?.paid || stats?.credit || daySheet) && (
+        <div className="mb-3 rounded-xl border border-gray-200 bg-white shadow-sm">
+          <button
+            type="button"
+            onClick={toggleStats}
+            aria-expanded={statsOpen}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left"
+          >
+            <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+              {t("purchases.summaryTitle")}
             </span>
-          </span>
-        )}
-        {tab !== "PAID" && stats?.credit && (
-          <span className="min-w-0">
-            <span className="text-gray-400">{t("purchases.modeCredit")}</span>{" "}
-            <strong className="text-gray-800">
-              {fmtCurrency(stats.credit.totalTaken)}
-            </strong>
-            <span className="text-gray-300"> · </span>
-            <span className="text-gray-400">
-              {t("purchases.creditPaidBack")}
-            </span>{" "}
-            <strong className="text-green-700">
-              {fmtCurrency(stats.credit.totalPaidToVendor)}
-            </strong>
-            <span className="text-gray-300"> · </span>
-            <span className="text-gray-400">
-              {t("purchases.creditOutstanding")}
-            </span>{" "}
-            <strong className="text-red-600">
-              {fmtCurrency(stats.credit.totalRemainingToPay)}
-            </strong>
-            <span className="text-gray-300"> · </span>
-            <span className="text-red-700">
-              {stats.credit.unpaidCount} {t("purchases.creditUnpaid")}
+            {/* Headline that stays readable while collapsed. */}
+            <span className="min-w-0 flex-1 truncate text-xs text-gray-400">
+              {tab !== "CREDIT" && stats?.paid ? (
+                <>
+                  {t("purchases.modePaid")}:{" "}
+                  <strong className="text-red-600">
+                    {fmtCurrency(stats.paid.totalCost)}
+                  </strong>
+                </>
+              ) : tab !== "PAID" && stats?.credit ? (
+                <>
+                  {t("purchases.modeCredit")}:{" "}
+                  <strong className="text-gray-800">
+                    {fmtCurrency(stats.credit.totalTaken)}
+                  </strong>
+                </>
+              ) : null}
             </span>
-            {isOwner && (
-              <>
-                <span className="text-gray-300"> · </span>
-                <span
-                  className="text-gray-400"
-                  title={t("purchases.recordedMarginHint")}
+            <svg
+              className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${statsOpen ? "rotate-180" : ""}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+              aria-hidden="true"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {statsOpen && (
+            <div className="space-y-2.5 border-t border-gray-100 px-3 py-2.5">
+              {tab !== "CREDIT" && stats?.paid && (
+                <StatGroup
+                  title={t("purchases.modePaid")}
+                  accentClass="border-blue-400"
                 >
-                  {t("purchases.recordedMargin")}
-                </span>{" "}
-                <strong
-                  className={creditMargin >= 0 ? "text-green-700" : "text-red-700"}
+                  <StatCard
+                    label={t("purchases.totalCost")}
+                    value={fmtCurrency(stats.paid.totalCost)}
+                    valueClass="text-red-600"
+                  />
+                  <StatCard
+                    label={t("purchases.revenue")}
+                    value={fmtCurrency(stats.paid.totalRevenue)}
+                    valueClass="text-blue-700"
+                  />
+                  {isOwner && (
+                    <StatCard
+                      label={t("purchases.profit")}
+                      value={fmtCurrency(stats.paid.totalProfit)}
+                      valueClass={
+                        stats.paid.totalProfit >= 0
+                          ? "text-green-700"
+                          : "text-red-700"
+                      }
+                    />
+                  )}
+                  <StatCard
+                    label={t("status.pending")}
+                    value={String(stats.paid.pendingCount)}
+                    valueClass="text-yellow-700"
+                  />
+                </StatGroup>
+              )}
+
+              {tab !== "PAID" && stats?.credit && (
+                <StatGroup
+                  title={t("purchases.modeCredit")}
+                  accentClass="border-amber-400"
                 >
-                  ~{fmtCurrency(creditMargin)}
-                </strong>
-              </>
-            )}
-          </span>
-        )}
-        {daySheet && (
-          <span className="min-w-0 w-full sm:w-auto text-[10px] sm:text-xs text-gray-400">
-            {t("purchases.openingCash")} {fmtCurrency(daySheet.opening)}
-            {" · "}
-            {t("purchases.inflow")} +{fmtCurrency(daySheet.totalInflow)}
-            {" · "}
-            {t("purchases.outflow")} -{fmtCurrency(daySheet.totalOutflow)}
-            {" · "}
-            {t("purchases.closingCash")} {fmtCurrency(daySheet.closing)}
-          </span>
-        )}
-      </div>
+                  <StatCard
+                    label={t("purchases.creditTaken")}
+                    value={fmtCurrency(stats.credit.totalTaken)}
+                  />
+                  <StatCard
+                    label={t("purchases.creditPaidBack")}
+                    value={fmtCurrency(stats.credit.totalPaidToVendor)}
+                    valueClass="text-green-700"
+                  />
+                  <StatCard
+                    label={t("purchases.creditOutstanding")}
+                    value={fmtCurrency(stats.credit.totalRemainingToPay)}
+                    valueClass="text-red-600"
+                  />
+                  {isOwner && (
+                    <StatCard
+                      label={t("purchases.recordedMargin")}
+                      value={`~${fmtCurrency(creditMargin)}`}
+                      valueClass={
+                        creditMargin >= 0 ? "text-green-700" : "text-red-700"
+                      }
+                    />
+                  )}
+                  <StatCard
+                    label={t("purchases.creditUnpaid")}
+                    value={String(stats.credit.unpaidCount)}
+                    valueClass="text-red-700"
+                  />
+                </StatGroup>
+              )}
+
+              {daySheet && (
+                <StatGroup
+                  title={t("purchases.tillTitle")}
+                  accentClass="border-gray-300"
+                >
+                  <StatCard
+                    label={t("purchases.openingCash")}
+                    value={fmtCurrency(daySheet.opening)}
+                  />
+                  <StatCard
+                    label={t("purchases.inflow")}
+                    value={`+${fmtCurrency(daySheet.totalInflow)}`}
+                    valueClass="text-green-700"
+                  />
+                  <StatCard
+                    label={t("purchases.outflow")}
+                    value={`-${fmtCurrency(daySheet.totalOutflow)}`}
+                    valueClass="text-red-600"
+                  />
+                  <StatCard
+                    label={t("purchases.closingCash")}
+                    value={fmtCurrency(daySheet.closing)}
+                  />
+                </StatGroup>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <PurchasesTable
         rows={rows}

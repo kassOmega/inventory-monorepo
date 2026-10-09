@@ -1069,7 +1069,9 @@
     "failed": "Failed",
     "tabAll": "All",
     "tabPaid": "Paid",
-    "tabCredit": "Credit"
+    "tabCredit": "Credit",
+    "summaryTitle": "Summary",
+    "tillTitle": "Till (today)"
   },
   "accounts": {
     "title": "Chart of Accounts",

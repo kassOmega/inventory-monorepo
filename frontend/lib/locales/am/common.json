@@ -1069,7 +1069,9 @@
     "failed": "አልተሳካም",
     "tabAll": "ሁሉም",
     "tabPaid": "የተከፈለ",
-    "tabCredit": "ዕዳ"
+    "tabCredit": "ዕዳ",
+    "summaryTitle": "ማጠቃለያ",
+    "tillTitle": "ገንዘብ ሳጥን (ዛሬ)"
   },
   "accounts": {
     "title": "የሒሳብ አቀማመጥ",
