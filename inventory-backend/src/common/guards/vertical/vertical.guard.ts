@@ -1,6 +1,6 @@
 // src/common/guards/vertical/vertical.guard.ts
 // Per-vertical access enforcement. Only controllers decorated with
-// `@Vertical(...)` are checked; everything else passes untouched (so existing
+// `@Vertical(...)` are checked; everything else passes untouched (so
 // retail/hospitality routes are unaffected). For decorated controllers the
 // active organization's businessType must match, otherwise the request is
 // rejected with 403.
@@ -10,19 +10,21 @@
 // happens to hold the permission key (the role templates are shared across
 // verticals — e.g. hospitality Manager carries `service.*`).
 //
-// Zero-risk design:
+// Enforcement is ALWAYS ON: it is a tenant-isolation boundary, so it must fail
+// closed. Every tenant is a single business type and no legitimate flow calls
+// another vertical's endpoints (the UI gates those calls by business type), so
+// there is nothing to opt out of. The only deliberate fail-open is a transient
+// org-lookup error, so a DB hiccup never 403s every request.
+//
 //   - businessType is resolved from the ACTIVE org (req.tenantId) via a cached
 //     DB lookup — never from req.user.businessType (which is derived from the
 //     user's FIRST membership and is stale when switching orgs).
 //   - Platform admins are exempt.
-//   - VERTICAL_ENFORCEMENT !== 'true' disables all enforcement (rollback flag);
-//     the guard logs a warning once so the disabled state is never silent.
 import {
   CanActivate,
   ExecutionContext,
   ForbiddenException,
   Injectable,
-  Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { BusinessType } from '@prisma/client';
@@ -40,36 +42,14 @@ interface CachedOrgType {
 
 @Injectable()
 export class VerticalGuard implements CanActivate {
-  private readonly logger = new Logger(VerticalGuard.name);
   private readonly orgCache = new Map<number, CachedOrgType>();
-  /** One-shot flag so the disabled state is reported exactly once. */
-  private warnedDisabled = false;
 
   constructor(
     private reflector: Reflector,
     private prisma: PrismaService,
   ) {}
 
-  /**
-   * Enforcement switch: only the exact string 'true' turns the boundary on
-   * (rollback safety). A disabled guard is never silent — the first request logs
-   * a warning so an operator can spot an environment missing the variable.
-   */
-  private isEnforced(): boolean {
-    if (process.env.VERTICAL_ENFORCEMENT === 'true') return true;
-    if (!this.warnedDisabled) {
-      this.warnedDisabled = true;
-      this.logger.warn(
-        'VerticalGuard enforcement is OFF (VERTICAL_ENFORCEMENT !== "true"): ' +
-          'controllers marked @Vertical(...) will answer for every business type.',
-      );
-    }
-    return false;
-  }
-
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    if (!this.isEnforced()) return true;
-
     const allowedTypes = this.reflector.getAllAndOverride<BusinessType[]>(
       VERTICAL_KEY,
       [context.getHandler(), context.getClass()],

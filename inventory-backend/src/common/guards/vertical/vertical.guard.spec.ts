@@ -43,36 +43,29 @@ function makeGuard(
 }
 
 describe('VerticalGuard', () => {
-  const original = process.env.VERTICAL_ENFORCEMENT;
-
-  afterEach(() => {
-    process.env.VERTICAL_ENFORCEMENT = original;
-    jest.restoreAllMocks();
-  });
-
   it('ignores controllers that are not marked @Vertical', async () => {
-    process.env.VERTICAL_ENFORCEMENT = 'true';
     const { guard, prisma } = makeGuard(BusinessType.HOSPITALITY, undefined);
 
     await expect(guard.canActivate(ctx({ tenantId: 26 }))).resolves.toBe(true);
     expect(prisma.organization.findUnique).not.toHaveBeenCalled();
   });
 
-  it('is a no-op when enforcement is off, and warns once', async () => {
-    process.env.VERTICAL_ENFORCEMENT = 'false';
-    const { guard } = makeGuard(BusinessType.HOSPITALITY, [
-      BusinessType.SERVICE,
-    ]);
-    const warn = jest.spyOn((guard as any).logger, 'warn').mockImplementation();
-
-    await expect(guard.canActivate(ctx({ tenantId: 26 }))).resolves.toBe(true);
-    await expect(guard.canActivate(ctx({ tenantId: 26 }))).resolves.toBe(true);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0][0])).toMatch(/enforcement is OFF/i);
+  it('is always enforced (no env opt-out) — even with VERTICAL_ENFORCEMENT unset', async () => {
+    const previous = process.env.VERTICAL_ENFORCEMENT;
+    delete process.env.VERTICAL_ENFORCEMENT;
+    try {
+      const { guard } = makeGuard(BusinessType.HOSPITALITY, [
+        BusinessType.SERVICE,
+      ]);
+      await expect(
+        guard.canActivate(ctx({ tenantId: 26 })),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    } finally {
+      if (previous !== undefined) process.env.VERTICAL_ENFORCEMENT = previous;
+    }
   });
 
   it('rejects a hospitality organization on a SERVICE controller', async () => {
-    process.env.VERTICAL_ENFORCEMENT = 'true';
     const { guard } = makeGuard(BusinessType.HOSPITALITY, [
       BusinessType.SERVICE,
     ]);
@@ -83,7 +76,6 @@ describe('VerticalGuard', () => {
   });
 
   it('rejects a retail organization on a MANUFACTURING controller', async () => {
-    process.env.VERTICAL_ENFORCEMENT = 'true';
     const { guard } = makeGuard(BusinessType.RETAIL, [
       BusinessType.MANUFACTURING,
     ]);
@@ -94,7 +86,6 @@ describe('VerticalGuard', () => {
   });
 
   it('allows a matching organization and caches the lookup', async () => {
-    process.env.VERTICAL_ENFORCEMENT = 'true';
     const { guard, prisma } = makeGuard(BusinessType.SERVICE, [
       BusinessType.SERVICE,
     ]);
@@ -105,7 +96,6 @@ describe('VerticalGuard', () => {
   });
 
   it('allows any vertical for a multi-vertical controller', async () => {
-    process.env.VERTICAL_ENFORCEMENT = 'true';
     const { guard } = makeGuard(BusinessType.HOSPITALITY, [
       BusinessType.HOSPITALITY,
       BusinessType.SERVICE,
@@ -115,7 +105,6 @@ describe('VerticalGuard', () => {
   });
 
   it('leaves platform admins exempt', async () => {
-    process.env.VERTICAL_ENFORCEMENT = 'true';
     const { guard, prisma } = makeGuard(BusinessType.HOSPITALITY, [
       BusinessType.SERVICE,
     ]);
@@ -127,7 +116,6 @@ describe('VerticalGuard', () => {
   });
 
   it('does not exempt ordinary owners (isSuperuser is per-org, not cross-org)', async () => {
-    process.env.VERTICAL_ENFORCEMENT = 'true';
     const { guard } = makeGuard(BusinessType.HOSPITALITY, [
       BusinessType.SERVICE,
     ]);
@@ -138,7 +126,6 @@ describe('VerticalGuard', () => {
   });
 
   it('skips the check when no active organization is resolvable', async () => {
-    process.env.VERTICAL_ENFORCEMENT = 'true';
     const { guard, prisma } = makeGuard(BusinessType.HOSPITALITY, [
       BusinessType.SERVICE,
     ]);
@@ -148,7 +135,6 @@ describe('VerticalGuard', () => {
   });
 
   it('skips the check for an unauthenticated request', async () => {
-    process.env.VERTICAL_ENFORCEMENT = 'true';
     const { guard, prisma } = makeGuard(BusinessType.HOSPITALITY, [
       BusinessType.SERVICE,
     ]);
@@ -160,7 +146,6 @@ describe('VerticalGuard', () => {
   });
 
   it('fails open when the organization lookup errors', async () => {
-    process.env.VERTICAL_ENFORCEMENT = 'true';
     const { guard, prisma } = makeGuard(null, [BusinessType.SERVICE]);
     prisma.organization.findUnique.mockRejectedValue(new Error('db down'));
 
