@@ -44,6 +44,89 @@ export class NotificationsService {
   }
 
   /**
+   * Read-once core: create a notification for ONE recipient unless a row with
+   * the same `dedupeKey` already exists for that recipient (read or not).
+   * Returns true when a new row was created (and a push was sent).
+   *
+   * This is the single place that enforces "once marked read, never regenerate":
+   * the key is the identity of the underlying business event, so re-running a job
+   * or re-saving a record cannot re-create or re-push it.
+   */
+  private async emitOnce(
+    recipient: number | null,
+    payload: {
+      tenantId: number | null;
+      type: string;
+      title: string;
+      message: string;
+      link?: string | null;
+      dedupeKey?: string | null;
+      productId?: number | null;
+      locationId?: number | null;
+      targetRoleId?: number | null;
+      targetLocationId?: number | null;
+      variantId?: number | null;
+      threshold?: number | null;
+    },
+    opts: { push?: boolean } = {},
+  ): Promise<boolean> {
+    const key = payload.dedupeKey ?? null;
+    if (key) {
+      const existing = await this.prisma.notification.findFirst({
+        where: {
+          tenantId: payload.tenantId,
+          dedupeKey: key,
+          targetUserId: recipient,
+        },
+        select: { id: true },
+      });
+      if (existing) return false;
+    }
+
+    await this.prisma.notification.create({
+      data: {
+        tenantId: payload.tenantId,
+        type: payload.type,
+        title: payload.title,
+        message: payload.message,
+        link: payload.link ?? null,
+        dedupeKey: key,
+        productId: payload.productId ?? null,
+        variantId: payload.variantId ?? null,
+        threshold: payload.threshold ?? null,
+        locationId: payload.locationId ?? null,
+        targetRoleId: payload.targetRoleId ?? null,
+        targetLocationId: payload.targetLocationId ?? null,
+        targetUserId: recipient,
+      },
+    });
+    this.events.next({ data: 'refresh' });
+
+    if (recipient != null && opts.push !== false) {
+      this.push
+        .sendToUser(recipient, {
+          title: payload.title,
+          body: payload.message,
+          ...(payload.link ? { url: payload.link } : {}),
+        })
+        .catch(() => {});
+    }
+    return true;
+  }
+
+  /** Fan a notification out to many recipients as one row each (per-user read). */
+  private async emitToUsers(
+    userIds: number[],
+    payload: Parameters<NotificationsService['emitOnce']>[1],
+  ): Promise<void> {
+    const unique = [...new Set(userIds.filter((id) => id != null))];
+    const targets = unique.length > 0 ? unique : [null];
+    for (const uid of targets) {
+      await this.emitOnce(uid, payload);
+    }
+  }
+
+  /**
    * Owner (system) role of a specific business. `tenantId` is always supplied by
    * the caller (taken from the location's tenant) so alerts raised from the
    * scheduled scan — which has no request tenant context — still resolve the
@@ -246,6 +329,9 @@ export class NotificationsService {
       targetRoleId: params.target.targetRoleId ?? null,
       targetLocationId: params.target.targetLocationId ?? null,
     };
+    const dedupeKey =
+      `LOW_STOCK:${params.tenantId ?? ''}:${params.productId}:${params.variantId ?? 0}:` +
+      `${params.locationId}:${params.target.targetRoleId ?? 0}:${params.target.targetLocationId ?? 0}`;
 
     const open = await db.notification.findFirst({
       where: { ...key, isRead: false },
@@ -278,6 +364,7 @@ export class NotificationsService {
         message: params.message,
         link: LOW_STOCK_LINK,
         threshold: params.threshold,
+        dedupeKey,
       },
     });
     this.events.next({ data: 'refresh' });
@@ -317,7 +404,13 @@ export class NotificationsService {
   async notifyOwner(
     title: string,
     message: string,
-    opts: { productId?: number; locationId?: number; link?: string } = {},
+    opts: {
+      productId?: number;
+      locationId?: number;
+      link?: string;
+      type?: string;
+      dedupeKey?: string;
+    } = {},
   ): Promise<void> {
     const tenantId = getCurrentTenantId();
     const ownerRole = await this.prisma.role.findFirst({
@@ -328,78 +421,65 @@ export class NotificationsService {
       where: { roleId: ownerRole?.id, ...(tenantId != null ? { organizationId: tenantId } : {}) },
       select: { userId: true },
     });
-    const ownerUserIds = ownerUsers.map((m) => m.userId);
 
-    // Link each notification to a specific user (targetUserId) and to the
-    // business (tenantId) so it can be attributed and filtered by both.
-    const targets: Array<{ targetUserId: number | null }> =
-      ownerUserIds.length > 0
-        ? ownerUserIds.map((userId) => ({ targetUserId: userId }))
-        : [{ targetUserId: null }];
-
-    for (const t of targets) {
-      await this.prisma.notification.create({
-        data: {
-          tenantId,
-          type: 'REQUEST_STATUS',
-          title,
-          message,
-          link: opts.link ?? null,
-          targetRoleId: ownerRole?.id ?? null,
-          targetLocationId: null,
-          targetUserId: t.targetUserId,
-          productId: opts.productId ?? null,
-          locationId: opts.locationId ?? null,
-        },
-      });
-    }
-
-    this.events.next({ data: 'refresh' });
-
-    for (const userId of ownerUserIds) {
-      this.push
-        .sendToUser(userId, {
-          title,
-          body: message,
-          ...(opts.link ? { url: opts.link } : {}),
-        })
-        .catch(() => {});
-    }
+    await this.emitToUsers(
+      ownerUsers.map((m) => m.userId),
+      {
+        tenantId,
+        type: opts.type ?? 'REQUEST_STATUS',
+        title,
+        message,
+        link: opts.link ?? null,
+        dedupeKey: opts.dedupeKey ?? null,
+        targetRoleId: ownerRole?.id ?? null,
+        productId: opts.productId ?? null,
+        locationId: opts.locationId ?? null,
+      },
+    );
   }
 
   async notifyLocation(
     title: string,
     message: string,
     locationId: number,
-    opts: { productId?: number; link?: string } = {},
+    opts: { productId?: number; link?: string; dedupeKey?: string; type?: string } = {},
   ): Promise<void> {
     const location = await this.prisma.location.findUnique({
       where: { id: locationId },
       select: { tenantId: true },
     });
 
-    await this.prisma.notification.create({
-      data: {
-        tenantId: location?.tenantId ?? getCurrentTenantId(),
-        type: 'REQUEST_STATUS',
-        title,
-        message,
-        link: opts.link ?? null,
-        targetRoleId: null,
-        targetLocationId: locationId,
-        productId: opts.productId ?? null,
-        locationId: locationId,
-      },
+    // Fan out to the members assigned to this location (per-user read state).
+    const members = await this.prisma.membership.findMany({
+      where: { organizationId: location?.tenantId ?? undefined, user: { locationId } },
+      select: { userId: true },
     });
+    const recipientIds = members.map((m) => m.userId);
 
-    this.events.next({ data: 'refresh' });
+    const payload = {
+      tenantId: location?.tenantId ?? getCurrentTenantId(),
+      type: opts.type ?? 'REQUEST_STATUS',
+      title,
+      message,
+      link: opts.link ?? null,
+      dedupeKey: opts.dedupeKey ?? null,
+      targetLocationId: locationId,
+      productId: opts.productId ?? null,
+      locationId,
+    };
 
-    this.push
-      .sendToLocation(
-        { title, body: message, ...(opts.link ? { url: opts.link } : {}) },
-        locationId,
-      )
-      .catch(() => {});
+    if (recipientIds.length > 0) {
+      await this.emitToUsers(recipientIds, payload);
+    } else {
+      // No assigned member yet — keep a location-scoped row so it is not lost.
+      await this.emitOnce(null, payload);
+      this.push
+        .sendToLocation(
+          { title, body: message, ...(opts.link ? { url: opts.link } : {}) },
+          locationId,
+        )
+        .catch(() => {});
+    }
   }
 
   /** Notify a specific user (e.g. the waiter who created an order). */
@@ -410,46 +490,39 @@ export class NotificationsService {
     type = 'ORDER_STATUS',
     tenantId?: number | null,
     link?: string | null,
+    dedupeKey?: string | null,
   ): Promise<void> {
     const resolvedTenantId = tenantId ?? getCurrentTenantId();
-    await this.prisma.notification.create({
-      data: {
-        type,
-        title,
-        message,
-        ...(link ? { link } : {}),
-        targetUserId: userId,
-        ...(resolvedTenantId != null ? { tenantId: resolvedTenantId } : {}),
-      },
+    await this.emitOnce(userId, {
+      tenantId: resolvedTenantId,
+      type,
+      title,
+      message,
+      link: link ?? null,
+      dedupeKey: dedupeKey ?? null,
     });
-    this.events.next({ data: 'refresh' });
-
-    this.push
-      .sendToUser(userId, {
-        title,
-        body: message,
-        ...(link ? { url: link } : {}),
-      })
-      .catch(() => {});
   }
 
   /** Notify every platform admin (used for account-verification events). */
-  async notifyAdmins(title: string, message: string, type = 'ACCOUNT_VERIFICATION'): Promise<void> {
+  async notifyAdmins(
+    title: string,
+    message: string,
+    type = 'ACCOUNT_VERIFICATION',
+    dedupeKey?: string,
+  ): Promise<void> {
     const admins = await this.prisma.user.findMany({
       where: { isPlatformAdmin: true },
       select: { id: true },
     });
-    if (admins.length === 0) return;
-
     for (const admin of admins) {
-      await this.prisma.notification.create({
-        data: { type, title, message, targetUserId: admin.id },
+      await this.emitOnce(admin.id, {
+        tenantId: null,
+        type,
+        title,
+        message,
+        dedupeKey: dedupeKey ?? null,
       });
-      this.push
-        .sendToUser(admin.id, { title, body: message })
-        .catch(() => {});
     }
-    this.events.next({ data: 'refresh' });
   }
 
   /** Notify everyone holding a given role name in the active organization. */
@@ -467,6 +540,7 @@ export class NotificationsService {
     message: string,
     type = 'ORDER_STATUS',
     link?: string | null,
+    dedupeKey?: string | null,
   ): Promise<void> {
     const tenantId = getCurrentTenantId();
     const role =
@@ -484,7 +558,15 @@ export class NotificationsService {
       );
       return;
     }
-    await this.dispatchToRole(role.id, role.organizationId, title, message, type, link);
+    await this.dispatchToRole(
+      role.id,
+      role.organizationId,
+      title,
+      message,
+      type,
+      link,
+      dedupeKey,
+    );
   }
 
   /**
@@ -498,6 +580,7 @@ export class NotificationsService {
     message: string,
     type = 'ORDER_STATUS',
     link?: string | null,
+    dedupeKey?: string | null,
   ): Promise<void> {
     const tenantId = getCurrentTenantId();
     const role = await this.prisma.role.findFirst({
@@ -507,7 +590,15 @@ export class NotificationsService {
       },
     });
     if (!role) return;
-    await this.dispatchToRole(role.id, role.organizationId, title, message, type, link);
+    await this.dispatchToRole(
+      role.id,
+      role.organizationId,
+      title,
+      message,
+      type,
+      link,
+      dedupeKey,
+    );
   }
 
   /** Persist a role-targeted notification and fan it out to web push. */
@@ -518,26 +609,25 @@ export class NotificationsService {
     message: string,
     type: string,
     link?: string | null,
+    dedupeKey?: string | null,
   ): Promise<void> {
-    await this.prisma.notification.create({
-      data: {
+    // Fan out to one row per member of the role so each has their own read state.
+    const members = await this.prisma.membership.findMany({
+      where: { roleId, ...(organizationId != null ? { organizationId } : {}) },
+      select: { userId: true },
+    });
+    await this.emitToUsers(
+      members.map((m) => m.userId),
+      {
         tenantId: organizationId,
         type,
         title,
         message,
-        ...(link ? { link } : {}),
+        link: link ?? null,
+        dedupeKey: dedupeKey ?? null,
         targetRoleId: roleId,
       },
-    });
-    this.events.next({ data: 'refresh' });
-
-    this.push
-      .sendToRoleId(
-        { title, body: message, ...(link ? { url: link } : {}) },
-        roleId,
-        organizationId,
-      )
-      .catch(() => {});
+    );
   }
 
   async checkAllLowStockForLocation(locationId: number): Promise<void> {

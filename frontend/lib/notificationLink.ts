@@ -21,6 +21,12 @@ export function notificationIcon(type: string): string {
       return "📦";
     case "PO_DRAFT":
       return "🧾";
+    case "DEDUCTION_DUE":
+      return "💸";
+    case "SUBSCRIPTION":
+      return "💳";
+    case "ACCOUNT_VERIFICATION":
+      return "🛡️";
     case "ORDER_STATUS":
       return "🍽️";
     default:
@@ -37,6 +43,12 @@ export function notificationLink(n: LinkableNotification): string | null {
       return "/dashboard/requests";
     case "PO_DRAFT":
       return "/dashboard/purchase-orders";
+    case "DEDUCTION_DUE":
+      return "/dashboard/staff-deductions";
+    case "SUBSCRIPTION":
+      return "/dashboard/businesses/subscription";
+    case "ACCOUNT_VERIFICATION":
+      return "/dashboard/admin/verification";
     case "LOW_STOCK":
       return "/dashboard/reports?tab=low-stock";
     case "ORDER_STATUS":

@@ -114,6 +114,7 @@ export class RequestsService {
       await this.notifications.notifyOwner(
         'New Stock Request',
         `Request #${req.id}: ${req.items.length} items from ${isStorekeeper ? 'Store' : req.shop?.name}`,
+        { dedupeKey: `REQUEST_CREATED:${req.id}` },
       );
       return req;
     });
@@ -252,6 +253,7 @@ export class RequestsService {
     await this.notifications.notifyOwner(
       'Request Updated',
       `Request #${id}: quantities were revised and sent back for re-approval`,
+      { dedupeKey: `REQUEST_UPDATED:${id}` },
     );
 
     return this.prisma.stockRequest.findUnique({
@@ -1249,6 +1251,7 @@ export class RequestsService {
       await this.notifications.notifyOwner(
         'Receipt Confirmed',
         `Request #${requestId}: items confirmed as received`,
+        { dedupeKey: `REQUEST_RECEIVED:${requestId}` },
       );
 
       return result;
@@ -1256,14 +1259,18 @@ export class RequestsService {
 
     // Report any gaps between what was sent and what was actually received.
     for (const notice of shortageNotices) {
+      const shortageKey = `REQUEST_SHORTAGE:${requestId}:${notice.locationId}`;
       if (notice.toOwner) {
-        await this.notifications.notifyOwner('Shortage Reported', notice.message);
+        await this.notifications.notifyOwner('Shortage Reported', notice.message, {
+          dedupeKey: shortageKey,
+        });
         continue;
       }
       await this.notifications.notifyLocation(
         'Shortage Reported',
         notice.message,
         notice.locationId,
+        { dedupeKey: shortageKey },
       );
     }
 
@@ -1452,14 +1459,18 @@ export class RequestsService {
 
     // Report any gaps between what was sent and what was actually received.
     for (const notice of shortageNotices) {
+      const shortageKey = `REQUEST_SHORTAGE:${requestId}:${notice.locationId}`;
       if (notice.toOwner) {
-        await this.notifications.notifyOwner('Shortage Reported', notice.message);
+        await this.notifications.notifyOwner('Shortage Reported', notice.message, {
+          dedupeKey: shortageKey,
+        });
         continue;
       }
       await this.notifications.notifyLocation(
         'Shortage Reported',
         notice.message,
         notice.locationId,
+        { dedupeKey: shortageKey },
       );
     }
 

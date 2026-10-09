@@ -196,6 +196,9 @@ export class PurchasesService {
                 .toFixed(2)} birr (${shop.name})`;
         await this.notifications.notifyOwner(title, body, {
           locationId: shop.id,
+          type: 'PO_DRAFT',
+          // One key per purchase batch — the same batch never re-notifies.
+          dedupeKey: `PO_DRAFT:${created.map((c) => c.id).join('-')}`,
         });
 
         return created;

@@ -426,7 +426,7 @@ export class VerificationService {
   }
 
   private async notifyAdminsForFlag(
-    doc: { documentType: string; organizationId: number | null },
+    doc: { id: string; documentType: string; organizationId: number | null },
     review: AiReviewResult,
   ) {
     const target =
@@ -438,6 +438,7 @@ export class VerificationService {
       'Verification flagged for review',
       `${target} submitted a ${doc.documentType} document that needs manual review. AI says: ${reasons}`,
       'ACCOUNT_VERIFICATION',
+      `VERIFICATION_FLAGGED:${doc.id}`,
     );
   }
 
