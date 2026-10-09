@@ -5,6 +5,7 @@ import { useConfirm } from "@/app/components/ConfirmProvider";
 import api from "@/lib/api";
 import { hospitalityServiceName as serviceName } from "@/lib/verticals";
 import { useCallback, useEffect, useState } from "react";
+import Button from "@/app/components/Button";
 import { useTranslation } from "react-i18next";
 
 // Reservation statuses shown in the check-in picker (enum → catalog key).
@@ -74,6 +75,8 @@ export default function PackagesPage() {
   const [guests, setGuests] = useState<any[]>([]);
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [checkInBusy, setCheckInBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [checkInForm, setCheckInForm] = useState({
     packageId: "",
     guestName: "",
@@ -192,6 +195,7 @@ export default function PackagesPage() {
         allowanceValue: r.allowanceValue === "" ? undefined : Number(r.allowanceValue),
         dailyLimit: r.dailyLimit === "" ? undefined : Number(r.dailyLimit),
       }));
+    setSaving(true);
     try {
       const payload: any = {
         name: form.name,
@@ -210,25 +214,33 @@ export default function PackagesPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("hospitality.pkg.failedSave"));
+    } finally {
+      setSaving(false);
     }
   };
 
   const remove = async (pkg: any) => {
     if (!(await confirm(t("hospitality.pkg.deleteConfirm", { name: pkg.name })))) return;
+    setBusyKey(`del-${pkg.id}`);
     try {
       await api.delete(`/hospitality/packages/${pkg.id}`);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("hospitality.pkg.failedDelete"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
   const toggleActive = async (pkg: any) => {
+    setBusyKey(`toggle-${pkg.id}`);
     try {
       await api.patch(`/hospitality/packages/${pkg.id}`, { isActive: !pkg.isActive });
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("hospitality.pkg.failedUpdate"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -293,11 +305,14 @@ export default function PackagesPage() {
   const checkOutGuest = async (guestId: string) => {
     if (!(await confirm(t("hospitality.pkg.settleConfirm")))) return;
     setError("");
+    setBusyKey(`guest-${guestId}`);
     try {
       await api.post(`/hospitality/guests/${guestId}/check-out`);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("hospitality.pkg.failedSettle"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -407,14 +422,15 @@ export default function PackagesPage() {
                   <td className="px-4 py-2 text-gray-600">{pkg._count?.guests ?? 0}</td>
                   <td className="px-4 py-2">
                     {canManage ? (
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        loading={busyKey === `toggle-${pkg.id}`}
                         onClick={() => toggleActive(pkg)}
-                        className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                          pkg.isActive ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-500"
-                        }`}
+                        className={`!px-2 !rounded-full !text-[11px] font-medium ${pkg.isActive ? "!bg-green-100 !text-green-700" : "!bg-gray-200 !text-gray-500"}`}
                       >
                         {pkg.isActive ? t("hospitality.active") : t("hospitality.inactive")}
-                      </button>
+                      </Button>
                     ) : (
                       <span
                         className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
@@ -429,7 +445,7 @@ export default function PackagesPage() {
                     {canManage && (
                       <>
                         <button onClick={() => openEdit(pkg)} className="text-xs text-blue-600 hover:underline mr-2">{t("common.edit")}</button>
-                        <button onClick={() => remove(pkg)} className="text-xs text-red-600 hover:underline">{t("common.del")}</button>
+                        <Button variant="ghost" size="sm" loading={busyKey === `del-${pkg.id}`} onClick={() => remove(pkg)} className="!px-0 text-xs text-red-600 hover:underline">{t("common.del")}</Button>
                       </>
                     )}
                   </td>
@@ -481,12 +497,15 @@ export default function PackagesPage() {
                     {money(balanceOf(g))} {t("orders.birr")}
                   </span>
                   {canSettle && (
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      loading={busyKey === `guest-${g.id}`}
                       onClick={() => checkOutGuest(g.id)}
-                      className="text-xs text-blue-600 hover:underline"
+                      className="!px-0 text-xs text-blue-600 hover:underline"
                     >
                       {t("hospitality.pkg.settleCheckOut")}
-                    </button>
+                    </Button>
                   )}
                 </div>
               </li>
@@ -556,13 +575,14 @@ export default function PackagesPage() {
                 >
                   {t("common.cancel")}
                 </button>
-                <button
+                <Button
                   type="submit"
-                  disabled={checkInBusy}
-                  className="bg-emerald-600 text-white rounded px-3 py-2 text-sm font-medium hover:bg-emerald-700 disabled:opacity-60"
+                  loading={checkInBusy}
+                  variant="emerald"
+                  className="!px-3 !text-sm font-medium"
                 >
                   {checkInBusy ? t("facility.checkingIn") : t("facility.checkIn")}
-                </button>
+                </Button>
               </div>
             </form>
           </div>
@@ -746,9 +766,9 @@ export default function PackagesPage() {
                 <button type="button" onClick={() => setModal(null)} className="px-3 py-2 text-sm text-gray-600">
                   {t("common.cancel")}
                 </button>
-                <button type="submit" className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-blue-700">
+                <Button type="submit" loading={saving} className="!px-4 !text-sm font-medium">
                   {t("hospitality.pkg.save")}
-                </button>
+                </Button>
               </div>
             </form>
           </div>

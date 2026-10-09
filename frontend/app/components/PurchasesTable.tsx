@@ -41,10 +41,10 @@ interface Props {
   canCreate?: boolean;
   /** Opens the row's detail modal — the home of everything not in the table. */
   onView?: (row: any) => void;
-  onApprove?: (row: any) => void;
-  onReject?: (row: any) => void;
-  onPay?: (row: any) => void;
-  onDelete?: (row: any) => void;
+  onApprove?: (row: any) => void | Promise<void>;
+  onReject?: (row: any) => void | Promise<void>;
+  onPay?: (row: any) => void | Promise<void>;
+  onDelete?: (row: any) => void | Promise<void>;
 }
 
 /** The one status pill, shared by the table and the detail modal. */

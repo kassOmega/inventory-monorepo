@@ -823,8 +823,10 @@ export default function CustomerDetailPage() {
               />
               <button
                 type="button"
+                disabled={creatingMethod}
                 onClick={async () => {
                   if (!editNewMethodName.trim()) return;
+                  setCreatingMethod(true);
                   try {
                     const r = await api.post("/payment-methods", {
                       name: editNewMethodName.trim(),
@@ -838,11 +840,20 @@ export default function CustomerDetailPage() {
                       err?.response?.data?.message ??
                         t("credits.failedAddMethod"),
                     );
+                  } finally {
+                    setCreatingMethod(false);
                   }
                 }}
-                className="bg-gray-200 px-2 rounded-lg text-xs"
+                className="bg-gray-200 px-2 rounded-lg text-xs inline-flex items-center justify-center disabled:opacity-60"
               >
-                +
+                {creatingMethod ? (
+                  <Loading
+                    size="sm"
+                    className="border-gray-400/40 border-t-gray-600"
+                  />
+                ) : (
+                  "+"
+                )}
               </button>
             </div>
           </div>

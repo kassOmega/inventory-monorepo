@@ -5,6 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState } from "react";
+import Button from "@/app/components/Button";
 
 export default function TaxesPage() {
   const { t } = useTranslation();
@@ -20,6 +21,10 @@ export default function TaxesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [form, setForm] = useState<any>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [savingRate, setSavingRate] = useState(false);
+  const [savingFiscal, setSavingFiscal] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -39,11 +44,14 @@ export default function TaxesPage() {
 
   const saveSettings = async (patch: any) => {
     setError("");
+    setSavingSettings(true);
     try {
       await api.patch("/taxes/settings", patch);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("taxes.failedSaveSettings"));
+    } finally {
+      setSavingSettings(false);
     }
   };
 
@@ -71,6 +79,7 @@ export default function TaxesPage() {
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSavingRate(true);
     try {
       const payload = {
         name: form.name,
@@ -86,26 +95,34 @@ export default function TaxesPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("taxes.failedSaveRate"));
+    } finally {
+      setSavingRate(false);
     }
   };
 
   const remove = async (m: any) => {
     if (m.isDefault) return;
     if (!(await confirm(t("taxes.deleteConfirm", { name: m.name })))) return;
+    setBusyKey(`del-${m.id}`);
     try {
       await api.delete(`/taxes/${m.id}`);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("taxes.failedDeleteRate"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
   const toggleEnabled = async (m: any) => {
+    setBusyKey(`toggle-${m.id}`);
     try {
       await api.patch(`/taxes/${m.id}`, { enabled: !m.enabled });
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("taxes.failedUpdateRate"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -128,6 +145,7 @@ export default function TaxesPage() {
   const saveFiscal = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSavingFiscal(true);
     try {
       const r = await api.put("/fiscal/config", {
         tin: fiscal.tin,
@@ -152,6 +170,8 @@ export default function TaxesPage() {
       setFiscal(r.data);
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("taxes.failedSaveFiscal"));
+    } finally {
+      setSavingFiscal(false);
     }
   };
 
@@ -209,13 +229,15 @@ export default function TaxesPage() {
                 className="border border-gray-300 rounded p-2 text-sm w-full"
                 disabled={!canManage}
               />
-              <button
+              <Button
                 onClick={() => saveSettings({ taxId: settings.taxId || null })}
                 disabled={!canManage}
-                className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium disabled:opacity-40"
+                loading={savingSettings}
+                variant="dark"
+                className="!px-3 !text-sm"
               >
                 {t("common.save")}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -347,9 +369,9 @@ export default function TaxesPage() {
             </label>
             {canManage && (
               <div className="flex justify-end">
-                <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">
+                <Button type="submit" loading={savingFiscal} variant="dark" className="!px-3 !text-sm">
                   {t("taxes.saveFiscalSettings")}
-                </button>
+                </Button>
               </div>
             )}
           </form>
@@ -407,23 +429,23 @@ export default function TaxesPage() {
               </div>
               {canManage && (
                 <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() => toggleEnabled(m)}
-                    className="text-xs text-gray-600 hover:underline"
-                  >
+                  <Button variant="ghost" size="sm" loading={busyKey === `toggle-${m.id}`} onClick={() => toggleEnabled(m)} className="!px-0 text-xs text-gray-600 hover:underline">
                     {m.enabled ? t("taxes.disable") : t("taxes.enable")}
-                  </button>
+                  </Button>
                   <button onClick={() => openEdit(m)} className="text-xs text-blue-600 hover:underline">
                     {t("common.edit")}
                   </button>
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    loading={busyKey === `del-${m.id}`}
                     onClick={() => remove(m)}
                     disabled={m.isDefault}
                     title={m.isDefault ? t("taxes.setDefaultFirst") : undefined}
-                    className="text-xs text-red-600 hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="!px-0 text-xs text-red-600 hover:underline"
                   >
                     {t("common.del")}
-                  </button>
+                  </Button>
                 </div>
               )}
             </li>
@@ -497,12 +519,14 @@ export default function TaxesPage() {
                 >
                   {t("common.cancel")}
                 </button>
-                <button
+                <Button
                   type="submit"
-                  className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium"
+                  loading={savingRate}
+                  variant="dark"
+                  className="!px-3 !text-sm"
                 >
                   {t("common.save")}
-                </button>
+                </Button>
               </div>
             </form>
           </div>

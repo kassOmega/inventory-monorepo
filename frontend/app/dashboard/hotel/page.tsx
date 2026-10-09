@@ -1,6 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
+import Button from "@/app/components/Button";
 import CheckInModal from "@/app/components/CheckInModal";
 import CheckoutModal from "@/app/components/CheckoutModal";
 import { useAuth } from "@/context/AuthContext";
@@ -56,6 +57,8 @@ export default function HotelPage() {
 
   // Active tab: Rooms | Reservations
   const [tab, setTab] = useState("Rooms");
+  const [busy, setBusy] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -140,23 +143,29 @@ export default function HotelPage() {
 
   const addRoomType = async (e: React.FormEvent) => {
     e.preventDefault();
+    setBusy(true);
     try {
       await api.post("/hotel/room-types", { name: roomTypeForm.name, basePrice: Number(roomTypeForm.basePrice) });
       setRoomTypeForm({ name: "", basePrice: "" });
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("hotel.failedAddRoomType"));
+    } finally {
+      setBusy(false);
     }
   };
 
   const addRoom = async (e: React.FormEvent) => {
     e.preventDefault();
+    setBusy(true);
     try {
       await api.post("/hotel/rooms", { number: roomForm.number, roomTypeId: Number(roomForm.roomTypeId) });
       setRoomForm({ number: "", roomTypeId: "" });
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("hotel.failedAddRoom"));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -165,6 +174,7 @@ export default function HotelPage() {
     setRoomTypeModal({ id: rt.id, name: rt.name, description: rt.description ?? "", basePrice: String(rt.basePrice) });
   const saveRoomType = async (e: React.FormEvent) => {
     e.preventDefault();
+    setBusy(true);
     try {
       await api.patch(`/hotel/room-types/${roomTypeModal.id}`, {
         name: roomTypeModal.name,
@@ -175,15 +185,20 @@ export default function HotelPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("hotel.failedUpdateRoomType"));
+    } finally {
+      setBusy(false);
     }
   };
   const deleteRoomType = async (rt: any) => {
     if (!(await confirm(t("hotel.deleteRoomTypeConfirm", { name: rt.name })))) return;
+    setBusyKey(`rt-${rt.id}`);
     try {
       await api.delete(`/hotel/room-types/${rt.id}`);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("hotel.failedDeleteRoomType"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -192,6 +207,7 @@ export default function HotelPage() {
     setRoomModal({ id: r.id, number: r.number, floor: r.floor ?? "", roomTypeId: String(r.roomTypeId ?? "") });
   const saveRoom = async (e: React.FormEvent) => {
     e.preventDefault();
+    setBusy(true);
     try {
       await api.patch(`/hotel/rooms/${roomModal.id}`, {
         number: roomModal.number,
@@ -202,23 +218,31 @@ export default function HotelPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("hotel.failedUpdateRoom"));
+    } finally {
+      setBusy(false);
     }
   };
   const deleteRoom = async (r: any) => {
     if (!(await confirm(t("hotel.deleteRoomConfirm", { number: r.number })))) return;
+    setBusyKey(`room-${r.id}`);
     try {
       await api.delete(`/hotel/rooms/${r.id}`);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("hotel.failedDeleteRoom"));
+    } finally {
+      setBusyKey(null);
     }
   };
   const setRoomStatus = async (id: number, status: string) => {
+    setBusyKey(`status-${id}`);
     try {
       await api.patch(`/hotel/rooms/${id}/status`, { status });
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("hotel.failedUpdateRoomStatus"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -235,6 +259,7 @@ export default function HotelPage() {
     });
   const saveRes = async (e: React.FormEvent) => {
     e.preventDefault();
+    setBusy(true);
     try {
       await api.patch(`/hotel/reservations/${resModal.id}`, {
         roomId: Number(resModal.roomId),
@@ -248,20 +273,26 @@ export default function HotelPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("hotel.failedUpdateReservation"));
+    } finally {
+      setBusy(false);
     }
   };
   const deleteRes = async (r: any) => {
     if (!(await confirm(t("hotel.deleteResConfirm", { name: r.guestName })))) return;
+    setBusyKey(`res-${r.id}`);
     try {
       await api.delete(`/hotel/reservations/${r.id}`);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("hotel.failedDeleteReservation"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
   const createReservation = async (e: React.FormEvent) => {
     e.preventDefault();
+    setBusy(true);
     try {
       await api.post("/hotel/reservations", {
         roomId: Number(resForm.roomId),
@@ -273,6 +304,8 @@ export default function HotelPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("hotel.failedCreateReservation"));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -348,6 +381,7 @@ export default function HotelPage() {
                       <select
                         value={r.status}
                         onChange={(e) => setRoomStatus(r.id, e.target.value)}
+                        disabled={busyKey === `status-${r.id}`}
                         className="text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-gray-50"
                         aria-label={t("hotel.statusAria", { number: r.number })}
                       >
@@ -361,7 +395,7 @@ export default function HotelPage() {
                     {canManageRooms && (
                       <>
                         <button onClick={() => openEditRoom(r)} className="text-xs text-blue-600 hover:underline">{t("common.edit")}</button>
-                        <button onClick={() => deleteRoom(r)} className="text-xs text-red-600 hover:underline">{t("common.del")}</button>
+                        <Button variant="ghost" size="sm" loading={busyKey === `room-${r.id}`} onClick={() => deleteRoom(r)} className="!px-0 text-xs text-red-600 hover:underline">{t("common.del")}</Button>
                       </>
                     )}
                   </div>
@@ -396,7 +430,7 @@ export default function HotelPage() {
                 <option key={rt.id} value={rt.id}>{rt.name}</option>
               ))}
             </select>
-            <button type="submit" className="bg-gray-800 text-white rounded px-3 text-sm">{t("common.add")}</button>
+            <Button type="submit" loading={busy} variant="dark" className="!px-3 !text-sm">{t("common.add")}</Button>
           </form>
           )}
 
@@ -411,7 +445,7 @@ export default function HotelPage() {
                   {canManageRooms && (
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button onClick={() => openEditRoomType(rt)} className="text-xs text-blue-600 hover:underline">{t("common.edit")}</button>
-                    <button onClick={() => deleteRoomType(rt)} className="text-xs text-red-600 hover:underline">{t("common.del")}</button>
+                    <Button variant="ghost" size="sm" loading={busyKey === `rt-${rt.id}`} onClick={() => deleteRoomType(rt)} className="!px-0 text-xs text-red-600 hover:underline">{t("common.del")}</Button>
                   </div>
                   )}
                 </li>
@@ -436,7 +470,7 @@ export default function HotelPage() {
                 className="border border-gray-300 rounded p-2 text-sm w-28"
                 required
               />
-              <button type="submit" className="bg-blue-600 text-white rounded px-3 text-sm">{t("hotel.addType")}</button>
+              <Button type="submit" loading={busy} className="!px-3 !text-sm">{t("hotel.addType")}</Button>
               </form>
             )}
             </div>
@@ -531,9 +565,9 @@ export default function HotelPage() {
               className="border border-gray-300 rounded p-2 text-sm w-full"
               required
             />
-              <button type="submit" className="bg-blue-600 text-white rounded p-2 text-sm w-full font-medium">
+              <Button type="submit" loading={busy} className="w-full !p-2 !text-sm font-medium">
                 {t("hotel.createReservation")}
-              </button>
+              </Button>
             </form>
             ) : (
               <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded p-2">
@@ -559,7 +593,7 @@ export default function HotelPage() {
                     <button onClick={() => openEditRes(r)} className="text-blue-600 text-xs hover:underline">{t("common.edit")}</button>
                   )}
                   {canManageRooms && (
-                    <button onClick={() => deleteRes(r)} className="text-red-600 text-xs hover:underline">{t("common.del")}</button>
+                    <Button variant="ghost" size="sm" loading={busyKey === `res-${r.id}`} onClick={() => deleteRes(r)} className="!px-0 text-red-600 text-xs hover:underline">{t("common.del")}</Button>
                   )}
                   {canFrontDesk && r.status === "CONFIRMED" && (
                     <button onClick={() => startCheckIn(r)} className="text-green-600 text-xs hover:underline">{t("hotel.checkin")}</button>
@@ -635,9 +669,9 @@ export default function HotelPage() {
                 <button type="button" onClick={() => setRoomTypeModal(null)} className="px-3 py-2 text-sm text-gray-600">
                   {t("common.cancel")}
                 </button>
-                <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">
+                <Button type="submit" loading={busy} variant="dark" className="!px-3 !text-sm">
                   {t("common.save")}
-                </button>
+                </Button>
               </div>
             </form>
           </div>
@@ -678,9 +712,9 @@ export default function HotelPage() {
                 <button type="button" onClick={() => setRoomModal(null)} className="px-3 py-2 text-sm text-gray-600">
                   {t("common.cancel")}
                 </button>
-                <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">
+                <Button type="submit" loading={busy} variant="dark" className="!px-3 !text-sm">
                   {t("common.save")}
-                </button>
+                </Button>
               </div>
             </form>
           </div>
@@ -749,9 +783,9 @@ export default function HotelPage() {
                 <button type="button" onClick={() => setResModal(null)} className="px-3 py-2 text-sm text-gray-600">
                   {t("common.cancel")}
                 </button>
-                <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">
+                <Button type="submit" loading={busy} variant="dark" className="!px-3 !text-sm">
                   {t("common.save")}
-                </button>
+                </Button>
               </div>
             </form>
           </div>

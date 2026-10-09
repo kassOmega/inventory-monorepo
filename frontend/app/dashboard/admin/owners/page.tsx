@@ -3,6 +3,7 @@
 import api from "@/lib/api";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useCallback, useEffect, useState } from "react";
+import Button from "@/app/components/Button";
 import { useTranslation } from "react-i18next";
 
 const addDays = (days: number) => {
@@ -23,6 +24,9 @@ export default function AdminOwnersPage() {
   const [idFile, setIdFile] = useState<File | null>(null);
   const [editing, setEditing] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({ name: "", email: "", password: "", aiTrialEndsAt: "", dailyAiQuota: "" });
+  const [creating, setCreating] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -42,6 +46,7 @@ export default function AdminOwnersPage() {
   const createOwner = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setCreating(true);
     try {
       const payload: any = {
         name: form.name,
@@ -68,14 +73,21 @@ export default function AdminOwnersPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("adm.owner.createFail"));
+    } finally {
+      setCreating(false);
     }
   };
 
   const toggleStatus = async (id: number, status: string) => {
-    await api.patch(`/admin/users/${id}/status`, {
-      status: status === "ACTIVE" ? "INACTIVE" : "ACTIVE",
-    });
-    await load();
+    setBusyKey(`status-${id}`);
+    try {
+      await api.patch(`/admin/users/${id}/status`, {
+        status: status === "ACTIVE" ? "INACTIVE" : "ACTIVE",
+      });
+      await load();
+    } finally {
+      setBusyKey(null);
+    }
   };
 
   const startEdit = (u: any) => {
@@ -92,6 +104,7 @@ export default function AdminOwnersPage() {
   const saveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSavingEdit(true);
     try {
       const payload: any = { name: editForm.name, email: editForm.email };
       if (editForm.password) payload.password = editForm.password;
@@ -110,12 +123,15 @@ export default function AdminOwnersPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("adm.owner.updateFail"));
+    } finally {
+      setSavingEdit(false);
     }
   };
 
   const deleteUser = async (id: number, name: string) => {
     if (!(await confirm(t("adm.owner.delConfirm", { name })))) return;
     setError("");
+    setBusyKey(`del-${id}`);
     try {
       await api.delete(`/admin/users/${id}`);
       await load();
@@ -189,9 +205,9 @@ export default function AdminOwnersPage() {
             />
             {idFile && <span className="text-[11px] text-green-600 mt-1 block">✓ {idFile.name}</span>}
           </label>
-          <button type="submit" className="bg-blue-600 text-white rounded p-2 text-sm font-medium md:col-span-2">
+          <Button type="submit" loading={creating} className="md:col-span-2 !p-2 !text-sm">
             {t("adm.owner.createBtn")}
-          </button>
+          </Button>
         </form>
       </div>
 
@@ -216,17 +232,18 @@ export default function AdminOwnersPage() {
                 <button onClick={() => startEdit(u)} className="text-xs text-blue-600 hover:underline">
                   {t("common.edit")}
                 </button>
-                <button onClick={() => deleteUser(u.id, u.name)} className="text-xs text-red-600 hover:underline">
+                <Button variant="ghost" size="sm" loading={busyKey === `del-${u.id}`} onClick={() => deleteUser(u.id, u.name)} className="!px-0 text-xs text-red-600 hover:underline">
                   {t("common.delete")}
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  loading={busyKey === `status-${u.id}`}
                   onClick={() => toggleStatus(u.id, u.status)}
-                  className={`text-xs px-2 py-1 rounded-full ${
-                    u.status === "ACTIVE" ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-500"
-                  }`}
+                  className={`!rounded-full !text-xs ${u.status === "ACTIVE" ? "!bg-green-100 !text-green-700" : "!bg-gray-200 !text-gray-500"}`}
                 >
                   {u.status === "ACTIVE" ? t("status.active") : t("status.inactive")}
-                </button>
+                </Button>
               </div>
             </li>
           ))}
@@ -295,9 +312,9 @@ export default function AdminOwnersPage() {
                 <button type="button" onClick={() => setEditing(null)} className="px-3 py-2 text-sm text-gray-600">
                   {t("common.cancel")}
                 </button>
-                <button type="submit" className="bg-blue-600 text-white rounded px-3 py-2 text-sm font-medium">
+                <Button type="submit" loading={savingEdit} className="!px-3 !text-sm">
                   {t("common.save")}
-                </button>
+                </Button>
               </div>
             </form>
           </div>

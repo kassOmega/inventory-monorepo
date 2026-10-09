@@ -1,6 +1,7 @@
 "use client";
 
 import Loading from "@/app/components/Loading";
+import Button from "@/app/components/Button";
 import Modal from "@/app/components/Modal";
 import { useToast } from "@/app/components/ToastProvider";
 import api from "@/lib/api";
@@ -43,6 +44,11 @@ export default function ManufacturingMachinesPage() {
   const [issueWorker, setIssueWorker] = useState("");
   const [returnFor, setReturnFor] = useState<any | null>(null);
   const [retState, setRetState] = useState<Record<number, any>>({});
+  const [savingMachine, setSavingMachine] = useState(false);
+  const [issuing, setIssuing] = useState(false);
+  const [returning, setReturning] = useState(false);
+  const [deletingMachine, setDeletingMachine] = useState(false);
+  const [busyStatus, setBusyStatus] = useState<number | null>(null);
   const canManage = hasPermission("manufacturing.manage");
   const workerName = (id: number | null) => staff.find((u) => u.id === id)?.name ?? (id == null ? "—" : `#${id}`);
 
@@ -81,6 +87,7 @@ export default function ManufacturingMachinesPage() {
       kind: form.kind,
       hourlyRate: form.hourlyRate !== "" ? Number(form.hourlyRate) : null,
     };
+    setSavingMachine(true);
     try {
       if (editFor) {
         await api.patch(`/manufacturing/machines/${editFor.id}`, body);
@@ -95,6 +102,8 @@ export default function ManufacturingMachinesPage() {
       load();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || t("mfg.machines.saveFailed"));
+    } finally {
+      setSavingMachine(false);
     }
   };
 
@@ -107,6 +116,7 @@ export default function ManufacturingMachinesPage() {
   const submitIssue = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!issueFor || !issueWorker) return;
+    setIssuing(true);
     try {
       await api.post("/manufacturing/machine-issuances", { machineId: issueFor.id, workerId: Number(issueWorker) });
       toast.success(t("mfg.machines.issued"));
@@ -114,6 +124,8 @@ export default function ManufacturingMachinesPage() {
       load();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || t("mfg.machines.issueFailed"));
+    } finally {
+      setIssuing(false);
     }
   };
 
@@ -132,6 +144,7 @@ export default function ManufacturingMachinesPage() {
           notes: s.notes || null,
         };
       });
+    setReturning(true);
     try {
       const r = await api.post(`/manufacturing/machine-issuances/${returnFor.id}/return`, { items });
       const nm = (r.data as any)?.nextMachine;
@@ -141,11 +154,14 @@ export default function ManufacturingMachinesPage() {
       load();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || t("mfg.machines.returnFailed"));
+    } finally {
+      setReturning(false);
     }
   };
 
   const doDelete = async () => {
     if (!confirmDel) return;
+    setDeletingMachine(true);
     try {
       await api.delete(`/manufacturing/machines/${confirmDel.id}`);
       toast.success(t("mfg.machines.removed"));
@@ -153,16 +169,21 @@ export default function ManufacturingMachinesPage() {
       load();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || t("mfg.machines.removeFailed"));
+    } finally {
+      setDeletingMachine(false);
     }
   };
 
-  const setStatus = async (url: string, value: string) => {
+  const setStatus = async (url: string, value: string, id?: number) => {
+    if (id != null) setBusyStatus(id);
     try {
       await api.patch(url, { status: value });
       toast.success(t("mfg.common.updated"));
       load();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || t("mfg.common.updateFailed"));
+    } finally {
+      setBusyStatus(null);
     }
   };
 
@@ -242,7 +263,7 @@ export default function ManufacturingMachinesPage() {
                     <>
                       <button onClick={() => startEdit(m)} className="text-xs text-blue-600 hover:underline">{t("mfg.common.edit")}</button>
                       <button onClick={() => setConfirmDel(m)} className="text-xs text-red-500 hover:underline">{t("common.remove")}</button>
-                      <select value={m.status} onChange={(e) => setStatus(`/manufacturing/machines/${m.id}/status`, e.target.value)} className="border rounded p-1 text-xs" title={t("mfg.machines.changeStatus")}>
+                      <select value={m.status} onChange={(e) => setStatus(`/manufacturing/machines/${m.id}/status`, e.target.value, m.id)} disabled={busyStatus === m.id} className="border rounded p-1 text-xs disabled:opacity-60" title={t("mfg.machines.changeStatus")}>
                         {["AVAILABLE", "UNDER_MAINTENANCE", "DECOMMISSIONED"].map((s) => <option key={s} value={s}>{t(MSTATUS_KEY[s] ?? "")}</option>)}
                       </select>
                     </>
@@ -285,7 +306,7 @@ export default function ManufacturingMachinesPage() {
           </div>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => { setShowAdd(false); setEditFor(null); }} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">{t("mfg.common.cancel")}</button>
-            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">{editFor ? t("mfg.machines.saveChanges") : t("mfg.common.save")}</button>
+            <Button type="submit" loading={savingMachine}>{editFor ? t("mfg.machines.saveChanges") : t("mfg.common.save")}</Button>
           </div>
         </form>
       </Modal>
@@ -301,7 +322,7 @@ export default function ManufacturingMachinesPage() {
           </div>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setIssueFor(null)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">{t("mfg.common.cancel")}</button>
-            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">{t("mfg.machines.issueMachine")}</button>
+            <Button type="submit" loading={issuing}>{t("mfg.machines.issueMachine")}</Button>
           </div>
         </form>
       </Modal>
@@ -335,7 +356,7 @@ export default function ManufacturingMachinesPage() {
           {(returnFor?.items ?? []).length === 0 && <p className="text-xs text-gray-400">{t("mfg.machines.noParts")}</p>}
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setReturnFor(null)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">{t("mfg.common.cancel")}</button>
-            <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm">{t("mfg.machines.recordReturn")}</button>
+            <Button type="submit" loading={returning} variant="emerald">{t("mfg.machines.recordReturn")}</Button>
           </div>
         </form>
       </Modal>
@@ -345,7 +366,7 @@ export default function ManufacturingMachinesPage() {
           <p className="text-sm text-gray-600">{t("mfg.machines.removeConfirm", { name: confirmDel?.name ?? "", code: confirmDel?.code ?? "" })}</p>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setConfirmDel(null)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">{t("mfg.common.cancel")}</button>
-            <button type="button" onClick={doDelete} className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm">{t("mfg.machines.removeMachine")}</button>
+            <Button type="button" loading={deletingMachine} variant="danger" onClick={doDelete}>{t("mfg.machines.removeMachine")}</Button>
           </div>
         </div>
       </Modal>

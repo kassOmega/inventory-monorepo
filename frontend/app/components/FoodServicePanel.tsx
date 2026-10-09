@@ -1,6 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
+import Button from "@/app/components/Button";
 import ClearableInput from "@/app/components/ClearableInput";
 import { newClientRef } from "@/lib/clientRef";
 import { useAuth } from "@/context/AuthContext";
@@ -100,6 +101,9 @@ export default function FoodServicePanel({ title }: { title: string }) {
   const [orders, setOrders] = useState<any[]>([]);
   const [stations, setStations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [placingOrder, setPlacingOrder] = useState(false);
+  const [settlingOrder, setSettlingOrder] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   // Idempotency key: reuse on retries so a double-tap can't place two orders.
   const orderRef = useRef<string>(newClientRef());
   const [error, setError] = useState("");
@@ -276,6 +280,7 @@ export default function FoodServicePanel({ title }: { title: string }) {
     if (isRoomCharge && !hotelReservationId) {
       return setError(t("orders.selectRoomFirst"));
     }
+    setPlacingOrder(true);
     try {
       await api.post("/restaurant/orders", {
         tableId:
@@ -316,6 +321,8 @@ export default function FoodServicePanel({ title }: { title: string }) {
       await load();
     } catch (e: any) {
       setError(e?.response?.data?.message ?? t("orders.failedPlaceOrder"));
+    } finally {
+      setPlacingOrder(false);
     }
   };
 
@@ -359,31 +366,40 @@ export default function FoodServicePanel({ title }: { title: string }) {
   };
 
   const markServed = async (id: number) => {
+    setBusyKey(`serve-${id}`);
     try {
       await api.post(`/restaurant/orders/${id}/mark-served`);
       await load();
     } catch (e: any) {
       setError(e?.response?.data?.message ?? t("orders.failedMarkServed"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
   const cancelOrder = async (id: number) => {
     if (!(await confirm(t("orders.cancelConfirm")))) return;
+    setBusyKey(`cancel-${id}`);
     try {
       await api.post(`/restaurant/orders/${id}/cancel`);
       await load();
     } catch (e: any) {
       setError(e?.response?.data?.message ?? t("orders.failedCancelOrder"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
   const deleteOrder = async (id: number) => {
     if (!(await confirm(t("orders.deleteConfirm")))) return;
+    setBusyKey(`del-${id}`);
     try {
       await api.delete(`/restaurant/orders/${id}`);
       await load();
     } catch (e: any) {
       setError(e?.response?.data?.message ?? t("orders.failedDeleteOrder"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -441,6 +457,7 @@ export default function FoodServicePanel({ title }: { title: string }) {
     if (!settleTarget) return;
     const ids = settleOrders.filter((s) => s.checked).map((s) => s.order.id);
     if (ids.length === 0) return setError(t("orders.selectOrderSettle"));
+    setSettlingOrder(true);
     try {
       const isPackage =
         settleTarget.billingType === "PACKAGE" || settleTarget.billingType === "ROOM_CHARGE";
@@ -478,6 +495,8 @@ export default function FoodServicePanel({ title }: { title: string }) {
       await load();
     } catch (e: any) {
       setError(e?.response?.data?.message ?? t("orders.failedSettle"));
+    } finally {
+      setSettlingOrder(false);
     }
   };
 
@@ -916,13 +935,14 @@ export default function FoodServicePanel({ title }: { title: string }) {
             </ul>
             <div className="flex justify-between items-center border-t pt-3">
               <span className="font-semibold text-gray-800">{t("orders.total")} {cartTotal}</span>
-              <button
+              <Button
                 onClick={placeOrder}
+                loading={placingOrder}
                 disabled={cart.length === 0}
-                className="bg-blue-600 text-white rounded px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+                className="!px-3 !text-sm font-medium"
               >
                 {t("orders.placeOrder", { order: terms.order })}
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -1126,12 +1146,13 @@ export default function FoodServicePanel({ title }: { title: string }) {
                 {!isDone && (
                   <>
                     {deriveStatus(o) === "READY" && canServe && (
-                      <button
+                      <Button
                         onClick={() => markServed(o.id)}
-                        className="bg-purple-600 hover:bg-purple-700 text-white rounded-lg px-4 py-2 text-sm font-semibold"
+                        loading={busyKey === `serve-${o.id}`}
+                        className="!rounded-lg !px-4 !text-sm font-semibold !bg-purple-600 hover:!bg-purple-700 !text-white"
                       >
                         {t("orders.markServed")}
-                      </button>
+                      </Button>
                     )}
                     <button
                       onClick={() => openSettle(o)}
@@ -1458,11 +1479,11 @@ export default function FoodServicePanel({ title }: { title: string }) {
               >
                 {t("orders.cancel")}
               </button>
-              <button onClick={submitSettle} className="flex-1 bg-green-600 text-white rounded p-2 text-sm font-medium">
+              <Button onClick={submitSettle} loading={settlingOrder} variant="emerald" className="flex-1 !p-2 !text-sm font-medium">
                 {isPackageOrder(settleTarget) && settleForm.netChargeMode === "FOLIO"
                   ? "Charge to Folio"
                   : t("orders.confirmPayment")}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

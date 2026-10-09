@@ -1,6 +1,7 @@
 "use client";
 
 import { useConfirm } from "@/app/components/ConfirmProvider";
+import Button from "@/app/components/Button";
 import DateFilter, { getDateRange } from "@/app/components/DateFilter";
 import DualExpenseModal from "@/app/components/DualExpenseModal";
 import FinanceComparison from "@/app/components/FinanceComparison";
@@ -59,6 +60,9 @@ export default function FinancePage() {
 
   const [expForm, setExpForm] = useState<any>(null);
   const [incForm, setIncForm] = useState<any>(null);
+  const [savingIncome, setSavingIncome] = useState(false);
+  const [addingIncomeCat, setAddingIncomeCat] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [opsSummary, setOpsSummary] = useState<any>(null);
   const [incomeMapping, setIncomeMapping] = useState<any>(null);
   const [extraIncome, setExtraIncome] = useState<any[]>([]);
@@ -141,12 +145,15 @@ export default function FinancePage() {
     });
   const deleteExpense = async (x: any) => {
     if (!(await confirm(t("fin.delExpenseConfirm")))) return;
+    setBusyKey(`exp-${x.id}`);
     try {
       await api.delete(`/finance/expenses/${x.id}`);
       flash(t("fin.expenseDeleted"));
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("fin.delExpenseFailed"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -176,6 +183,7 @@ export default function FinancePage() {
       setError(t("fin.catNameRequired"));
       return;
     }
+    setAddingIncomeCat(true);
     try {
       const res = await api.post("/finance/accounts", {
         name: newIncomeCatName.trim(),
@@ -190,11 +198,14 @@ export default function FinancePage() {
       flash(t("fin.categoryCreated"));
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("fin.createCatFailed"));
+    } finally {
+      setAddingIncomeCat(false);
     }
   };
   const saveIncome = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSavingIncome(true);
     try {
       const payload = {
         accountId: Number(incForm.accountId),
@@ -209,16 +220,21 @@ export default function FinancePage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("fin.saveIncomeFailed"));
+    } finally {
+      setSavingIncome(false);
     }
   };
   const deleteIncome = async (x: any) => {
     if (!(await confirm(t("fin.delIncomeConfirm")))) return;
+    setBusyKey(`inc-${x.id}`);
     try {
       await api.delete(`/finance/incomes/${x.id}`);
       flash(t("fin.incomeDeleted"));
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("fin.delIncomeFailed"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -589,12 +605,15 @@ export default function FinancePage() {
                           >
                             {t("common.edit")}
                           </button>
-                          <button
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            loading={busyKey === `exp-${x.id}`}
                             onClick={() => deleteExpense(x)}
-                            className="text-xs text-red-600 hover:underline"
+                            className="!px-0 text-xs text-red-600 hover:underline"
                           >
                             {t("common.del")}
-                          </button>
+                          </Button>
                         </>
                       )}
                     </div>
@@ -654,12 +673,15 @@ export default function FinancePage() {
                       >
                         {t("common.edit")}
                       </button>
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        loading={busyKey === `inc-${x.id}`}
                         onClick={() => deleteIncome(x)}
-                        className="text-xs text-red-600 hover:underline"
+                        className="!px-0 text-xs text-red-600 hover:underline"
                       >
                         {t("common.del")}
-                      </button>
+                      </Button>
                     </>
                   )}
                 </div>
@@ -727,13 +749,14 @@ export default function FinancePage() {
                       placeholder={t("fin.newCategoryName")}
                       className="border border-gray-300 rounded p-2 text-sm flex-1"
                     />
-                    <button
+                    <Button
                       type="button"
+                      loading={addingIncomeCat}
                       onClick={addIncomeCategory}
-                      className="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm font-medium"
+                      className="!px-3 !text-sm"
                     >
                       {t("common.add")}
-                    </button>
+                    </Button>
                   </div>
                 )}
                 {!showNewIncomeCat && (
@@ -800,12 +823,13 @@ export default function FinancePage() {
                 >
                   {t("common.cancel")}
                 </button>
-                <button
+                <Button
                   type="submit"
-                  className="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm font-medium"
+                  loading={savingIncome}
+                  className="!px-3 !text-sm"
                 >
                   {t("common.save")}
-                </button>
+                </Button>
               </div>
             </form>
           </div>
