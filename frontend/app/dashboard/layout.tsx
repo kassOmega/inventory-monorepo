@@ -335,17 +335,18 @@ export default function DashboardLayout({
           {/* Persistent notification toast */}
           <NotificationToast />
 
-          {/* Mobile Overlay */}
+          {/* Mobile Overlay. Sits above the floating quick nav (z-40) so the
+              sidebar and its Logout/Profile actions are never covered. */}
           {sidebarOpen && (
             <div
-              className="fixed inset-0 bg-black/50 z-30 lg:hidden"
+              className="fixed inset-0 bg-black/50 z-[60] lg:hidden"
               onClick={() => setSidebarOpen(false)}
             ></div>
           )}
 
           {/* Sidebar */}
           <aside
-            className={`w-64 bg-gray-900 text-white flex flex-col h-full fixed z-40 transition-transform shrink-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:static lg:translate-x-0`}
+            className={`w-64 bg-gray-900 text-white flex flex-col h-full fixed z-[70] transition-transform shrink-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:static lg:translate-x-0`}
           >
             <div className="p-6 border-b border-gray-800">
               <div className="text-xl font-bold">
@@ -506,9 +507,14 @@ export default function DashboardLayout({
 
             {/* Mobile-only floating quick nav; renders nothing on desktop or on
                 the few pages that pin their own bottom action bar. */}
-            <MobileQuickNav nav={dashboardNav} pathname={pathname} />
+            <MobileQuickNav
+              nav={dashboardNav}
+              pathname={pathname}
+              businessType={businessType}
+              stations={stations as any}
+            />
 
-            <div className="p-4 md:p-8 max-w-7xl mx-auto">{children}</div>
+            <div className="p-4 pb-24 md:p-8 max-w-7xl mx-auto">{children}</div>
           </main>
         </div>
 

@@ -32,6 +32,7 @@ import {
   UpdateCarWashExpenseDto,
   UpdateStoreItemDto,
   UpdateSettingsDto,
+  SettleWashDto,
   UpdateVehicleDto,
   UpdateWasherDto,
   UpdateWashTypeDto,
@@ -312,8 +313,12 @@ export class CarWashController {
 
   @Patch('washes/:id/settle')
   @Permissions('carwash.washes.edit')
-  settleWash(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
-    return this.carwash.settleWash(id, req.user.sub);
+  settleWash(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SettleWashDto,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.carwash.settleWash(id, req.user.sub, dto.paymentMethodId);
   }
 
   @Delete('washes/:id')
@@ -357,6 +362,15 @@ export class CarWashController {
     @Query('endDate') endDate?: string,
   ) {
     return this.carwash.washerWashes(washerId, startDate, endDate, req.user);
+  }
+
+  @Get('reports/payment-methods')
+  @Permissions('carwash.reports.view')
+  paymentMethodsBreakdown(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.carwash.paymentMethodsBreakdown(startDate, endDate);
   }
 
   @Get('reports/breakdown')

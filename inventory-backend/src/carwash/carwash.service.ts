@@ -857,6 +857,7 @@ export class CarWashService {
         vehicle: true,
         customer: true,
         washType: true,
+        paymentMethod: true,
       },
       orderBy: { date: 'desc' },
     });
@@ -973,12 +974,23 @@ export class CarWashService {
    * commission). A wash that is washed but not yet paid posts nothing.
    * Idempotent by wash id.
    */
-  async settleWash(id: number, userId?: number) {
+  async settleWash(id: number, userId?: number, paymentMethodId?: number) {
     const wash = await this.prisma.carWash.findUnique({
       where: { id },
       include: { washer: true, participantWashers: true },
     });
     if (!wash) throw new NotFoundException('Wash not found');
+
+    // Validate the chosen payment method belongs to this tenant (when given).
+    let methodId: number | null = null;
+    if (paymentMethodId != null) {
+      const method = await this.prisma.paymentMethod.findFirst({
+        where: { id: paymentMethodId, tenantId: this.tenantId() },
+        select: { id: true, name: true },
+      });
+      if (!method) throw new BadRequestException('Payment method not found');
+      methodId = method.id;
+    }
 
     const washersById = new Map<number, CommissionedWasher>();
     if (wash.washer) washersById.set(wash.washer.id, wash.washer);
@@ -997,6 +1009,7 @@ export class CarWashService {
         data: {
           status: CarWashStatus.SETTLED,
           settledAt: wash.settledAt ?? new Date(),
+          ...(methodId != null ? { paymentMethodId: methodId } : {}),
         },
       });
 
@@ -1639,6 +1652,39 @@ export class CarWashService {
   // -------------------------------------------------------------------------
   // Washer reports (per-washer commission over a date range)
   // -------------------------------------------------------------------------
+  /**
+   * Payment-method breakdown for settled car-wash washes in a date range:
+   * how much money was received via each method (count + total). Settled rows
+   * with no method appear under "Unspecified".
+   */
+  async paymentMethodsBreakdown(startDate?: string, endDate?: string) {
+    const { start, endExclusive } = this.resolveRange(startDate, endDate);
+    const washes = await this.prisma.carWash.findMany({
+      where: {
+        status: CarWashStatus.SETTLED,
+        date: { gte: start, lt: endExclusive },
+      },
+      include: { paymentMethod: true },
+    });
+
+    const map = new Map<string, { count: number; totalAmount: number }>();
+    for (const w of washes) {
+      const name = w.paymentMethod?.name ?? 'Unspecified';
+      const entry = map.get(name) ?? { count: 0, totalAmount: 0 };
+      entry.count += 1;
+      entry.totalAmount += w.amount;
+      map.set(name, entry);
+    }
+
+    return Array.from(map.entries())
+      .map(([method, d]) => ({
+        method,
+        count: d.count,
+        totalAmount: Math.round(d.totalAmount * 100) / 100,
+      }))
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+  }
+
   async washerReports(
     startDate?: string,
     endDate?: string,

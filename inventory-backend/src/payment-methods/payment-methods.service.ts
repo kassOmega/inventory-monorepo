@@ -15,7 +15,20 @@ export class PaymentMethodsService {
 
   findAll() {
     const tenantId = this.tenant();
-    return this.prisma.paymentMethod.findMany({ where: { tenantId }, orderBy: { name: 'asc' } });
+    return this.prisma.paymentMethod
+      .findMany({ where: { tenantId }, orderBy: { name: 'asc' } })
+      .then(async (rows) => {
+        if (rows.length > 0) return rows;
+        // Every tenant starts with a default "Cash" method so money-collection
+        // flows (e.g. car-wash settlement) always have at least one option.
+        await this.prisma.paymentMethod
+          .create({ data: { tenantId, name: 'Cash', isDigital: false } })
+          .catch(() => undefined);
+        return this.prisma.paymentMethod.findMany({
+          where: { tenantId },
+          orderBy: { name: 'asc' },
+        });
+      });
   }
 
   create(name: string, isDigital: boolean, account?: string) {

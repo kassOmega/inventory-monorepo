@@ -33,6 +33,13 @@ export default function CarWashWashesPage() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [detail, setDetail] = useState<any | null>(null);
+  // Settlement modal (choose the payment method the money was received in).
+  const [payTarget, setPayTarget] = useState<any | null>(null);
+  const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
+  const [payMethodId, setPayMethodId] = useState("");
+  const [newMethodName, setNewMethodName] = useState("");
+  const [showNewMethod, setShowNewMethod] = useState(false);
+  const [payBusy, setPayBusy] = useState(false);
   const [error, setError] = useState("");
 
   const canCreate = hasPermission("carwash.washes.create");
@@ -155,9 +162,8 @@ export default function CarWashWashesPage() {
 
   // Advance the wash to its next status: QUEUED → IN_PROGRESS → COMPLETED →
   // SETTLED. Called from the clickable status cell.
-  // Status flow: QUEUED → Washing → Washed → Complete. Each stage has one
-  // clear action; from "Washed" both "Paid" and "Washed & Paid" land on the
-  // final "Complete" status, after which no action is offered.
+  // Status flow: QUEUED → Washing → Washed → Complete. From "Washed" a single
+  // "Paid" action opens the settlement modal; after Complete no action remains.
   const runAction = async (w: any, action: string, next: string) => {
     setError("");
     try {
@@ -166,6 +172,57 @@ export default function CarWashWashesPage() {
       setDetail((d: any) => (d && d.id === w.id ? { ...d, status: next } : d));
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    }
+  };
+
+  // Open the settlement modal and load the tenant's payment methods (Cash is
+  // seeded by the backend, so the list is never empty).
+  const openPay = async (w: any) => {
+    setPayTarget(w);
+    setPayMethodId("");
+    setNewMethodName("");
+    setShowNewMethod(false);
+    setError("");
+    try {
+      const r = await api.get("/payment-methods");
+      const methods = Array.isArray(r.data) ? r.data : [];
+      setPaymentMethods(methods);
+      const cash = methods.find((m: any) => String(m.name).toLowerCase() === "cash");
+      setPayMethodId(String((cash ?? methods[0])?.id ?? ""));
+    } catch {
+      setPaymentMethods([]);
+    }
+  };
+
+  const addPaymentMethod = async () => {
+    const name = newMethodName.trim();
+    if (!name) return;
+    try {
+      const r = await api.post("/payment-methods", { name });
+      setPaymentMethods((prev) => [...prev, r.data]);
+      setPayMethodId(String(r.data.id));
+      setNewMethodName("");
+      setShowNewMethod(false);
+    } catch (err: any) {
+      setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    }
+  };
+
+  const confirmPayment = async () => {
+    if (!payTarget) return;
+    setPayBusy(true);
+    setError("");
+    try {
+      await api.patch(`/carwash/washes/${payTarget.id}/settle`, {
+        ...(payMethodId ? { paymentMethodId: Number(payMethodId) } : {}),
+      });
+      setDetail((d: any) => (d && d.id === payTarget.id ? { ...d, status: "SETTLED" } : d));
+      setPayTarget(null);
+      await load();
+    } catch (err: any) {
+      setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setPayBusy(false);
     }
   };
 
@@ -187,10 +244,7 @@ export default function CarWashWashesPage() {
     if (w.status === "IN_PROGRESS")
       return [{ label: t("carwash.actionWashed"), run: () => runAction(w, "complete", "COMPLETED") }];
     if (w.status === "COMPLETED")
-      return [
-        { label: t("carwash.actionPaid"), run: () => runAction(w, "settle", "SETTLED") },
-        { label: t("carwash.actionWashedAndPaid"), run: () => runAction(w, "settle", "SETTLED") },
-      ];
+      return [{ label: t("carwash.actionPaid"), run: () => openPay(w) }];
     return [];
   };
 
@@ -241,18 +295,18 @@ export default function CarWashWashesPage() {
       </div>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
 
-      {/* Status totals */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      {/* Status totals — one row (2×2 on small screens), compact font */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
         {([
           ["QUEUED", "bg-amber-100 text-amber-700"],
           ["IN_PROGRESS", "bg-blue-100 text-blue-700"],
           ["COMPLETED", "bg-green-100 text-green-700"],
           ["SETTLED", "bg-emerald-100 text-emerald-700"],
         ] as const).map(([key, cls]) => (
-          <div key={key} className="bg-white p-4 rounded-lg border border-gray-200">
-            <p className="text-xs text-gray-500">{t(`carwash.status_${key}`)}</p>
-            <p className="mt-1">
-              <span className={`text-xl font-bold px-2 py-0.5 rounded ${cls}`}>{counts[key]}</span>
+          <div key={key} className="bg-white px-3 py-2 rounded-lg border border-gray-200">
+            <p className="text-[11px] text-gray-500">{t(`carwash.status_${key}`)}</p>
+            <p className="mt-0.5">
+              <span className={`text-base font-semibold px-1.5 py-0.5 rounded ${cls}`}>{counts[key]}</span>
             </p>
           </div>
         ))}
@@ -395,6 +449,7 @@ export default function CarWashWashesPage() {
               [t("carwash.makeModel"), detail.makeModel ?? "—"],
               [t("carwash.washersLabel"), [detail.washer?.name, ...detail.participantWashers.map((p: any) => p.name)].filter(Boolean).join(", ") || "—"],
               [t("carwash.amount"), detail.amount],
+              [t("carwash.paymentMethod"), detail.paymentMethod?.name ?? "—"],
               [t("carwash.notes"), detail.notes ?? "—"],
             ].map(([k, v]) => (
               <div key={String(k)} className="flex items-center justify-between gap-3">
@@ -500,6 +555,65 @@ export default function CarWashWashesPage() {
             <button type="submit" className="bg-gray-800 text-white rounded px-4 py-2 text-sm font-medium">{t("carwash.recordWash")}</button>
           </div>
         </form>
+      </Modal>
+
+      {/* Settlement modal — choose the payment method the money was received in. */}
+      <Modal
+        isOpen={!!payTarget}
+        onClose={() => setPayTarget(null)}
+        title={t("carwash.paymentMethod")}
+      >
+        <div className="space-y-3">
+          <label className="block text-sm text-gray-600">
+            {t("carwash.paymentMethod")}
+            <select
+              value={payMethodId}
+              onChange={(e) => setPayMethodId(e.target.value)}
+              disabled={paymentMethods.length === 0}
+              className="border border-gray-300 rounded p-2 text-sm w-full mt-1 bg-white"
+            >
+              {paymentMethods.map((m: any) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </label>
+
+          {showNewMethod ? (
+            <div className="flex gap-2 items-end">
+              <input
+                value={newMethodName}
+                onChange={(e) => setNewMethodName(e.target.value)}
+                placeholder={t("carwash.paymentMethod")}
+                className="border border-gray-300 rounded p-2 text-sm flex-1"
+              />
+              <button type="button" onClick={addPaymentMethod} className="text-sm px-3 py-2 rounded bg-blue-600 text-white">
+                {t("common.save")}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowNewMethod(true)}
+              className="text-xs text-blue-600 hover:underline"
+            >
+              + {t("carwash.addPaymentMethod")}
+            </button>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={() => setPayTarget(null)} className="px-3 py-2 text-sm text-gray-600">
+              {t("carwash.cancel")}
+            </button>
+            <button
+              type="button"
+              onClick={confirmPayment}
+              disabled={payBusy}
+              className="bg-emerald-600 text-white rounded px-4 py-2 text-sm font-medium disabled:opacity-60"
+            >
+              {t("carwash.actionPaid")}
+            </button>
+          </div>
+        </div>
       </Modal>
 
       <Modal isOpen={showCustomerModal} onClose={() => setShowCustomerModal(false)} title={t("carwash.addCustomer")}>

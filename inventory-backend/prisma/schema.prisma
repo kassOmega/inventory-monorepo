@@ -980,6 +980,7 @@ model PaymentMethod {
   facilityPayments FacilityPayment[]
   cashCollections  CashCollection[]
   servicePayments  ServicePayment[]
+  carWashWashes    CarWash[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -3653,6 +3654,8 @@ model CarWash {
   startedAt          DateTime?
   completedAt        DateTime?
   settledAt          DateTime?
+  paymentMethodId    Int?
+  paymentMethod      PaymentMethod?  @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
   notes              String?
   plateNumber        String?
   makeModel          String?

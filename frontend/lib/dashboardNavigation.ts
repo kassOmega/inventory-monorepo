@@ -80,6 +80,37 @@ export function primaryNavGroups(nav: DashboardNav): DashboardNavGroup[] {
 }
 
 /**
+ * Resolve a fixed, ordered list of quick-action hrefs against the built nav.
+ *
+ * The nav returned by `buildDashboardNav` is already filtered by permissions,
+ * enabled stations and service lines — so looking an href up in it means the
+ * quick-action row inherits that gating automatically: an href the user may not
+ * open is simply absent from the nav and therefore dropped here (never rendered
+ * without permission). Order follows the requested `hrefs`, not the nav.
+ */
+export function quickActionsFor(
+  nav: DashboardNav,
+  hrefs: string[],
+): DashboardNavItem[] {
+  const all: DashboardNavItem[] = [
+    ...nav.groups.flatMap((g) => g.items),
+    ...nav.loose,
+  ];
+  const out: DashboardNavItem[] = [];
+  for (const href of hrefs) {
+    const match = all.find(
+      (i) =>
+        i.href === href ||
+        (i.match ?? []).some(
+          (m) => href === m || href.startsWith(`${m}/`),
+        ),
+    );
+    if (match && !out.some((o) => o.href === match.href)) out.push(match);
+  }
+  return out;
+}
+
+/**
  * Keys of the groups containing the current page, in nav order. The sidebar uses
  * them to open the section you are in, the mobile quick nav to highlight it.
  */

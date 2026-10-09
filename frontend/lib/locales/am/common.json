@@ -100,7 +100,8 @@
     "logout": "ውጣ",
     "openMenu": "ሜኑ ክፈት",
     "stock": "እቃ",
-    "customers": "ደንበኞች"
+    "customers": "ደንበኞች",
+    "collapse": "ውሰድ"
   },
   "sales": {
     "title": "ሽያጮች",
@@ -1298,7 +1299,10 @@
     "actionStartWashing": "ማጠብ ጀምር",
     "actionWashed": "ታጥቧል",
     "actionPaid": "ተከፍሏል",
-    "actionWashedAndPaid": "ታጥቦ ተከፍሏል"
+    "actionWashedAndPaid": "ታጥቦ ተከፍሏል",
+    "paymentMethod": "የክፍያ ዘዴ",
+    "addPaymentMethod": "የክፍያ ዘዴ ጨምር",
+    "noData": "መረጃ የለም"
   },
   "verticals": {
     "retail": "ችርቻሮ እና ስርጭት",

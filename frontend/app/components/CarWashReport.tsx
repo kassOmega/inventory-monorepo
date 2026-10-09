@@ -29,6 +29,7 @@ export default function CarWashReport({
   const { t } = useTranslation();
   const { hasPermission } = useAuth();
   const [data, setData] = useState<any>(null);
+  const [payMethods, setPayMethods] = useState<any[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -38,6 +39,10 @@ export default function CarWashReport({
       .get(`/carwash/reports/breakdown?${q.toString()}`)
       .then((r) => setData(r.data))
       .catch(() => setError(t("carwash.failedLoad")));
+    api
+      .get(`/carwash/reports/payment-methods?${q.toString()}`)
+      .then((r) => setPayMethods(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setPayMethods([]));
   }, [startDate, endDate, t]);
 
   // Each tile belongs to a report section; a tile renders only when its section
@@ -150,6 +155,43 @@ export default function CarWashReport({
                   totals={{
                     name: t("common.total"),
                     commission: (data.washerEarnings ?? []).reduce((s: number, w: any) => s + (w.commission || 0), 0),
+                  }}
+                  totalsLabel={t("common.total")}
+                  money={fmt}
+                />
+              }
+            />
+            )}
+
+            {S.financials && payMethods.length > 0 && (
+            <ChartCard
+              title={`💳 ${t("sr.paymentMethods")}`}
+              chart={
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={payMethods.map((m: any) => ({ name: m.method, value: m.totalAmount }))}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                    <YAxis tick={{ fontSize: 12 }} />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#0ea5e9" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              }
+              numeric={
+                <NumericTable
+                  columns={[
+                    { key: "method", label: t("sr.method") },
+                    { key: "count", label: t("sr.count"), align: "right" },
+                    { key: "totalAmount", label: t("sr.total"), align: "right" },
+                  ]}
+                  rows={payMethods}
+                  shareKey="totalAmount"
+                  totals={{
+                    method: t("common.total"),
+                    count: payMethods.reduce((s, m) => s + (m.count || 0), 0),
+                    totalAmount: payMethods.reduce((s, m) => s + (m.totalAmount || 0), 0),
                   }}
                   totalsLabel={t("common.total")}
                   money={fmt}

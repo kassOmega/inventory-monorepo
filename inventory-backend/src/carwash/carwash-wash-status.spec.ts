@@ -31,6 +31,7 @@ function setup(lastQueue: number | null = 4) {
     },
     carWashWasher: { findMany: jest.fn(() => Promise.resolve([])), findUnique: jest.fn(() => Promise.resolve(null)) },
     account: { findMany: jest.fn(() => Promise.resolve([{ id: 1, name: 'Car Wash Revenue', type: 'INCOME' }])) },
+    paymentMethod: { findFirst: jest.fn(() => Promise.resolve({ id: 5, name: 'Cash' })) },
     journalEntry: { create: jest.fn(), findFirst: jest.fn(() => Promise.resolve(null)) },
     otherIncome: { findFirst: jest.fn(() => Promise.resolve(null)), create: jest.fn() },
     $transaction: (fn: any) => fn(prisma),
@@ -78,6 +79,26 @@ describe('CarWashService wash status lifecycle', () => {
     expect(updated.data.settledAt).toBeInstanceOf(Date);
     // Revenue is recognised only when the wash is paid.
     expect(finance.postCarWashIncome).toHaveBeenCalled();
+  });
+
+  it('settle records the chosen payment method', async () => {
+    const { svc, updated } = setup();
+    await tenantContext.run(1, () => svc.settleWash(1, 3, 5));
+    expect(updated.data.paymentMethodId).toBe(5);
+  });
+
+  it('paymentMethodsBreakdown groups settled washes by method', async () => {
+    const { svc, prisma } = setup();
+    prisma.carWash.findMany = jest.fn(() =>
+      Promise.resolve([
+        { amount: 100, paymentMethod: { name: 'Cash' } },
+        { amount: 50, paymentMethod: { name: 'Cash' } },
+        { amount: 80, paymentMethod: null },
+      ]),
+    );
+    const rows: any = await tenantContext.run(1, () => svc.paymentMethodsBreakdown('2026-10-01', '2026-10-31'));
+    expect(rows.find((r: any) => r.method === 'Cash')).toEqual({ method: 'Cash', count: 2, totalAmount: 150 });
+    expect(rows.find((r: any) => r.method === 'Unspecified')).toEqual({ method: 'Unspecified', count: 1, totalAmount: 80 });
   });
 
   it('listWashers orders active-first, then name, and filters when asked', async () => {

@@ -12,7 +12,9 @@ export class PaymentMethodsController {
   // movement needs read access. Mutations stay owner/finance-only below.
   @Get()
   @Permissions(
+    'payment-methods.view',
     'finance.view',
+    'finance.manage',
     'restaurant.view',
     'cashier.view',
     'sales.create',
@@ -22,25 +24,28 @@ export class PaymentMethodsController {
     // Front desk collects money at checkout / settled a folio.
     'hotel.view',
     'hotel.reception',
+    // Car-wash staff settle washes and need the list to choose a method.
+    'carwash.washes.edit',
+    'carwash.collections.create',
   )
   findAll() {
     return this.svc.findAll();
   }
 
   @Post()
-  @Permissions('finance.manage')
+  @Permissions('payment-methods.create', 'payment-methods.edit', 'finance.manage')
   create(@Body() dto: { name: string; isDigital?: boolean; account?: string }) {
     return this.svc.create(dto.name, dto.isDigital ?? false, dto.account);
   }
 
   @Patch(':id')
-  @Permissions('finance.manage')
+  @Permissions('payment-methods.edit', 'finance.manage')
   update(@Param('id', ParseIntPipe) id: number, @Body() dto: { name?: string; isDigital?: boolean; account?: string }) {
     return this.svc.update(id, dto.name, dto.isDigital, dto.account);
   }
 
   @Delete(':id')
-  @Permissions('finance.manage')
+  @Permissions('payment-methods.delete', 'finance.manage')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.svc.remove(id);
   }

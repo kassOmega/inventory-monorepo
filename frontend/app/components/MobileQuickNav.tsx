@@ -1,23 +1,24 @@
 "use client";
-// Mobile-only floating quick nav: the five primary menu groups as a thin bar over
-// the bottom of the viewport, each one expanding its children upward. After a few
-// idle seconds the bar itself collapses into a small circle pinned to the
-// bottom-right, and that circle unfolds back into the bar on tap, so the nav stays
-// out of the way of the page it floats over. While a child list is open the bar
-// stays put, because that list is what was asked for.
+// Mobile-only floating quick nav: a concise, horizontally scrollable row of the
+// tenant's primary quick actions, drawn straight from the permission-filtered
+// nav so a role never sees an action it cannot open. After a few idle seconds the
+// row folds into a small circle pinned bottom-right; tapping the circle unfolds
+// the row again, so the nav stays out of the way of the page it floats over.
 //
-// Tablets and desktops keep the sidebar, hence `md:hidden`. Pages that already own
-// the bottom of the viewport with their own action bar are skipped entirely: a
-// second floating bar there would cover their submit button.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+// Tablets and desktops keep the sidebar, hence `md:hidden`. Pages that pin their
+// own bottom action bar are skipped entirely: a second floating bar there would
+// cover their submit button. The row also tucks away while scrolling down and
+// returns when scrolling up.
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  primaryNavGroups,
+  isNavItemActive,
+  quickActionsFor,
   type DashboardNav,
-  type DashboardNavGroup,
+  type DashboardNavItem,
+  type NavStation,
 } from "@/lib/dashboardNavigation";
-import useNavGroups from "@/lib/useNavGroups";
-import SectionedNavItems from "./SectionedNavItems";
 
 /** Pages that pin their own action bar to the bottom of the mobile viewport. */
 const HIDDEN_PREFIXES = [
@@ -26,97 +27,108 @@ const HIDDEN_PREFIXES = [
   "/dashboard/restock",
 ];
 
-/** Idle time before the bar folds into the circle. */
-const IDLE_COLLAPSE_MS = 3000;
-
 interface Props {
   nav: DashboardNav;
   pathname: string;
+  /** Active business type, so the right quick-action list is chosen. */
+  businessType?: string;
+  /** Station boards (hospitality) — used to fall back to the user's station. */
+  stations?: NavStation[];
 }
 
-/**
- * One child link, as a full-width row. Full width is the point: a single column
- * leaves room for a label such as "Purchase Orders" in either language, where the
- * two-column grid had to cut it short. `active` is decided by NavItemLink.
- */
+/** The quick-action hrefs per business type, in display order. */
+function actionHrefsFor(businessType: string, stations: NavStation[]): string[] {
+  switch (businessType) {
+    case "CAR_WASH":
+      return [
+        "/dashboard",
+        "/dashboard/carwash/reports",
+        "/dashboard/carwash/washer-reports",
+        "/dashboard/carwash/washes",
+        "/dashboard/carwash/expenses",
+        "/dashboard/carwash/washers",
+      ];
+    case "RETAIL":
+      return [
+        "/dashboard",
+        "/dashboard/sales",
+        "/dashboard/purchases",
+        "/dashboard/credits",
+        "/dashboard/finance",
+        "/dashboard/reports",
+      ];
+    case "HOSPITALITY":
+      // Orders falls back to the first station board when the user takes orders
+      // at a station but has no `/food/orders` permission.
+      return [
+        "/dashboard",
+        "/dashboard/food/orders",
+        ...stations.map((s) => `/dashboard/food/station/${s.key}`).slice(0, 1),
+        "/dashboard/hotel",
+        "/dashboard/hospitality/folios",
+        "/dashboard/cashier",
+      ];
+    case "SERVICE":
+      return [
+        "/dashboard",
+        "/dashboard/service/catalog",
+        "/dashboard/service/bookings",
+        "/dashboard/service/tickets",
+        "/dashboard/service/clients",
+      ];
+    case "MANUFACTURING":
+      return [
+        "/dashboard",
+        "/dashboard/manufacturing/production",
+        "/dashboard/manufacturing/orders",
+        "/dashboard/manufacturing/materials",
+        "/dashboard/manufacturing/services",
+      ];
+    default:
+      return ["/dashboard"];
+  }
+}
+
 const itemClass = (active: boolean) =>
-  "flex items-center rounded-xl px-3 py-3 text-sm font-medium transition " +
+  "flex shrink-0 items-center whitespace-nowrap rounded-xl px-3 py-2 text-xs font-medium transition " +
   (active
     ? "bg-blue-600 text-white"
     : "text-gray-300 hover:bg-gray-800 hover:text-white");
 
-const sectionHeaderClass =
-  "px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400";
-
-export default function MobileQuickNav({ nav, pathname }: Props) {
+export default function MobileQuickNav({
+  nav,
+  pathname,
+  businessType = "",
+  stations = [],
+}: Props) {
   const { t } = useTranslation();
-  // Only the primary parents. A user who does not have one of them simply sees
-  // fewer pills; a user with none sees no bar at all (platform admins).
-  const groups = useMemo(() => primaryNavGroups(nav), [nav]);
-  // Single-open, and nothing auto-opens: the bar starts with no child list shown.
-  const { open, toggle, close, activeGroups } = useNavGroups(nav, pathname);
 
-  // `expanded` is the bar itself (row vs circle); `openGroup` is the child list.
+  // Direct links (already permission/station gated via the built nav).
+  const actions: DashboardNavItem[] = useMemo(
+    () => quickActionsFor(nav, actionHrefsFor(businessType, stations)),
+    [nav, businessType, stations],
+  );
+
   const [expanded, setExpanded] = useState(true);
-  // Bumped by every interaction, which restarts the idle timer.
-  const [activity, setActivity] = useState(0);
+  const [hidden, setHidden] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const lastPathname = useRef(pathname);
+  const lastScrollY = useRef(0);
 
-  const openGroup = useMemo(
-    () => groups.find((g) => open.has(g.key)) ?? null,
-    [groups, open],
-  );
+  // The bar stays put until the user collapses it themselves (no idle timer).
 
-  // The child list stays mounted so it can fade out, which means it needs content
-  // to show while it does: keep the last group that was open ("adjust state during
-  // a render" again, the same pattern the sidebar uses to auto-open a group).
-  const [shownGroup, setShownGroup] = useState<DashboardNavGroup | null>(
-    openGroup,
-  );
-  if (openGroup && shownGroup !== openGroup) setShownGroup(openGroup);
-
-  // Following a link closes the child list and tucks the bar into the circle.
-  const pick = useCallback(() => {
-    close();
-    setExpanded(false);
-  }, [close]);
-
-  // Fold the bar away when nothing happens for a while. An open child list pauses
-  // this completely: the user is reading it, so the row has to stay where it is.
+  // Tuck the bar out of the way while scrolling down, reveal when scrolling up.
   useEffect(() => {
-    if (!expanded || openGroup) return;
-    const id = setTimeout(() => setExpanded(false), IDLE_COLLAPSE_MS);
-    return () => clearTimeout(id);
-  }, [expanded, openGroup, activity]);
-
-  // The layout keeps this component mounted across route changes, so navigating
-  // starts the bar over: closed child list, folded back into the circle.
-  useEffect(() => {
-    if (lastPathname.current === pathname) return;
-    lastPathname.current = pathname;
-    close();
-    setExpanded(false);
-  }, [pathname, close]);
-
-  // Tapping anywhere else, or pressing Escape, closes the child list.
-  useEffect(() => {
-    if (!openGroup) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) close();
+    const onScroll = () => {
+      const y = window.scrollY || document.documentElement.scrollTop || 0;
+      if (y > lastScrollY.current + 8 && y > 80) setHidden(true);
+      else if (y < lastScrollY.current - 8) setHidden(false);
+      lastScrollY.current = y;
     };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [openGroup, close]);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
-  if (groups.length === 0) return null;
+  if (actions.length === 0) return null;
   if (
     HIDDEN_PREFIXES.some(
       (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
@@ -127,86 +139,62 @@ export default function MobileQuickNav({ nav, pathname }: Props) {
   return (
     <div
       ref={rootRef}
-      onPointerDown={() => setActivity((n) => n + 1)}
-      className="pointer-events-none fixed bottom-4 left-4 right-4 z-50 md:hidden"
+      style={{ bottom: "calc(1rem + env(safe-area-inset-bottom))" }}
+      className={`pointer-events-none fixed left-4 right-4 z-40 md:hidden motion-safe:transition-all duration-300 ease-out ${
+        hidden ? "translate-y-24 opacity-0" : "translate-y-0 opacity-100"
+      }`}
     >
-      {/* Children of the open group, directly above the bar. Kept mounted so it can
-          fade out; while closed it is inert, so nothing inside can be reached. */}
-      {shownGroup && (
-        <nav
-          id="quick-nav-popover"
-          aria-label={shownGroup.label}
-          aria-hidden={!openGroup}
-          inert={!openGroup}
-          className={`absolute bottom-full left-0 right-0 mb-3 max-h-[60vh] origin-bottom overflow-y-auto overscroll-contain rounded-2xl border border-gray-700 bg-gray-900/95 shadow-2xl backdrop-blur motion-safe:transition-all duration-200 ease-out ${
-            openGroup
-              ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
-              : "pointer-events-none translate-y-2 scale-95 opacity-0"
-          }`}
-        >
-          {/* Stays in view while a long list scrolls under it. */}
-          <p className="sticky top-0 border-b border-gray-800 bg-gray-900/95 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-            {shownGroup.label}
-          </p>
-          <div className="flex flex-col gap-0.5 p-2">
-            <SectionedNavItems
-              items={shownGroup.items}
-              pathname={pathname}
-              onNavigate={pick}
-              className={itemClass}
-              headerClass={sectionHeaderClass}
-            />
-          </div>
-        </nav>
-      )}
-
-      {/* One surface for both states: it *is* the bar when wide and the circle when
-          narrow, so the shape itself carries the transition instead of two boxes
-          swapping places. Because it only ever grows or shrinks from the right, the
-          pills can stay where they are and be revealed as it widens. The small
-          radius is exactly half of the 3rem height, which is a circle, and being a
-          real length it animates; `rounded-full` is an enormous value in v4, so it
-          would stay round for the whole transition and snap on the last frame. */}
+      {/* One surface for both states: it *is* the row when wide and the circle
+          when narrow, so the shape itself carries the transition instead of two
+          boxes swapping places. */}
       <div
         className={`pointer-events-auto relative ml-auto h-12 overflow-hidden border border-gray-700 bg-gray-900/95 shadow-lg backdrop-blur motion-safe:transition-all duration-300 ease-out ${
           expanded ? "w-full rounded-2xl" : "w-12 rounded-[1.5rem]"
         }`}
       >
-        {/* The bar: one pill per parent group. Fading in only once the surface is
-            wide enough hides the pills being squeezed into the circle. */}
+        {/* The scrollable row of direct quick actions, plus a collapse control. */}
         <div
           inert={!expanded}
           aria-hidden={!expanded}
-          className={`absolute inset-0 flex items-stretch gap-1 p-1 motion-safe:transition-opacity ${
+          className={`absolute inset-0 flex items-center gap-1 motion-safe:transition-opacity ${
             expanded
               ? "delay-100 duration-200 opacity-100"
               : "delay-0 duration-100 opacity-0"
           }`}
         >
-          {groups.map((group) => {
-            const isOpenGroup = openGroup?.key === group.key;
-            return (
-              <button
-                key={group.key}
-                type="button"
-                onClick={() => toggle(group.key)}
-                aria-expanded={isOpenGroup}
-                aria-controls={isOpenGroup ? "quick-nav-popover" : undefined}
-                className={`flex min-w-0 flex-1 flex-col items-center justify-center rounded-xl px-1.5 py-1.5 text-center text-[10px] font-medium leading-tight transition ${
-                  isOpenGroup || activeGroups.includes(group.key)
-                    ? "bg-blue-600 text-white"
-                    : "text-gray-300 hover:bg-gray-800 hover:text-white"
-                }`}
+          <div className="flex flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain p-1">
+            {actions.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={itemClass(isNavItemActive(item, pathname))}
               >
-                {/* Two lines, so a long label such as "Sales & Payments" still fits. */}
-                <span className="line-clamp-2 w-full">{group.label}</span>
-              </button>
-            );
-          })}
+                {item.label}
+              </Link>
+            ))}
+          </div>
+          {/* Lets the user fold the row into the circle on demand. */}
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            aria-label={t("nav.collapse")}
+            title={t("nav.collapse")}
+            className="shrink-0 self-stretch px-2 text-gray-400 hover:text-white"
+          >
+            <svg
+              className="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+              aria-hidden="true"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 18l6-6-6-6" />
+            </svg>
+          </button>
         </div>
 
-        {/* The circle: that same surface at its smallest, holding the menu icon and
-            fading out only after it has grown past the icon. */}
+        {/* The circle: that same surface at its smallest, holding the menu icon. */}
         <button
           type="button"
           inert={expanded}
@@ -234,8 +222,8 @@ export default function MobileQuickNav({ nav, pathname }: Props) {
               d="M4 6h16M4 12h16M4 18h16"
             />
           </svg>
-          {/* Marks that the current page sits inside one of the groups. */}
-          {activeGroups.length > 0 && (
+          {/* Marks that the current page matches one of the quick actions. */}
+          {actions.some((i) => isNavItemActive(i, pathname)) && (
             <span
               className="absolute right-1 top-1 h-2 w-2 rounded-full bg-emerald-400"
               aria-hidden="true"

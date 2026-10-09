@@ -309,6 +309,13 @@ export class UpdateSettingsDto {
   slotMinutes!: number;
 }
 
+export class SettleWashDto {
+  /** The payment method the money was received in (optional). */
+  @IsOptional()
+  @IsInt()
+  paymentMethodId?: number;
+}
+
 export class CreateCarWashExpenseDto {
   @IsString()
   @IsNotEmpty()

@@ -100,7 +100,8 @@
     "logout": "Logout",
     "openMenu": "Open menu",
     "stock": "Stock",
-    "customers": "Customers"
+    "customers": "Customers",
+    "collapse": "Collapse"
   },
   "sales": {
     "title": "Sales",
@@ -1298,7 +1299,10 @@
     "actionStartWashing": "Start washing",
     "actionWashed": "Washed",
     "actionPaid": "Paid",
-    "actionWashedAndPaid": "Washed & paid"
+    "actionWashedAndPaid": "Washed & paid",
+    "paymentMethod": "Payment method",
+    "addPaymentMethod": "Add payment method",
+    "noData": "No data"
   },
   "verticals": {
     "retail": "Retail & Distribution",

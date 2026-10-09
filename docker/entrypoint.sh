@@ -104,7 +104,9 @@ NODE
     for migration in \
       prisma/migrations/20261013000000_reconcile_role_permissions/migration.sql \
       prisma/migrations/20261013000001_carwash_prune_foreign_grants/migration.sql \
-      prisma/migrations/20261013000002_carwash_washer_accounts/migration.sql; do
+      prisma/migrations/20261013000002_carwash_washer_accounts/migration.sql \
+      prisma/migrations/20261015000000_carwash_payment_method/migration.sql \
+      prisma/migrations/20261015000001_payment_methods_permissions/migration.sql; do
       if [ -f "$migration" ]; then
         echo "[entrypoint] baselining data -> $migration"
         if ! npx --no-install prisma db execute --file "$migration" --schema prisma/schema.prisma; then
