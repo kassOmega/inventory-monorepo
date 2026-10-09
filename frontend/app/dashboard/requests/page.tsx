@@ -5,6 +5,7 @@ import { useConfirm } from "@/app/components/ConfirmProvider";
 import CustomerForm from "@/app/components/CustomerForm";
 import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
 import { FilterSelect } from "@/app/components/FilterPanel";
+import { FilterField, FILTER_CONTROL_CLASS } from "@/app/components/FilterField";
 import Loading from "@/app/components/Loading";
 import Modal from "@/app/components/Modal";
 import Pagination from "@/app/components/Pagination";
@@ -1219,28 +1220,22 @@ export default function RequestsPage() {
                 label: `${p.brand} ${p.baseName}`,
               }))}
             />
-            <div>
-              <label className="block text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">
-                {t("common.startDate")}
-              </label>
+            <FilterField label={t("common.startDate")}>
               <input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="border p-1.5 sm:p-2 rounded-lg w-full bg-white text-xs sm:text-sm"
+                className={FILTER_CONTROL_CLASS}
               />
-            </div>
-            <div>
-              <label className="block text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">
-                {t("common.endDate")}
-              </label>
+            </FilterField>
+            <FilterField label={t("common.endDate")}>
               <input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="border p-1.5 sm:p-2 rounded-lg w-full bg-white text-xs sm:text-sm"
+                className={FILTER_CONTROL_CLASS}
               />
-            </div>
+            </FilterField>
           </>
         }
       />

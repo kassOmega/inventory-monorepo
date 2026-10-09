@@ -18,6 +18,8 @@ interface SearchableSelectProps {
   disabled?: boolean;
   required?: boolean;
   className?: string;
+  /** Control styling for the text input (defaults to the shared field look). */
+  inputClassName?: string;
   /**
    * Optional: report the text as it is typed. Lets a caller drive a server-side
    * search from the same box the user picks results from, instead of adding a
@@ -47,6 +49,7 @@ export default function SearchableSelect({
   disabled = false,
   required = false,
   className = "",
+  inputClassName = "border p-2 rounded-lg w-full bg-white text-sm pr-8",
   onInputChange,
   // `clearable` is accepted for backward compatibility but no longer gates the
   // clear button (it always shows per Option B).
@@ -130,7 +133,7 @@ export default function SearchableSelect({
           setOpen(true);
           onInputChange?.(e.target.value);
         }}
-        className={`border p-2 rounded-lg w-full bg-white text-sm pr-8`}
+        className={inputClassName}
       />
       {showClear && (
         <button

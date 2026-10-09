@@ -9,6 +9,7 @@
 import { getDateRange } from "@/app/components/DateFilter";
 import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
 import { FilterSelect } from "@/app/components/FilterPanel";
+import { FilterField, FILTER_CONTROL_CLASS } from "@/app/components/FilterField";
 import { useSingleLocationAutofill } from "@/lib/singleLocation";
 import Loading from "@/app/components/Loading";
 import PurchaseForm, { PurchaseMode } from "@/app/components/PurchaseForm";
@@ -335,10 +336,7 @@ export default function PurchasesPage() {
               />
             )}
             {tab !== "PAID" && (
-              <div>
-                <label className="block text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">
-                  {t("purchases.vendor")}
-                </label>
+              <FilterField label={t("purchases.vendor")}>
                 <SearchableSelect
                   options={vendors.map((v: any) => ({
                     value: String(v.id),
@@ -350,8 +348,9 @@ export default function PurchasesPage() {
                   placeholder={t("purchases.filterVendor")}
                   clearable
                   clearLabel={t("common.clear")}
+                  inputClassName={FILTER_CONTROL_CLASS + " pr-8"}
                 />
-              </div>
+              </FilterField>
             )}
             {isOwner && shops.length > 0 && (
               <FilterSelect

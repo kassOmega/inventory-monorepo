@@ -3,6 +3,10 @@
 import { type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import ClearableInput from "./ClearableInput";
+import {
+  FilterField,
+  FILTER_CONTROL_CLASS,
+} from "./FilterField";
 
 interface Location {
   id: number;
@@ -50,28 +54,22 @@ export default function FilterBar({
   return (
     <div>
       {showSearch && (
-        <div className="my-2">
-          <label className="flex-1 block text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">
-            {t("filters.search")}
-          </label>
+        <FilterField label={t("filters.search")} className="my-2">
           <ClearableInput
             placeholder={searchPlaceholder ?? t("filters.searchProducts")}
             value={search ?? ""}
             onChange={(v) => onSearchChange?.(v)}
-            inputClassName="border p-1.5 sm:p-2 rounded-lg w-full text-xs sm:text-sm"
+            inputClassName={FILTER_CONTROL_CLASS}
           />
-        </div>
+        </FilterField>
       )}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5 sm:gap-3 items-end">
         {showCategory && (
-          <div>
-            <label className="mb-1 block text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">
-              {t("filters.category")}
-            </label>
+          <FilterField label={t("filters.category")}>
             <select
               value={category ?? ""}
               onChange={(e) => onCategoryChange?.(e.target.value)}
-              className="border p-1.5 sm:p-2 rounded-lg bg-white text-xs sm:text-sm w-full"
+              className={FILTER_CONTROL_CLASS}
             >
               <option value="">{t("filters.allCategories")}</option>
               {(categories ?? []).map((c) => (
@@ -80,18 +78,15 @@ export default function FilterBar({
                 </option>
               ))}
             </select>
-          </div>
+          </FilterField>
         )}
 
         {showLocation && onLocationChange && locations && (
-          <div>
-            <label className="block text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">
-              {t("filters.location")}
-            </label>
+          <FilterField label={t("filters.location")}>
             <select
               value={location}
               onChange={(e) => onLocationChange(e.target.value)}
-              className="border p-1.5 sm:p-2 rounded-lg bg-white text-xs sm:text-sm w-full"
+              className={FILTER_CONTROL_CLASS}
             >
               <option value="">{t("filters.allLocations")}</option>
               {locations.map((l) => (
@@ -100,7 +95,7 @@ export default function FilterBar({
                 </option>
               ))}
             </select>
-          </div>
+          </FilterField>
         )}
       </div>
       {extra && (

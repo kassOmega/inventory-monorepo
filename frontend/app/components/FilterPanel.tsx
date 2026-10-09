@@ -3,6 +3,11 @@
 import { type ReactNode } from "react";
 import DateFilter from "./DateFilter";
 import FilterBar from "./FilterBar";
+import ClearableInput from "./ClearableInput";
+import {
+  FilterField,
+  FILTER_CONTROL_CLASS,
+} from "./FilterField";
 
 interface Location {
   id: number;
@@ -60,14 +65,11 @@ export function FilterSelect({
   allLabel?: string;
 }) {
   return (
-    <div>
-      <label className="block text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">
-        {label}
-      </label>
+    <FilterField label={label}>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="border p-1.5 sm:p-2 rounded-lg bg-white text-xs sm:text-sm w-full"
+        className={FILTER_CONTROL_CLASS}
       >
         {allLabel !== undefined && <option value="">{allLabel}</option>}
         {options.map((o) => (
@@ -76,7 +78,34 @@ export function FilterSelect({
           </option>
         ))}
       </select>
-    </div>
+    </FilterField>
+  );
+}
+
+/**
+ * A labelled clearable text filter, matching FilterSelect's layout exactly so a
+ * text field and a dropdown sit on the same baseline.
+ */
+export function FilterTextField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <FilterField label={label}>
+      <ClearableInput
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        inputClassName={FILTER_CONTROL_CLASS}
+      />
+    </FilterField>
   );
 }
 
