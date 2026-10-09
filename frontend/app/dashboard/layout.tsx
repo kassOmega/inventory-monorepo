@@ -14,6 +14,7 @@ import AiCoachDrawer from "../components/AiCoachDrawer";
 import InstallAppButton from "../components/InstallAppButton";
 import LanguageSwitcher from "../components/LanguageSwitcher";
 import MobileQuickNav from "../components/MobileQuickNav";
+import Loading from "../components/Loading";
 import NotificationBell from "../components/NotificationBell";
 import NotificationToast from "../components/NotificationToast";
 import SidebarMenu from "../components/SidebarMenu";
@@ -29,6 +30,10 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const { t } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // True while a nav tap from the mobile drawer is loading its route. The drawer
+  // stays open (showing the per-item spinner) until the route commits, so the
+  // feedback doesn't vanish with the drawer. See docs/plan-nav-mobile-loading.md.
+  const [navPending, setNavPending] = useState(false);
   const [coachOpen, setCoachOpen] = useState(false);
   const [agentMode, setAgentMode] = useState<string | null>(null);
   const [agentPending, setAgentPending] = useState(0);
@@ -39,6 +44,24 @@ export default function DashboardLayout({
   const vertical = getVerticalFeatures(businessType);
   const canUseCoach = user?.isSuperuser || hasPermission("ai.chat");
   const canManageAgent = user?.isSuperuser || hasPermission("agent.manage");
+
+  // Close the mobile drawer only once the tapped route has actually committed,
+  // so the in-link spinner stays visible until the new page is ready. A safety
+  // timeout covers a cancelled/slow navigation so the drawer can never stick.
+  useEffect(() => {
+    if (!navPending) return;
+    setSidebarOpen(false);
+    setNavPending(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!navPending) return;
+    const id = setTimeout(() => {
+      setSidebarOpen(false);
+      setNavPending(false);
+    }, 8000);
+    return () => clearTimeout(id);
+  }, [navPending]);
 
   // Load the agent mode + pending-approval count for the owner header toggle.
   useEffect(() => {
@@ -374,8 +397,20 @@ export default function DashboardLayout({
               <SidebarMenu
                 nav={dashboardNav}
                 pathname={pathname}
-                onNavigate={() => setSidebarOpen(false)}
+                onNavigate={() => {
+                  // Desktop: the sidebar is always visible, nothing to close.
+                  // Mobile: defer closing until the route commits so the tap
+                  // gives visible feedback instead of the drawer flashing away.
+                  if (window.matchMedia("(min-width: 1024px)").matches) return;
+                  setNavPending(true);
+                }}
               />
+              {navPending && (
+                <div className="flex items-center gap-2 px-3 pt-3 text-xs text-gray-400">
+                  <Loading size="sm" className="border-gray-600 border-t-gray-300" />
+                  {t("common.loading")}
+                </div>
+              )}
             </nav>
             <div className="p-4 border-t border-gray-800">
               <Link
