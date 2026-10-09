@@ -1,5 +1,6 @@
 "use client";
 import { useToast } from "@/app/components/ToastProvider";
+import Button from "@/app/components/Button";
 import { useAuth } from "@/context/AuthContext";
 import { generateEan13 } from "@/lib/barcode";
 import api, { markHandled } from "@/lib/api";
@@ -112,6 +113,9 @@ export default function ProductForm({
     activeMembership?.aiEnabled === true &&
     hasPermission("ai.product-assist");
   const [aiSuggestBusy, setAiSuggestBusy] = useState(false);
+  const [savingProduct, setSavingProduct] = useState(false);
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [addingUnit, setAddingUnit] = useState(false);
 
   const [categories, setCategories] = useState<any[]>([]);
   const [stores, setStores] = useState<any[]>([]);
@@ -548,6 +552,7 @@ export default function ProductForm({
         quantity: form.quantity > 0 ? Number(form.quantity) : undefined,
       };
     }
+    setSavingProduct(true);
     try {
       const res = isEdit
         ? await api.put(`/products/${editing.id}`, payload)
@@ -557,6 +562,8 @@ export default function ProductForm({
     } catch (err: any) {
       markHandled(err);
       toast.error(err?.response?.data?.message || t("pf.saveError"));
+    } finally {
+      setSavingProduct(false);
     }
   };
 
@@ -565,20 +572,30 @@ export default function ProductForm({
   // explicitly and must stop the product's implicit submission.
   const handleAddCategory = async () => {
     if (!newCat.trim()) return;
-    const res = await api.post("/categories", { name: newCat.trim() });
-    setCategories([...categories, res.data]);
-    setForm({ ...form, categoryId: String(res.data.id) });
-    setNewCat("");
-    setShowCatForm(false);
+    setAddingCategory(true);
+    try {
+      const res = await api.post("/categories", { name: newCat.trim() });
+      setCategories([...categories, res.data]);
+      setForm({ ...form, categoryId: String(res.data.id) });
+      setNewCat("");
+      setShowCatForm(false);
+    } finally {
+      setAddingCategory(false);
+    }
   };
 
   const handleAddUnit = async () => {
     if (!newUnit.trim()) return;
-    const res = await api.post("/units", { name: newUnit.trim() });
-    setUnits([...units, res.data]);
-    setForm({ ...form, unitId: String(res.data.id) });
-    setNewUnit("");
-    setShowUnitForm(false);
+    setAddingUnit(true);
+    try {
+      const res = await api.post("/units", { name: newUnit.trim() });
+      setUnits([...units, res.data]);
+      setForm({ ...form, unitId: String(res.data.id) });
+      setNewUnit("");
+      setShowUnitForm(false);
+    } finally {
+      setAddingUnit(false);
+    }
   };
 
   const updateVariant = (
@@ -826,13 +843,16 @@ export default function ProductForm({
             className="border p-2 rounded-lg w-full text-sm"
           />
           <div className="flex gap-2">
-            <button
+            <Button
               type="button"
               onClick={handleAddCategory}
-              className="bg-green-600 text-white p-2 rounded-lg flex-1 text-sm"
+              loading={addingCategory}
+              variant="emerald"
+              shape="rounded-lg"
+              className="flex-1 !p-2 !text-sm"
             >
               {t("common.add")}
-            </button>
+            </Button>
             <button
               type="button"
               onClick={() => {
@@ -870,13 +890,16 @@ export default function ProductForm({
             className="border p-2 rounded-lg w-full text-sm"
           />
           <div className="flex gap-2">
-            <button
+            <Button
               type="button"
               onClick={handleAddUnit}
-              className="bg-green-600 text-white p-2 rounded-lg flex-1 text-sm"
+              loading={addingUnit}
+              variant="emerald"
+              shape="rounded-lg"
+              className="flex-1 !p-2 !text-sm"
             >
               {t("common.add")}
-            </button>
+            </Button>
             <button
               type="button"
               onClick={() => {
@@ -1286,12 +1309,15 @@ export default function ProductForm({
         </div>
       )}
       <div className="col-span-2 flex gap-2 mt-2">
-        <button
+        <Button
           type="submit"
-          className="bg-green-600 text-white p-2 rounded-lg flex-1 text-sm"
+          loading={savingProduct}
+          variant="emerald"
+          shape="rounded-lg"
+          className="flex-1 !p-2 !text-sm"
         >
           {isEdit ? t("pf.updateProduct") : t("pf.saveProduct")}
-        </button>
+        </Button>
         <button
           type="button"
           onClick={onCancel}

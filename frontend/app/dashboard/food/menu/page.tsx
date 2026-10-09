@@ -1,6 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
+import Button from "@/app/components/Button";
 import ClearableInput from "@/app/components/ClearableInput";
 import { useAuth } from "@/context/AuthContext";
 import { useConfirm } from "@/app/components/ConfirmProvider";
@@ -17,6 +18,14 @@ export default function FoodMenuPage() {
   const [stations, setStations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [savingCat, setSavingCat] = useState(false);
+  const [savingItem, setSavingItem] = useState(false);
+  const [savingStation, setSavingStation] = useState(false);
+  const [savingOption, setSavingOption] = useState(false);
+  const [seedingDefaults, setSeedingDefaults] = useState(false);
+  // Key of the row action currently running (e.g. `item-del-3`), so only that
+  // control shows a spinner.
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [itemSearch, setItemSearch] = useState("");
 
@@ -153,6 +162,7 @@ export default function FoodMenuPage() {
   const saveCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSavingCat(true);
     try {
       if (catForm.id) await api.patch(`/restaurant/menu-categories/${catForm.id}`, { name: catForm.name, route: catForm.route });
       else await api.post("/restaurant/menu-categories", { name: catForm.name, route: catForm.route });
@@ -160,6 +170,8 @@ export default function FoodMenuPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("menu.failedSaveCategory"));
+    } finally {
+      setSavingCat(false);
     }
   };
 
@@ -240,6 +252,7 @@ export default function FoodMenuPage() {
     e.preventDefault();
     if (!stationForm.name.trim()) return;
     setError("");
+    setSavingStation(true);
     try {
       const payload = {
         name: stationForm.name.trim(),
@@ -252,11 +265,14 @@ export default function FoodMenuPage() {
       window.dispatchEvent(new Event("stations:changed"));
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("menu.failedSaveStation"));
+    } finally {
+      setSavingStation(false);
     }
   };
   const deleteStation = async (s: any) => {
     if (!(await confirm(t("menu.removeStationConfirm", { name: s.name })))) return;
     setError("");
+    setBusyKey(`station-del-${s.id}`);
     try {
       await api.delete(`/restaurant/stations/${s.id}`);
       await loadStations();
@@ -264,28 +280,36 @@ export default function FoodMenuPage() {
       window.dispatchEvent(new Event("stations:changed"));
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("menu.failedRemoveStation"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
   const seedDefaults = async () => {
     if (!(await confirm(t("menu.seedDefaultsConfirm")))) return;
     setError("");
+    setSeedingDefaults(true);
     try {
       await api.post("/restaurant/menu-categories/defaults");
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("menu.failedSeedDefaults"));
+    } finally {
+      setSeedingDefaults(false);
     }
   };
 
   const deleteCategory = async (c: any) => {
     if (!(await confirm(t("menu.deleteCategoryConfirm", { name: c.name })))) return;
+    setBusyKey(`cat-del-${c.id}`);
     try {
       await api.delete(`/restaurant/menu-categories/${c.id}`);
       if (selectedId === c.id) setSelectedId(null);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("menu.failedDeleteCategory"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -371,6 +395,7 @@ export default function FoodMenuPage() {
     } else {
       payload.stationRoute = itemForm.route;
     }
+    setSavingItem(true);
     try {
       const res = itemForm.id
         ? await api.patch(`/restaurant/menu-items/${itemForm.id}`, payload)
@@ -398,6 +423,8 @@ export default function FoodMenuPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("menu.failedSaveItem"));
+    } finally {
+      setSavingItem(false);
     }
   };
   // --- Recipe (ingredient costing) handlers ---
@@ -528,19 +555,25 @@ export default function FoodMenuPage() {
 
   const deleteItem = async (it: any) => {
     if (!(await confirm(t("menu.deleteItemConfirm", { name: it.name })))) return;
+    setBusyKey(`item-del-${it.id}`);
     try {
       await api.delete(`/restaurant/menu-items/${it.id}`);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("menu.failedDeleteItem"));
+    } finally {
+      setBusyKey(null);
     }
   };
   const toggleItem = async (it: any) => {
+    setBusyKey(`item-tog-${it.id}`);
     try {
       await api.patch(`/restaurant/menu-items/${it.id}/availability`, { isAvailable: !it.isAvailable });
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("menu.failedUpdateItem"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -557,6 +590,7 @@ export default function FoodMenuPage() {
   const saveOption = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSavingOption(true);
     try {
       const payload = { name: optForm.name, extraPrice: Number(optForm.extraPrice || 0) };
       if (optForm.id) await api.patch(`/restaurant/menu-item-options/${optForm.id}`, payload);
@@ -565,15 +599,20 @@ export default function FoodMenuPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("menu.failedSaveOption"));
+    } finally {
+      setSavingOption(false);
     }
   };
   const deleteOption = async (o: any) => {
     if (!(await confirm(t("menu.deleteOptionConfirm", { name: o.name })))) return;
+    setBusyKey(`opt-del-${o.id}`);
     try {
       await api.delete(`/restaurant/menu-item-options/${o.id}`);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("menu.failedDeleteOption"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -651,18 +690,18 @@ export default function FoodMenuPage() {
                   <button onClick={() => openEditCategory(c)} className="text-xs text-blue-600 hover:underline mr-1 shrink-0">
                     {t("common.edit")}
                   </button>
-                  <button onClick={() => deleteCategory(c)} className="text-xs text-red-600 hover:underline shrink-0">
+                  <Button variant="ghost" size="sm" loading={busyKey === `cat-del-${c.id}`} onClick={() => deleteCategory(c)} className="!px-0 text-xs text-red-600 hover:underline shrink-0">
                     {t("common.del")}
-                  </button>
+                  </Button>
                 </div>
               </li>
             ))}
             {categories.length === 0 && <li className="text-gray-400 text-sm p-2">{t("menu.noCategories")}</li>}
           </ul>
           <div className="mt-2 px-1">
-            <button onClick={seedDefaults} className="w-full bg-green-50 text-green-700 border border-green-200 rounded px-3 py-1.5 text-xs font-medium hover:bg-green-100">
+            <Button variant="emerald" size="sm" loading={seedingDefaults} onClick={seedDefaults} className="w-full !text-xs border border-green-200">
               {t("menu.addDefaults")}
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -713,18 +752,18 @@ export default function FoodMenuPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0 text-xs">
-                      <button onClick={() => toggleItem(it)} className="text-gray-500 hover:underline">
+                      <Button variant="ghost" size="sm" loading={busyKey === `item-tog-${it.id}`} onClick={() => toggleItem(it)} className="!px-0 text-gray-500 hover:underline">
                         {it.isAvailable ? t("menu.hide") : t("menu.show")}
-                      </button>
+                      </Button>
                       <button onClick={() => openNewOption(it)} className="text-blue-600 hover:underline">
                         {t("menu.addOption")}
                       </button>
                       <button onClick={() => openEditItem(it)} className="text-blue-600 hover:underline">
                         {t("common.edit")}
                       </button>
-                      <button onClick={() => deleteItem(it)} className="text-red-600 hover:underline">
+                      <Button variant="ghost" size="sm" loading={busyKey === `item-del-${it.id}`} onClick={() => deleteItem(it)} className="!px-0 text-red-600 hover:underline">
                         {t("common.del")}
-                      </button>
+                      </Button>
                     </div>
                   </div>
                   {it.options?.length > 0 && (
@@ -734,7 +773,7 @@ export default function FoodMenuPage() {
                           {o.name}
                           {o.extraPrice ? ` (+${o.extraPrice})` : ""}
                           <button onClick={() => openEditOption(it, o)} className="text-blue-600">✎</button>
-                          <button onClick={() => deleteOption(o)} className="text-red-600">×</button>
+                          <Button variant="ghost" size="sm" loading={busyKey === `opt-del-${o.id}`} onClick={() => deleteOption(o)} className="!px-0 text-red-600">×</Button>
                         </span>
                       ))}
                     </div>
@@ -835,9 +874,9 @@ export default function FoodMenuPage() {
                 <button type="button" onClick={() => setCatOpen(false)} className="px-3 py-2 text-sm text-gray-600">
                   {t("common.cancel")}
                 </button>
-                <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">
+                <Button type="submit" loading={savingCat} variant="dark" className="!px-3 !text-sm">
                   {t("common.save")}
-                </button>
+                </Button>
               </div>
             </form>
           </div>
@@ -873,9 +912,9 @@ export default function FoodMenuPage() {
                 <button type="button" onClick={() => setStationOpen(false)} className="px-3 py-2 text-sm text-gray-600">
                   {t("common.cancel")}
                 </button>
-                <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">
+                <Button type="submit" loading={savingStation} variant="dark" className="!px-3 !text-sm">
                   {t("common.save")}
-                </button>
+                </Button>
               </div>
             </form>
 
@@ -1239,9 +1278,9 @@ export default function FoodMenuPage() {
                 <button type="button" onClick={() => setItemOpen(false)} className="px-3 py-2 text-sm text-gray-600">
                   {t("common.cancel")}
                 </button>
-                <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">
+                <Button type="submit" loading={savingItem} variant="dark" className="!px-3 !text-sm">
                   {t("common.save")}
-                </button>
+                </Button>
               </div>
             </form>
           </div>
@@ -1274,9 +1313,9 @@ export default function FoodMenuPage() {
                 <button type="button" onClick={() => setOptOpen(false)} className="px-3 py-2 text-sm text-gray-600">
                   {t("common.cancel")}
                 </button>
-                <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">
+                <Button type="submit" loading={savingOption} variant="dark" className="!px-3 !text-sm">
                   {t("common.save")}
-                </button>
+                </Button>
               </div>
             </form>
           </div>
