@@ -4,9 +4,21 @@
 // they read as tabs of the single "Stock" menu item, which stays highlighted on all
 // three. "Stock Tasks" is the first tab, so the menu item lands there.
 import Link from "next/link";
+import { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/context/AuthContext";
+import Loading from "./Loading";
+
+/** Tab label that swaps to a spinner while its route is committing. */
+function TabBody({ label }: { label: string }) {
+  const { pending } = useLinkStatus();
+  return pending ? (
+    <Loading size="sm" className="border-gray-300 border-t-blue-600" />
+  ) : (
+    <span>{label}</span>
+  );
+}
 
 export default function StockTabs() {
   const { t } = useTranslation();
@@ -48,13 +60,13 @@ export default function StockTabs() {
             href={tab.href}
             role="tab"
             aria-selected={active}
-            className={`px-3 py-2 text-sm whitespace-nowrap -mb-px border-b-2 transition ${
+            className={`inline-flex items-center gap-2 px-3 py-2 text-sm whitespace-nowrap -mb-px border-b-2 transition ${
               active
                 ? "border-blue-600 text-blue-700 font-medium"
                 : "border-transparent text-gray-600 hover:text-gray-900"
             }`}
           >
-            {tab.label}
+            <TabBody label={tab.label} />
           </Link>
         );
       })}

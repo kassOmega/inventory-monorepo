@@ -7,6 +7,7 @@ import {
   subscribeAlertSound,
 } from "@/lib/alertSound";
 import api from "@/lib/api";
+import Loading from "@/app/components/Loading";
 import { timeAgo } from "@/lib/datetime";
 import {
   notificationIcon,
@@ -44,6 +45,7 @@ export default function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
+  const [markingAll, setMarkingAll] = useState(false);
   // Alert-sound preference lives in localStorage; mirror it without an effect.
   const soundOn = useSyncExternalStore(
     subscribeAlertSound,
@@ -133,12 +135,15 @@ export default function NotificationBell() {
   };
 
   const handleMarkAllAsRead = async () => {
+    setMarkingAll(true);
     try {
       await api.patch("/notifications/read-all");
       setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
       setUnreadCount(0);
     } catch {
       // ignore
+    } finally {
+      setMarkingAll(false);
     }
   };
 
@@ -203,8 +208,15 @@ export default function NotificationBell() {
               {unreadCount > 0 && (
                 <button
                   onClick={handleMarkAllAsRead}
-                  className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                  disabled={markingAll}
+                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-60"
                 >
+                  {markingAll && (
+                    <Loading
+                      size="sm"
+                      className="border-blue-300 border-t-blue-600"
+                    />
+                  )}
                   {t("notifications.markAllAsRead")}
                 </button>
               )}

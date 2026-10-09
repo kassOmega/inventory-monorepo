@@ -1,5 +1,6 @@
 "use client";
 import { useAuth } from "@/context/AuthContext";
+import Button from "@/app/components/Button";
 import { useToast } from "@/app/components/ToastProvider";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import api, { markHandled } from "@/lib/api";
@@ -15,6 +16,9 @@ export default function CategoriesManager() {
   const [name, setName] = useState("");
   const [editing, setEditing] = useState<any>(null);
   const [editName, setEditName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const canCreate = hasPermission("categories.create");
   const canEdit = hasPermission("categories.edit");
@@ -30,6 +34,7 @@ export default function CategoriesManager() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+    setCreating(true);
     try {
       await api.post("/categories", { name: name.trim() });
       setName("");
@@ -38,6 +43,8 @@ export default function CategoriesManager() {
     } catch (err: any) {
       markHandled(err);
       toast.error(t("cat.failedCreate"));
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -48,6 +55,7 @@ export default function CategoriesManager() {
 
   const handleEdit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSavingEdit(true);
     try {
       await api.put("/categories/" + editing.id, { name: editName.trim() });
       setEditing(null);
@@ -57,12 +65,15 @@ export default function CategoriesManager() {
     } catch (err: any) {
       markHandled(err);
       toast.error(t("cat.failedUpdate"));
+    } finally {
+      setSavingEdit(false);
     }
   };
 
   const handleDelete = async (c: any) => {
     const ok = await confirm(t("cat.deleteConfirm", { name: c.name }));
     if (!ok) return;
+    setDeletingId(c.id);
     try {
       await api.delete("/categories/" + c.id);
       fetchCategories();
@@ -70,6 +81,8 @@ export default function CategoriesManager() {
     } catch (err: any) {
       markHandled(err);
       toast.error(err.response?.data?.message || t("cat.failedDelete"));
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -87,12 +100,13 @@ export default function CategoriesManager() {
             placeholder={t("cat.newNamePh")}
             className="border p-2 rounded-lg flex-1 text-sm"
           />
-          <button
+          <Button
             type="submit"
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm"
+            loading={creating}
+            className="!px-4 !text-sm"
           >
             {t("common.add")}
-          </button>
+          </Button>
         </form>
       )}
 
@@ -116,9 +130,9 @@ export default function CategoriesManager() {
                         onChange={(e) => setEditName(e.target.value)}
                         className="border p-1.5 rounded flex-1 text-sm"
                       />
-                      <button type="submit" className="text-green-600 px-2">
+                      <Button type="submit" variant="ghost" loading={savingEdit} className="!px-2 text-green-600">
                         {t("common.save")}
-                      </button>
+                      </Button>
                       <button
                         type="button"
                         onClick={() => setEditing(null)}
@@ -146,12 +160,15 @@ export default function CategoriesManager() {
                         </button>
                       )}
                       {canDelete && (
-                        <button
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          loading={deletingId === c.id}
                           onClick={() => handleDelete(c)}
-                          className="text-red-500 text-sm"
+                          className="!px-0 text-red-500"
                         >
                           {t("common.delete")}
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </td>

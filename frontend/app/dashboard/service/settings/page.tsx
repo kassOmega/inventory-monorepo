@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
+import Button from "@/app/components/Button";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -12,6 +13,7 @@ export default function ServiceSettingsPage() {
   const [appointmentSlot, setAppointmentSlot] = useState(30);
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!activeOrganizationId) return;
@@ -32,6 +34,7 @@ export default function ServiceSettingsPage() {
     if (!activeOrganizationId) return;
     setError("");
     setMsg("");
+    setSaving(true);
     try {
       await api.patch(`/tenants/${activeOrganizationId}/profile`, {
         hourlyBilling,
@@ -41,6 +44,8 @@ export default function ServiceSettingsPage() {
       setTimeout(() => setMsg(""), 2500);
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("svc.set.failedSave"));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -65,7 +70,7 @@ export default function ServiceSettingsPage() {
             className="border border-gray-300 rounded p-2 text-sm w-full"
           />
         </div>
-        <button type="submit" className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium">{t("mfg.settings.save")}</button>
+        <Button type="submit" loading={saving} shape="rounded">{t("mfg.settings.save")}</Button>
       </form>
     </div>
   );

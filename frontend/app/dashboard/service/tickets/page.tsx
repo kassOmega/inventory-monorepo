@@ -1,6 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
+import Button from "@/app/components/Button";
 import { newClientRef } from "@/lib/clientRef";
 import { statusLabel } from "@/lib/statusLabel";
 import { useCallback, useEffect, useState } from "react";
@@ -18,6 +19,10 @@ export default function ServiceTicketsPage() {
   // "Add item to ticket" modal.
   const [addItemFor, setAddItemFor] = useState<number | null>(null);
   const [addItemId, setAddItemId] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [addingItem, setAddingItem] = useState(false);
+  // Ticket id whose row action (pay / status) is running.
+  const [busyId, setBusyId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -41,6 +46,7 @@ export default function ServiceTicketsPage() {
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setCreating(true);
     try {
       await api.post("/service/tickets", {
         clientId: form.clientId ? Number(form.clientId) : null,
@@ -50,6 +56,8 @@ export default function ServiceTicketsPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("svc.tk.failedCreate"));
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -57,6 +65,7 @@ export default function ServiceTicketsPage() {
     e.preventDefault();
     if (addItemFor == null || !addItemId) return;
     setError("");
+    setAddingItem(true);
     try {
       await api.post(`/service/tickets/${addItemFor}/items`, {
         serviceItemId: Number(addItemId),
@@ -67,10 +76,13 @@ export default function ServiceTicketsPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("svc.tk.failedAddItem"));
+    } finally {
+      setAddingItem(false);
     }
   };
 
   const pay = async (ticketId: number) => {
+    setBusyId(ticketId);
     try {
       const ref = payRefs[ticketId] ?? newClientRef();
       if (!payRefs[ticketId]) setPayRefs((p) => ({ ...p, [ticketId]: ref }));
@@ -83,15 +95,20 @@ export default function ServiceTicketsPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("svc.tk.failedPay"));
+    } finally {
+      setBusyId(null);
     }
   };
 
   const setStatus = async (ticketId: number, status: string) => {
+    setBusyId(ticketId);
     try {
       await api.patch(`/service/tickets/${ticketId}/status`, { status });
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("svc.tk.failedUpdate"));
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -112,7 +129,7 @@ export default function ServiceTicketsPage() {
           <option value="">{t("svc.noClient")}</option>
           {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <button type="submit" className="bg-blue-600 text-white rounded p-2 text-sm font-medium">{t("svc.tk.open")}</button>
+        <Button type="submit" loading={creating} className="!p-2 !text-sm">{t("svc.tk.open")}</Button>
       </form>
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -151,11 +168,11 @@ export default function ServiceTicketsPage() {
                       >
                         +{t("svc.tk.itemBtn")}
                       </button>
-                      <button onClick={() => pay(ticket.id)} className="text-xs text-green-600 hover:underline">{t("svc.tk.pay")}</button>
-                      <button onClick={() => setStatus(ticket.id, "CANCELLED")} className="text-xs text-red-600 hover:underline">{t("common.cancel")}</button>
+                      <Button variant="ghost" size="sm" loading={busyId === ticket.id} onClick={() => pay(ticket.id)} className="!px-0 text-xs text-green-600 hover:underline">{t("svc.tk.pay")}</Button>
+                      <Button variant="ghost" size="sm" loading={busyId === ticket.id} onClick={() => setStatus(ticket.id, "CANCELLED")} className="!px-0 text-xs text-red-600 hover:underline">{t("common.cancel")}</Button>
                     </>
                   )}
-                  {ticket.status === "OPEN" && <button onClick={() => setStatus(ticket.id, "IN_PROGRESS")} className="text-xs text-amber-600 hover:underline">{t("svc.tk.start")}</button>}
+                  {ticket.status === "OPEN" && <Button variant="ghost" size="sm" loading={busyId === ticket.id} onClick={() => setStatus(ticket.id, "IN_PROGRESS")} className="!px-0 text-xs text-amber-600 hover:underline">{t("svc.tk.start")}</Button>}
                 </td>
               </tr>
             ))}
@@ -192,9 +209,9 @@ export default function ServiceTicketsPage() {
                 <button type="button" onClick={() => setAddItemFor(null)} className="px-3 py-2 text-sm text-gray-600">
                   {t("common.cancel")}
                 </button>
-                <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">
+                <Button type="submit" loading={addingItem} variant="dark" className="!px-3 !text-sm">
                   {t("common.add")}
-                </button>
+                </Button>
               </div>
             </form>
           </div>

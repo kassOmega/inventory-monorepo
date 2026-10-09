@@ -3,6 +3,7 @@
 // Streams answers from POST /ai/chat (SSE). The AI automatically replies in
 // whatever language the user writes in (English, Amharic, Afaan Oromoo, etc.).
 import api from "@/lib/api";
+import Loading from "@/app/components/Loading";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -55,6 +56,7 @@ export default function AiCoachDrawer({
   const [usage, setUsage] = useState<AiUsage | null>(null);
   const [limitReached, setLimitReached] = useState(false);
   const [entitlement, setEntitlement] = useState<AiEntitlement | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -129,12 +131,15 @@ export default function AiCoachDrawer({
   };
 
   const deleteSession = async (id: string) => {
+    setDeletingSessionId(id);
     try {
       await api.delete(`/ai/chat/sessions/${id}`);
       setSessions((prev) => prev.filter((s) => s.id !== id));
       if (sessionId === id) newChat();
     } catch {
       setError(t("coach.failedDeleteSession"));
+    } finally {
+      setDeletingSessionId(null);
     }
   };
 
@@ -375,12 +380,20 @@ export default function AiCoachDrawer({
                 </button>
                 <button
                   onClick={() => deleteSession(s.id)}
-                  className="text-gray-400 hover:text-red-500 p-1"
+                  disabled={deletingSessionId === s.id}
+                  className="text-gray-400 hover:text-red-500 p-1 disabled:opacity-60"
                   aria-label={t("common.delete")}
                 >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m1 0v12a1 1 0 01-1 1H8a1 1 0 01-1-1V7" />
-                  </svg>
+                  {deletingSessionId === s.id ? (
+                    <Loading
+                      size="sm"
+                      className="border-gray-300 border-t-red-500"
+                    />
+                  ) : (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m1 0v12a1 1 0 01-1 1H8a1 1 0 01-1-1V7" />
+                    </svg>
+                  )}
                 </button>
               </div>
             ))}

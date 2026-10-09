@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
+import Button from "@/app/components/Button";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -12,6 +13,7 @@ export default function ManufacturingSettingsPage() {
   const [trackWorkOrders, setTrackWorkOrders] = useState(true);
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!activeOrganizationId) return;
@@ -32,6 +34,7 @@ export default function ManufacturingSettingsPage() {
     if (!activeOrganizationId) return;
     setError("");
     setMsg("");
+    setSaving(true);
     try {
       await api.patch(`/tenants/${activeOrganizationId}/profile`, {
         trackBOM,
@@ -41,6 +44,8 @@ export default function ManufacturingSettingsPage() {
       setTimeout(() => setMsg(""), 2500);
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("mfg.settings.failed"));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -62,9 +67,9 @@ export default function ManufacturingSettingsPage() {
           <input type="checkbox" checked={trackWorkOrders} onChange={(e) => setTrackWorkOrders(e.target.checked)} className="rounded" />
           {t("mfg.settings.trackWorkOrdersLabel")}
         </label>
-        <button type="submit" className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium">
+        <Button type="submit" loading={saving} shape="rounded">
           {t("mfg.settings.save")}
-        </button>
+        </Button>
       </form>
     </div>
   );

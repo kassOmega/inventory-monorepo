@@ -18,6 +18,7 @@ import { variantLabel } from "@/lib/variantLabel";
 import { getVerticalFeatures } from "@/lib/verticals";
 import { useSingleLocationAutofill } from "@/lib/singleLocation";
 import api from "@/lib/api";
+import Button from "@/app/components/Button";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "next/navigation";
 import { Fragment, useEffect, useState } from "react";
@@ -122,6 +123,8 @@ export default function ReportsPage() {
     storeId: "",
     quantity: 1,
   });
+  const [reqBusy, setReqBusy] = useState(false);
+  const [downloading, setDownloading] = useState<string | null>(null);
   // Autofill the sole store for the quick-request form when only one exists.
   useSingleLocationAutofill(stores, reqForm.storeId, (v) =>
     setReqForm((f) => ({ ...f, storeId: v })),
@@ -188,6 +191,7 @@ export default function ReportsPage() {
 
   const handleQuickRequest = async (e: React.FormEvent) => {
     e.preventDefault();
+    setReqBusy(true);
     try {
       const storeId = reqForm.storeId ? Number(reqForm.storeId) : undefined;
       await api.post("/requests", {
@@ -204,10 +208,13 @@ export default function ReportsPage() {
       toast.success(t("reports.requestSubmitted"));
     } catch {
       toast.error(t("reports.requestFailed"));
+    } finally {
+      setReqBusy(false);
     }
   };
 
   const downloadFile = async (path: string, filename: string) => {
+    setDownloading(path);
     try {
       const res = await api.get(path, { responseType: "blob" });
       const url = window.URL.createObjectURL(res.data);
@@ -220,6 +227,8 @@ export default function ReportsPage() {
       window.URL.revokeObjectURL(url);
     } catch {
       toast.error(t("reports.exportFailed"));
+    } finally {
+      setDownloading(null);
     }
   };
 
@@ -329,39 +338,50 @@ export default function ReportsPage() {
         <span className="text-sm text-gray-500">{t("reports.exportColon")}</span>
         {exportCfg && (
           <>
-            <button
+            <Button
               onClick={() => downloadFile(exportCfg.csv, exportCfg.csvName)}
-              className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700"
+              loading={downloading === exportCfg.csv}
+              shape="rounded-lg"
+              size="sm"
             >
               {t("reports.exportCsv", { label: exportCfg.label })}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="danger"
               onClick={() => downloadFile(exportCfg.pdf, exportCfg.pdfName)}
-              className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-red-700"
+              loading={downloading === exportCfg.pdf}
+              shape="rounded-lg"
+              size="sm"
             >
               {t("reports.exportPdf", { label: exportCfg.label })}
-            </button>
+            </Button>
           </>
         )}
         {isOwner && (
           <>
             <span className="mx-1 text-gray-300">|</span>
-            <button
+            <Button
+              variant="dark"
+              size="sm"
+              shape="rounded-lg"
+              loading={downloading === `/reports/full/export?${fullQuery}`}
               onClick={() =>
                 downloadFile(`/reports/full/export?${fullQuery}`, "full-report.csv")
               }
-              className="bg-gray-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-gray-700"
             >
               {t("reports.exportAllCsv")}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="dark"
+              size="sm"
+              shape="rounded-lg"
+              loading={downloading === `/reports/full/pdf?${fullQuery}`}
               onClick={() =>
                 downloadFile(`/reports/full/pdf?${fullQuery}`, "full-report.pdf")
               }
-              className="bg-gray-800 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-gray-700"
             >
               {t("reports.exportAllPdf")}
-            </button>
+            </Button>
           </>
         )}
       </div>
@@ -1037,12 +1057,15 @@ export default function ReportsPage() {
               required
             />
           </div>
-          <button
+          <Button
             type="submit"
-            className="bg-green-600 text-white p-2 rounded-lg mt-2 font-medium"
+            loading={reqBusy}
+            variant="emerald"
+            shape="rounded-lg"
+            className="mt-2 !p-2 font-medium"
           >
             {t("reports.submitRequest")}
-          </button>
+          </Button>
         </form>
       </Modal>
     </div>

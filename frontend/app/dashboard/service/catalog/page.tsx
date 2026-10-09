@@ -1,6 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
+import Button from "@/app/components/Button";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -10,6 +11,9 @@ export default function ServiceCatalogPage() {
   const [categories, setCategories] = useState<any[]>([]);
   const [form, setForm] = useState({ name: "", price: "", durationMins: "30", categoryId: "" });
   const [error, setError] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [savingCategory, setSavingCategory] = useState(false);
+  const [busyId, setBusyId] = useState<number | null>(null);
   const [catModal, setCatModal] = useState(false);
   const [catName, setCatName] = useState("");
 
@@ -30,6 +34,7 @@ export default function ServiceCatalogPage() {
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setCreating(true);
     try {
       await api.post("/service/items", {
         name: form.name,
@@ -41,6 +46,8 @@ export default function ServiceCatalogPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("svc.cat.failedCreateItem"));
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -48,6 +55,7 @@ export default function ServiceCatalogPage() {
     e.preventDefault();
     if (!catName.trim()) return;
     setError("");
+    setSavingCategory(true);
     try {
       await api.post("/service/categories", { name: catName.trim() });
       setCatName("");
@@ -55,17 +63,22 @@ export default function ServiceCatalogPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("svc.cat.failedCreateCategory"));
+    } finally {
+      setSavingCategory(false);
     }
   };
 
   const toggleActive = async (id: number, active: boolean) => {
     const item = items.find((i) => i.id === id);
     if (!item) return;
+    setBusyId(id);
     try {
       await api.patch(`/service/items/${id}`, { ...item, active: !active });
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("svc.cat.failedUpdateItem"));
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -93,7 +106,7 @@ export default function ServiceCatalogPage() {
           <option value="">{t("pdm.noCategory")}</option>
           {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <button type="submit" className="md:col-span-4 bg-blue-600 text-white rounded p-2 text-sm font-medium">{t("svc.cat.addService")}</button>
+        <Button type="submit" loading={creating} className="md:col-span-4 !p-2 !text-sm">{t("svc.cat.addService")}</Button>
       </form>
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -121,7 +134,7 @@ export default function ServiceCatalogPage() {
                   </button>
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <button onClick={() => toggleActive(i.id, i.active)} className="text-xs text-blue-600 hover:underline">{i.active ? t("mfg.common.deactivate") : t("mfg.common.activate")}</button>
+                  <Button variant="ghost" size="sm" loading={busyId === i.id} onClick={() => toggleActive(i.id, i.active)} className="!px-0 text-xs text-blue-600 hover:underline">{i.active ? t("mfg.common.deactivate") : t("mfg.common.activate")}</Button>
                 </td>
               </tr>
             ))}
@@ -149,9 +162,9 @@ export default function ServiceCatalogPage() {
                 <button type="button" onClick={() => setCatModal(false)} className="px-3 py-2 text-sm text-gray-600">
                   {t("common.cancel")}
                 </button>
-                <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">
+                <Button type="submit" loading={savingCategory} variant="dark" className="!px-3 !text-sm">
                   {t("common.add")}
-                </button>
+                </Button>
               </div>
             </form>
           </div>

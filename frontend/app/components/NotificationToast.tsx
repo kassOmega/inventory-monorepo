@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
+import Loading from "@/app/components/Loading";
 import { playAlertSound } from "@/lib/alertSound";
 import {
   STICKY_TYPES,
@@ -113,6 +114,7 @@ export default function NotificationToast() {
   const [popups, setPopups] = useState<Notification[]>([]);
   const [alerts, setAlerts] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [markingAll, setMarkingAll] = useState(false);
   const seenIds = useRef<Set<number>>(new Set());
   const initialized = useRef(false);
   const dismissed = useRef<Set<number>>(readDismissed());
@@ -234,10 +236,13 @@ export default function NotificationToast() {
   };
 
   const markAllRead = async () => {
+    setMarkingAll(true);
     try {
       await api.patch("/notifications/read-all");
     } catch {
       // ignore
+    } finally {
+      setMarkingAll(false);
     }
     setAlerts([]);
     setPopups([]);
@@ -273,8 +278,15 @@ export default function NotificationToast() {
               <button
                 type="button"
                 onClick={markAllRead}
-                className="text-xs font-medium text-rose-700 hover:text-rose-900"
+                disabled={markingAll}
+                className="inline-flex items-center gap-1 text-xs font-medium text-rose-700 hover:text-rose-900 disabled:opacity-60"
               >
+                {markingAll && (
+                  <Loading
+                    size="sm"
+                    className="border-rose-300 border-t-rose-700"
+                  />
+                )}
                 {t("notifications.markAllAsRead")}
               </button>
               <button

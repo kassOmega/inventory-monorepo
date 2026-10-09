@@ -1,6 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
+import Button from "@/app/components/Button";
 import { formatDateTime } from "@/lib/datetime";
 import { statusLabel } from "@/lib/statusLabel";
 import { useCallback, useEffect, useState } from "react";
@@ -14,6 +15,8 @@ export default function ServiceBookingsPage() {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [form, setForm] = useState({ startsAt: "", clientId: "", serviceItemId: "" });
   const [error, setError] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [busyId, setBusyId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -37,6 +40,7 @@ export default function ServiceBookingsPage() {
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setCreating(true);
     try {
       await api.post("/service/bookings", {
         startsAt: new Date(form.startsAt).toISOString(),
@@ -47,15 +51,20 @@ export default function ServiceBookingsPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("svc.bk.failedCreate"));
+    } finally {
+      setCreating(false);
     }
   };
 
   const setStatus = async (id: number, status: string) => {
+    setBusyId(id);
     try {
       await api.patch(`/service/bookings/${id}/status`, { status });
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("svc.bk.failedUpdate"));
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -78,7 +87,7 @@ export default function ServiceBookingsPage() {
           <option value="">{t("svc.noClient")}</option>
           {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <button type="submit" className="bg-blue-600 text-white rounded p-2 text-sm font-medium">{t("svc.bk.add")}</button>
+        <Button type="submit" loading={creating} className="!p-2 !text-sm">{t("svc.bk.add")}</Button>
       </form>
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -104,10 +113,10 @@ export default function ServiceBookingsPage() {
                   </span>
                 </td>
                 <td className="px-4 py-2 text-right space-x-2">
-                  <button onClick={() => setStatus(b.id, "CONFIRMED")} className="text-xs text-blue-600 hover:underline">{t("svc.bk.confirm")}</button>
-                  <button onClick={() => setStatus(b.id, "COMPLETED")} className="text-xs text-green-600 hover:underline">{t("svc.bk.complete")}</button>
-                  <button onClick={() => setStatus(b.id, "NO_SHOW")} className="text-xs text-amber-600 hover:underline">{t("status.noShow")}</button>
-                  <button onClick={() => setStatus(b.id, "CANCELLED")} className="text-xs text-red-600 hover:underline">{t("common.cancel")}</button>
+                  <Button variant="ghost" size="sm" loading={busyId === b.id} onClick={() => setStatus(b.id, "CONFIRMED")} className="!px-0 text-xs text-blue-600 hover:underline">{t("svc.bk.confirm")}</Button>
+                  <Button variant="ghost" size="sm" loading={busyId === b.id} onClick={() => setStatus(b.id, "COMPLETED")} className="!px-0 text-xs text-green-600 hover:underline">{t("svc.bk.complete")}</Button>
+                  <Button variant="ghost" size="sm" loading={busyId === b.id} onClick={() => setStatus(b.id, "NO_SHOW")} className="!px-0 text-xs text-amber-600 hover:underline">{t("status.noShow")}</Button>
+                  <Button variant="ghost" size="sm" loading={busyId === b.id} onClick={() => setStatus(b.id, "CANCELLED")} className="!px-0 text-xs text-red-600 hover:underline">{t("common.cancel")}</Button>
                 </td>
               </tr>
             ))}
