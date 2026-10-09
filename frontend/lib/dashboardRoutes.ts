@@ -75,6 +75,7 @@ export const DASHBOARD_ROUTES: DashboardRoute[] = [
 
   // --- Administration ---
   { path: "/dashboard/users", read: ["users.view", "users.manage", "roles.manage"] },
+  { path: "/dashboard/staff-deductions", read: ["deductions.view", "deductions.manage"] },
   { path: "/dashboard/reports", read: ["reports.view", "reports.full"] },
   { path: "/dashboard/forecast", read: "ai.view" },
   { path: "/dashboard/purchase-orders", read: "ai.view" },

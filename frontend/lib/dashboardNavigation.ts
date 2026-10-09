@@ -199,6 +199,8 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
         { href: "/dashboard/admin/owners", label: t("nav.adminUsers") },
         { href: "/dashboard/admin/businesses", label: t("nav.adminBusinesses") },
         { href: "/dashboard/admin/verification", label: t("nav.adminVerification") },
+        { href: "/dashboard/admin/subscriptions", label: t("nav.adminSubscriptions") },
+        { href: "/dashboard/admin/bank-accounts", label: t("nav.adminBankAccounts") },
       ],
     };
   }
@@ -343,6 +345,12 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
         href: "/dashboard/users",
         label: t("nav.usersAndRoles"),
         permission: routeRead("/dashboard/users"),
+      },
+      // Employee loans & penalties (deducted from salary / commission).
+      {
+        href: "/dashboard/staff-deductions",
+        label: t("nav.staffDeductions"),
+        permission: ["deductions.view", "deductions.manage"],
       },
       // One shared reports page for every business; it renders the tab set for
       // the active business type (retail/manufacturing/hospitality/service/

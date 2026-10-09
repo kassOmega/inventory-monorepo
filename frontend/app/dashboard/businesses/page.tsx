@@ -6,6 +6,8 @@ import api from "@/lib/api";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { useEffect } from "react";
+import SubscriptionCard from "@/app/components/SubscriptionCard";
 import { useState } from "react";
 import Button from "@/app/components/Button";
 
@@ -37,6 +39,19 @@ export default function BusinessesPage() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  // The active business's subscription (shown as a card near the top).
+  const [subscription, setSubscription] = useState<any>(null);
+
+  useEffect(() => {
+    if (!activeOrganizationId) {
+      setSubscription(null);
+      return;
+    }
+    api
+      .get("/subscriptions/me")
+      .then((r) => setSubscription(r.data))
+      .catch(() => setSubscription(null));
+  }, [activeOrganizationId]);
 
   const memberships = user?.memberships ?? [];
 
@@ -183,6 +198,7 @@ export default function BusinessesPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-800">{t("biz.myBusinesses")}</h1>
+      {subscription && <SubscriptionCard subscription={subscription} />}
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
 
       {memberships.length === 0 && (

@@ -17,6 +17,7 @@ import MobileQuickNav from "../components/MobileQuickNav";
 import Loading from "../components/Loading";
 import NotificationBell from "../components/NotificationBell";
 import NotificationToast from "../components/NotificationToast";
+import SubscriptionRenewalPrompt from "../components/SubscriptionRenewalPrompt";
 import SidebarMenu from "../components/SidebarMenu";
 import { ToastProvider } from "../components/ToastProvider";
 
@@ -554,6 +555,7 @@ export default function DashboardLayout({
         </div>
 
         <AiCoachDrawer open={coachOpen} onClose={() => setCoachOpen(false)} />
+        <SubscriptionRenewalPrompt />
       </ConfirmProvider>
     </ToastProvider>
   );

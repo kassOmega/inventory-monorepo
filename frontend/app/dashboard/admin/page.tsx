@@ -1,6 +1,7 @@
 "use client";
 
 import { verticalLabel } from "@/lib/verticals";
+import { effectiveStatus } from "@/lib/subscriptions";
 import api from "@/lib/api";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -30,6 +31,21 @@ export default function AdminOverview() {
   const active = businesses.filter((b) => b.status === "ACTIVE").length;
   const inactive = businesses.length - active;
 
+  // Subscription KPIs derived from each org's embedded subscription row.
+  const subCounts = businesses.reduce(
+    (acc, b: any) => {
+      const status = b.subscription
+        ? effectiveStatus(b.subscription)
+        : "ACTIVE";
+      if (status === "EXPIRED") acc.expired += 1;
+      else if (status === "GRACE") acc.grace += 1;
+      else if (status === "FREE" || status === "LIFETIME") acc.free += 1;
+      else acc.active += 1;
+      return acc;
+    },
+    { active: 0, grace: 0, expired: 0, free: 0 },
+  );
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-800">{t("nav.adminOverview")}</h1>
@@ -49,6 +65,22 @@ export default function AdminOverview() {
         <div className="bg-white p-4 rounded-lg border border-gray-200">
           <p className="text-xs text-gray-500">{t("status.inactive")}</p>
           <p className="text-2xl font-bold text-gray-500">{inactive}</p>
+        </div>
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <p className="text-xs text-gray-500">{t("subscription.statuses.ACTIVE")}</p>
+          <p className="text-2xl font-bold text-green-600">{subCounts.active}</p>
+        </div>
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <p className="text-xs text-gray-500">{t("subscription.statuses.GRACE")}</p>
+          <p className="text-2xl font-bold text-amber-600">{subCounts.grace}</p>
+        </div>
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <p className="text-xs text-gray-500">{t("subscription.statuses.EXPIRED")}</p>
+          <p className="text-2xl font-bold text-red-600">{subCounts.expired}</p>
+        </div>
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <p className="text-xs text-gray-500">{t("subscription.free")}</p>
+          <p className="text-2xl font-bold text-purple-600">{subCounts.free}</p>
         </div>
       </div>
 

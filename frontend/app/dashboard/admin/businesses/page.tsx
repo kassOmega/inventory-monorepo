@@ -4,6 +4,7 @@ import SearchableSelect from "@/app/components/SearchableSelect";
 import Button from "@/app/components/Button";
 import { VERTICAL_LABELS } from "@/lib/verticals";
 import { statusLabel } from "@/lib/statusLabel";
+import { statusClass as subStatusClass, statusLabel as subStatusLabel, effectiveStatus } from "@/lib/subscriptions";
 import api from "@/lib/api";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useCallback, useEffect, useState } from "react";
@@ -408,9 +409,23 @@ export default function AdminBusinessesPage() {
               <li key={o.id} className="px-4 py-3 flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-800">{o.name}</p>
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-gray-400 flex items-center gap-1.5 flex-wrap">
                     {verticalName(o.businessType) || o.businessType}
                     {owner?.name ? t("adm.ownerPrefix", { name: owner.name }) : ""}
+                    {o.subscription && (
+                      <span className="flex items-center gap-1">
+                        <span
+                          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${subStatusClass(effectiveStatus(o.subscription))}`}
+                        >
+                          {subStatusLabel(t, effectiveStatus(o.subscription))}
+                        </span>
+                        {o.subscription.isTrial && (
+                          <span className="text-[10px] font-medium text-blue-600">
+                            {t("adm.sub.trialOf")}
+                          </span>
+                        )}
+                      </span>
+                    )}
                   </p>
                   <p className="text-[11px] mt-0.5">
                     {o.aiEnabled === false ? (
