@@ -15,7 +15,7 @@ import {
 } from "@/lib/glExport";
 import { downloadApiFile } from "@/lib/downloadFile";
 import i18n from "@/lib/i18n";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import useDebouncedValue from "@/lib/useDebouncedValue";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -507,6 +507,7 @@ function TrialTab({ startDate, endDate, locations, filters }: any) {
   const [loading, setLoading] = useState(true);
   const [printDoc, setPrintDoc] = useState<any>(null);
   const debouncedSearch = useDebouncedValue(filters.search, 300);
+  const hasLoadedRef = useRef(false);
   const extraQs = `${
     filters.locationId ? `&locationId=${encodeURIComponent(filters.locationId)}` : ""
   }${
@@ -517,7 +518,9 @@ function TrialTab({ startDate, endDate, locations, filters }: any) {
     filters.search ? `&search=${encodeURIComponent(debouncedSearch)}` : ""
   }`;
   const load = useCallback(async () => {
-    setLoading(true);
+    // Full placeholder only on first load; later search/filter changes keep the
+    // table on screen while the new data arrives.
+    if (!hasLoadedRef.current) setLoading(true);
     try {
       const r = await api.get(`/finance/gl/trial-balance?startDate=${startDate}&endDate=${endDate}${extraQs}`);
       setRows(r.data.rows ?? []);
@@ -528,6 +531,7 @@ function TrialTab({ startDate, endDate, locations, filters }: any) {
       setError(e?.response?.data?.message ?? t("ledger.trialLoadFailed"));
     } finally {
       setLoading(false);
+      hasLoadedRef.current = true;
     }
   }, [startDate, endDate, extraQs, t]);
   useEffect(() => {

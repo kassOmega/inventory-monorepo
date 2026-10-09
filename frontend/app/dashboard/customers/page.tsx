@@ -35,6 +35,9 @@ export default function CustomersPage() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [overview, setOverview] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  // True after the first page has loaded, so the full-page loader never shows
+  // again on a filter/search change (kept in a ref: fetchCustomers is memoized).
+  const hasLoadedRef = useRef(false);
   const [search, setSearch] = useState("");
   // Debounce the term that drives the request (the input stays instant).
   const debouncedSearch = useDebouncedValue(search, 300);
@@ -51,7 +54,9 @@ export default function CustomersPage() {
   }, []);
 
   const fetchCustomers = useCallback(async () => {
-    setLoading(true);
+    // Full-page loader only on the very first load; later filter changes refetch
+    // in place so typing never blanks the page.
+    if (!hasLoadedRef.current) setLoading(true);
     try {
       const params = new URLSearchParams();
       if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
@@ -74,9 +79,10 @@ export default function CustomersPage() {
       toast.error(t("crm.loadFailed"));
     } finally {
       setLoading(false);
+      hasLoadedRef.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, filter, paged.page, paged.pageSize]);
+  }, [debouncedSearch, filter, paged.page, paged.pageSize]);
 
   // Back to page 1 whenever the filters change, then fetch.
   const filterSig = `${debouncedSearch}|${filter}`;

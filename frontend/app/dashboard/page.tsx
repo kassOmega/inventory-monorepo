@@ -13,7 +13,7 @@ import { useAuth } from "@/context/AuthContext";
 import { variantLabel } from "@/lib/variantLabel";
 import api from "@/lib/api";
 import { useRouter } from "next/navigation";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import useDebouncedValue from "@/lib/useDebouncedValue";
 import { useTranslation } from "react-i18next";
 import {
@@ -68,6 +68,9 @@ export default function DashboardPage() {
   // data
   const [inventory, setInventory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  // True after the first load, so a search/category change refetches in place
+  // instead of blanking the whole dashboard.
+  const hasLoadedRef = useRef(false);
 
   const isOwner = user?.isSuperuser === true;
 
@@ -131,17 +134,21 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!user) return;
-    setLoading(true);
+    // Show the full-page loader only on the first load; a search/category change
+    // refetches in place so the dashboard never blanks while typing.
+    if (!hasLoadedRef.current) setLoading(true);
 
     if (isHospitality || isManufacturing || isService || isCarWash) {
       // Vertical dashboards render their own data — the location stock table is
       // retail-only, so don't request it.
       setLoading(false);
+      hasLoadedRef.current = true;
     } else if (isOwner || !canViewInventory) {
       // Owners (and anyone without `products.view`: platform admins, SERVICE
       // staff, unverified memberships) must not call the products endpoint.
       setInventory([]);
       setLoading(false);
+      hasLoadedRef.current = true;
     } else {
       api
         .get(
@@ -150,8 +157,12 @@ export default function DashboardPage() {
         .then((r) => {
           setInventory(r.data || []);
           setLoading(false);
+          hasLoadedRef.current = true;
         })
-        .catch(() => setLoading(false));
+        .catch(() => {
+          setLoading(false);
+          hasLoadedRef.current = true;
+        });
     }
   }, [
     user,

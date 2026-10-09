@@ -34,6 +34,9 @@ export default function CreditsPage() {
   const canBuyFromVendor = hasPermission("purchases.create");
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  // True once the first page of data has arrived; the full-page loader only
+  // shows before that, so filters/search never blank the page.
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [locations, setLocations] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   // Debounce the term that drives the request so typing doesn't refetch on every
@@ -64,7 +67,9 @@ export default function CreditsPage() {
   const creditPaged = useServerPaging({ pageSize: 20 });
 
   const fetchCustomers = async () => {
-    setLoading(true);
+    // Only blank the page for the very first load; later filter changes refetch
+    // in place so the list stays on screen (no full-page "refresh" per keystroke).
+    if (!hasLoaded) setLoading(true);
     try {
       const shopId = locationFilter || (isOwner ? "" : user?.locationId);
       const params = new URLSearchParams();
@@ -85,6 +90,7 @@ export default function CreditsPage() {
       );
     } finally {
       setLoading(false);
+      setHasLoaded(true);
     }
   };
 

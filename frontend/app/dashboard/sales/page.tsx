@@ -48,6 +48,9 @@ export default function SalesPage() {
   const [batchPreview, setBatchPreview] = useState<any>(null);
   const [batchPrinting, setBatchPrinting] = useState(false);
   const [loading, setLoading] = useState(true);
+  // True once the first page has loaded; later filter/search changes refetch in
+  // place (silent) so the page never blanks out on a keystroke.
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   // Sale type the next *new* sale opens with — chosen by the entry button that
@@ -131,6 +134,7 @@ export default function SalesPage() {
       if (body?.summary) setSummaryData(body.summary);
     } finally {
       if (!silent) setLoading(false);
+      setHasLoaded(true);
     }
   };
 
@@ -220,7 +224,9 @@ export default function SalesPage() {
         return;
       }
     }
-    fetchSales();
+    // First load shows the full-page loader; later filter/search changes refetch
+    // silently so the list stays on screen.
+    fetchSales(hasLoaded);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [salesFilterSig, salesPaged.page, salesPaged.pageSize]);
 

@@ -59,6 +59,8 @@ export default function ProductsPage() {
   const [qrProduct, setQrProduct] = useState<any>(null);
   const [tab, setTab] = useState<"products" | "categories">("products");
   const [loading, setLoading] = useState(true);
+  // True after the first load; later refetches stay in place (see fetchProducts).
+  const hasLoadedRef = useRef(false);
   const [detailProduct, setDetailProduct] = useState<any>(null);
   /** True while a label sheet is being built (Share/Download in the QR modal). */
   const [qrPdfBusy, setQrPdfBusy] = useState(false);
@@ -95,7 +97,9 @@ export default function ProductsPage() {
   }, [qrProduct]);
 
   const fetchProducts = async (silent = false) => {
-    if (!silent) setLoading(true);
+    // Blank the page only on the very first load; every later refetch (search,
+    // category, page, save, auto-refresh) stays in place.
+    if (!silent && !hasLoadedRef.current) setLoading(true);
     try {
       const res = await api.get(
         `/products?search=${debouncedSearch}&categoryId=${categoryFilter}&page=${paged.page}&pageSize=${paged.pageSize}`,
@@ -110,6 +114,7 @@ export default function ProductsPage() {
       // Always clear loading (silent fetches skip showing the spinner but still
       // must resolve the initial loading state).
       setLoading(false);
+      hasLoadedRef.current = true;
     }
   };
 
@@ -133,7 +138,7 @@ export default function ProductsPage() {
         return;
       }
     }
-    fetchProducts(true);
+    fetchProducts(hasLoadedRef.current);
     fetchCategories();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prodFilterSig, paged.page, paged.pageSize]);
@@ -233,7 +238,7 @@ export default function ProductsPage() {
     try {
       await api.delete(`/products/${p.id}`);
       toast.success(t("products.productDeleted"));
-      fetchProducts();
+      fetchProducts(true);
     } catch (err: any) {
       markHandled(err);
       toast.error(
@@ -756,7 +761,7 @@ export default function ProductsPage() {
         <ProductForm
           onProductCreated={() => {
             setShowAddModal(false);
-            fetchProducts();
+            fetchProducts(true);
             fetchCategories();
           }}
           onCancel={() => setShowAddModal(false)}
@@ -776,7 +781,7 @@ export default function ProductsPage() {
           onProductUpdated={() => {
             setShowEditModal(false);
             setEditing(null);
-            fetchProducts();
+            fetchProducts(true);
           }}
           onCancel={() => setShowEditModal(false)}
         />
