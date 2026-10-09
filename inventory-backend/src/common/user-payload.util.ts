@@ -40,7 +40,10 @@ interface UserForPayload {
   }>;
 }
 
-export function buildUserPayload(user: UserForPayload): JwtPayload {
+export function buildUserPayload(
+  user: UserForPayload,
+  activeOrganizationId?: number | null,
+): JwtPayload {
   const memberships = (user.memberships ?? []).map((m) => ({
     organizationId: m.organizationId,
     organizationName: m.organization.name,
@@ -57,10 +60,19 @@ export function buildUserPayload(user: UserForPayload): JwtPayload {
     verificationStatus: m.organization.verificationStatus ?? 'PENDING',
   }));
 
-  const active = memberships[0];
+  // The active membership is the requested tenant when given (business switch),
+  // otherwise the first membership (back-compat default).
+  const active = activeOrganizationId != null
+    ? (memberships.find((m) => m.organizationId === activeOrganizationId) ??
+      memberships[0])
+    : memberships[0];
+
+  const activeMembership = activeOrganizationId != null
+    ? user.memberships?.find((m) => m.organizationId === activeOrganizationId)
+    : user.memberships?.[0];
 
   const permissions =
-    (active ? user.memberships?.[0]?.role?.permissions?.map((p) => p.permission.key) : undefined) ??
+    activeMembership?.role?.permissions?.map((p) => p.permission.key) ??
     user.role?.permissions?.map((p) => p.permission.key) ??
     [];
 

@@ -157,6 +157,18 @@ export default function ReportsPage() {
   useEffect(() => {
     const query = `search=${search}&categoryId=${category}&locationId=${location}&startDate=${startDate}&endDate=${endDate}`;
 
+    // Audit trail is available to every business type (CAR_WASH included), so it
+    // is handled before the retail-only branches below.
+    if (tab === "audit-trail" && canViewFull) {
+      const aq = new URLSearchParams({
+        ...(startDate ? { startDate } : {}),
+        ...(endDate ? { endDate } : {}),
+        ...(search ? { search } : {}),
+      });
+      api.get(`/reports/audit-trail?${aq.toString()}`).then((r) => setAuditTrail(r.data));
+      return;
+    }
+
     // CAR_WASH surfaces its report body via /carwash/reports/breakdown, so none
     // of the retail report endpoints should fire for it.
     if (isCarWash) return;
@@ -171,13 +183,6 @@ export default function ReportsPage() {
       api.get(`/reports/low-stock?${query}`).then((r) => setLowStock(r.data));
     } else if (tab === "dead-stock") {
       api.get(`/reports/dead-stock?${query}`).then((r) => setDeadStock(r.data));
-    } else if (tab === "audit-trail" && canViewFull) {
-      const aq = new URLSearchParams({
-        ...(startDate ? { startDate } : {}),
-        ...(endDate ? { endDate } : {}),
-        ...(search ? { search } : {}),
-      });
-      api.get(`/reports/audit-trail?${aq.toString()}`).then((r) => setAuditTrail(r.data));
     }
   }, [tab, search, category, location, startDate, endDate, canViewFull, isCarWash]);
 
@@ -577,7 +582,7 @@ export default function ReportsPage() {
                               </tr>
                             </thead>
                             <tbody>
-                              {r.variants.map((vr: any, vIdx: number) => (
+                              {(r.variants ?? []).map((vr: any, vIdx: number) => (
                                 <tr
                                   key={vIdx}
                                   className="border-t border-gray-200"
@@ -754,7 +759,7 @@ export default function ReportsPage() {
                               </tr>
                             </thead>
                             <tbody>
-                              {r.variants.map((vr: any, vIdx: number) => (
+                              {(r.variants ?? []).map((vr: any, vIdx: number) => (
                                 <tr
                                   key={vIdx}
                                   className="border-t border-gray-200"
@@ -873,7 +878,7 @@ export default function ReportsPage() {
                               </tr>
                             </thead>
                             <tbody>
-                              {r.variants.map((vr: any, vIdx: number) => (
+                              {(r.variants ?? []).map((vr: any, vIdx: number) => (
                                 <tr
                                   key={vIdx}
                                   className="border-t border-gray-200"

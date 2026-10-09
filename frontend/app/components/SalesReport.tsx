@@ -42,9 +42,9 @@ export default function SalesReport({ startDate, endDate, categoryId, locationId
       api.get(`/reports/unified-stats?startDate=${startDate}&endDate=${endDate}&locationId=${locationId}&categoryId=${categoryId}&search=${search}`).catch(() => ({ data: null })),
     ]).then(([s, t, m, p, u]) => {
       setSummary(s.data);
-      setTrend(t.data);
-      setMostSold(m.data);
-      setPaymentBreakdown(p.data);
+      setTrend(Array.isArray(t.data) ? t.data : []);
+      setMostSold(Array.isArray(m.data) ? m.data : []);
+      setPaymentBreakdown(Array.isArray(p.data) ? p.data : []);
       setUnified(u.data);
     }).finally(() => setLoading(false));
   }, [startDate, endDate, categoryId, locationId, search]);

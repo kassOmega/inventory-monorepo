@@ -221,13 +221,13 @@ export default function CarWashReport({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {data.washerEarnings.map((w: any) => (
+                  {(data.washerEarnings ?? []).map((w: any) => (
                     <tr key={w.washerId}>
                       <td className="px-4 py-2 font-medium whitespace-nowrap">{w.name}</td>
                       <td className="px-4 py-2 text-right whitespace-nowrap">{(w.commission ?? 0).toFixed(2)}</td>
                     </tr>
                   ))}
-                  {data.washerEarnings.length === 0 && <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-400">{t("carwash.noWashers")}</td></tr>}
+                  {(data.washerEarnings ?? []).length === 0 && <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-400">{t("carwash.noWashers")}</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -244,13 +244,13 @@ export default function CarWashReport({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {data.popularItems.map((p: any) => (
+                  {(data.popularItems ?? []).map((p: any) => (
                     <tr key={p.id}>
                       <td className="px-4 py-2 font-medium whitespace-nowrap">{p.name}</td>
                       <td className="px-4 py-2 text-right whitespace-nowrap">{p.quantity}</td>
                     </tr>
                   ))}
-                  {data.popularItems.length === 0 && <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-400">{t("carwash.noEquipment")}</td></tr>}
+                  {(data.popularItems ?? []).length === 0 && <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-400">{t("carwash.noEquipment")}</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -267,13 +267,13 @@ export default function CarWashReport({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {data.paidEquipmentByWasher.map((w: any) => (
+                  {(data.paidEquipmentByWasher ?? []).map((w: any) => (
                     <tr key={w.washerId}>
                       <td className="px-4 py-2 font-medium whitespace-nowrap">{w.name}</td>
                       <td className="px-4 py-2 text-right whitespace-nowrap">{(w.total ?? 0).toFixed(2)}</td>
                     </tr>
                   ))}
-                  {data.paidEquipmentByWasher.length === 0 && <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-400">{t("carwash.noEquipment")}</td></tr>}
+                  {(data.paidEquipmentByWasher ?? []).length === 0 && <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-400">{t("carwash.noEquipment")}</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -290,13 +290,13 @@ export default function CarWashReport({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {data.unpaidEquipmentByWasher.map((w: any) => (
+                  {(data.unpaidEquipmentByWasher ?? []).map((w: any) => (
                     <tr key={w.washerId}>
                       <td className="px-4 py-2 font-medium whitespace-nowrap">{w.name}</td>
                       <td className="px-4 py-2 text-right whitespace-nowrap">{(w.total ?? 0).toFixed(2)}</td>
                     </tr>
                   ))}
-                  {data.unpaidEquipmentByWasher.length === 0 && <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-400">{t("carwash.noEquipment")}</td></tr>}
+                  {(data.unpaidEquipmentByWasher ?? []).length === 0 && <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-400">{t("carwash.noEquipment")}</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -315,14 +315,14 @@ export default function CarWashReport({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {data.lowStockItems.map((p: any) => (
+                {(data.lowStockItems ?? []).map((p: any) => (
                   <tr key={p.id}>
                     <td className="px-4 py-2 font-medium whitespace-nowrap">{p.name}</td>
                     <td className="px-4 py-2 text-red-600 font-semibold whitespace-nowrap">{p.stock}</td>
                     <td className="px-4 py-2 whitespace-nowrap">{p.minimumStock}</td>
                   </tr>
                 ))}
-                {data.lowStockItems.length === 0 && <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-400">{t("carwash.noEquipment")}</td></tr>}
+                {(data.lowStockItems ?? []).length === 0 && <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-400">{t("carwash.noEquipment")}</td></tr>}
               </tbody>
             </table>
           </div>

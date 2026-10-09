@@ -62,7 +62,59 @@ export class TenantGuard implements CanActivate {
     }
 
     req.tenantId = tenantId;
+
+    // The JWT payload's `permissions`/`roleName`/`businessType`/`isSuperuser` are
+    // derived from the user's FIRST membership, so switching to another business
+    // would otherwise keep the wrong permission set (menu, guards and per-detail
+    // redaction all key on `req.user.permissions`). Re-scope them to the active
+    // tenant's membership — never merging across organizations.
+    //
+    // The JwtStrategy caches and reuses the SAME payload object across requests
+    // for up to 10s, so we must NOT mutate it in place; we attach a shallow clone
+    // to this request instead.
+    if (tenantId != null && user.organizationId !== tenantId) {
+      const scoped = await this.scopeUserToTenant(user, tenantId);
+      if (scoped) req.user = scoped;
+    }
+
     return true;
+  }
+
+  /**
+   * Return a COPY of the request user with its tenant-derived fields replaced by
+   * the active org's membership (role, permissions, business type). Returns null
+   * when the user has no membership in the active tenant (other guards enforce
+   * membership), leaving the payload untouched.
+   */
+  private async scopeUserToTenant(
+    user: JwtPayload,
+    tenantId: number,
+  ): Promise<JwtPayload | null> {
+    const membership = await this.prisma.membership.findUnique({
+      where: {
+        userId_organizationId: { userId: user.sub, organizationId: tenantId },
+      },
+      include: {
+        organization: { select: { businessType: true } },
+        role: {
+          include: { permissions: { include: { permission: true } } },
+        },
+      },
+    });
+    if (!membership) return null;
+
+    return {
+      ...user,
+      organizationId: tenantId,
+      businessType:
+        membership.organization?.businessType ?? user.businessType,
+      roleId: membership.roleId ?? null,
+      roleName: membership.role?.name ?? null,
+      // System (owner) roles bypass permission checks; mirror the payload logic.
+      isSuperuser: membership.role?.isSystem ?? false,
+      permissions:
+        membership.role?.permissions?.map((p) => p.permission.key) ?? [],
+    };
   }
 
   private parseTenantHeader(value: unknown): number | null {

@@ -177,6 +177,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setActiveOrganizationId(organizationId);
     localStorage.setItem(ORG_STORAGE_KEY, String(organizationId));
+    // Re-fetch /auth/me WITH the new X-Tenant-Id so `permissions`/`roleName`/
+    // `businessType` reflect the active business (the backend scopes them to the
+    // active tenant). Without this the sidebar and page gates keep the previous
+    // business's permission set.
+    refreshUser().catch(() => undefined);
     // Force a refresh so views pick up the new tenant context.
     router.refresh();
   };

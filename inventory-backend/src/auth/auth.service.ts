@@ -409,7 +409,7 @@ export class AuthService {
     return { ...user, isWasher, emailEditable: !isWasher };
   }
 
-  async getMe(userId: number) {
+  async getMe(userId: number, activeOrganizationId?: number | null) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -425,7 +425,9 @@ export class AuthService {
     });
     if (!user) throw new UnauthorizedException(tr('errors.userNotFound'));
 
-    const payload = await this.enrichStaffCounts(buildUserPayload(user));
+    const payload = await this.enrichStaffCounts(
+      buildUserPayload(user, activeOrganizationId),
+    );
 
     return {
       id: user.id,

@@ -110,7 +110,9 @@ export function NumericTable({
   money,
 }: NumericTableProps) {
   const { t } = useTranslation();
-  if (rows.length === 0) {
+  // Defensive: a caller passing an omitted/redacted list must not crash.
+  const data = Array.isArray(rows) ? rows : [];
+  if (data.length === 0) {
     return (
       <p className="text-sm text-gray-400 py-6 text-center">
         {emptyLabel ?? t("common.noResults")}
@@ -118,7 +120,7 @@ export function NumericTable({
     );
   }
   const shareTotal = shareKey
-    ? rows.reduce((s, r) => s + (Number(r[shareKey]) || 0), 0)
+    ? data.reduce((s, r) => s + (Number(r?.[shareKey]) || 0), 0)
     : 0;
 
   const render = (value: any, col: Column) => {
@@ -152,7 +154,7 @@ export function NumericTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, i) => (
+          {data.map((row, i) => (
             <tr key={i} className="border-b last:border-0">
               {columns.map((c) => (
                 <td

@@ -79,7 +79,10 @@ export class AuthController {
 
   @Get('me')
   getMe(@Req() req: RequestWithUser) {
-    return this.authService.getMe(req.user.sub);
+    return this.authService.getMe(
+      req.user.sub,
+      req.tenantId ?? req.user.organizationId ?? null,
+    );
   }
 
   @Put('profile')
