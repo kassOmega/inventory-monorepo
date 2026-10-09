@@ -3490,8 +3490,10 @@ enum CarWashBookingStatus {
 }
 
 enum CarWashStatus {
+  QUEUED
   IN_PROGRESS
   COMPLETED
+  SETTLED
 }
 
 model CarWashWasher {
@@ -3644,9 +3646,13 @@ model CarWash {
   washTypeId         Int?
   washType           CarWashWashType? @relation(fields: [washTypeId], references: [id], onDelete: SetNull)
   amount             Float           @default(0)
-  status             CarWashStatus   @default(IN_PROGRESS)
+  status             CarWashStatus   @default(QUEUED)
+  queueNumber        Int?
   date               DateTime        @default(now())
+  queuedAt           DateTime?
+  startedAt          DateTime?
   completedAt        DateTime?
+  settledAt          DateTime?
   notes              String?
   plateNumber        String?
   makeModel          String?

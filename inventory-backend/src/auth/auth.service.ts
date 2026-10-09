@@ -383,21 +383,30 @@ export class AuthService {
   }
 
   async getProfile(userId: number) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        roleId: true,
-        role: { select: { id: true, name: true, isSystem: true } },
-        locationId: true,
-        location: true,
-      },
-    });
+    const [user, washer] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          roleId: true,
+          role: { select: { id: true, name: true, isSystem: true } },
+          locationId: true,
+          location: true,
+        },
+      }),
+      this.prisma.carWashWasher.findFirst({
+        where: { userId },
+        select: { id: true },
+      }),
+    ]);
     if (!user) throw new UnauthorizedException(tr('errors.userNotFound'));
-    return user;
+    // A washer may edit only their phone/name (email is the owner-controlled
+    // login id) and may change their own password. The UI keys on `isWasher`.
+    const isWasher = !!washer;
+    return { ...user, isWasher, emailEditable: !isWasher };
   }
 
   async getMe(userId: number) {
@@ -450,7 +459,15 @@ export class AuthService {
       preferredLanguage?: 'en' | 'am';
     },
   ) {
-    if (data.email) {
+    // A washer may edit their own name/phone but NOT their login email (it is
+    // the account identifier the owner controls). Owners/staff keep full edit.
+    const washer = await this.prisma.carWashWasher.findFirst({
+      where: { userId },
+      select: { id: true },
+    });
+    const emailLocked = !!washer;
+
+    if (data.email && !emailLocked) {
       const existing = await this.prisma.user.findUnique({
         where: { email: data.email },
       });
@@ -461,7 +478,7 @@ export class AuthService {
 
     const updateData: Record<string, unknown> = {};
     if (data.name !== undefined) updateData.name = data.name;
-    if (data.email !== undefined) updateData.email = data.email;
+    if (data.email !== undefined && !emailLocked) updateData.email = data.email;
     if (data.phone !== undefined) updateData.phone = normalizePhone(data.phone);
     if (data.preferredLanguage !== undefined) {
       updateData.preferredLanguage = data.preferredLanguage;
@@ -487,10 +504,17 @@ export class AuthService {
     currentPassword: string,
     newPassword: string,
   ) {
+    // Owners (superusers) may change their own password. Washers may too, so
+    // staff can rotate their own credentials without the owner. Anyone else is
+    // rejected (their password is managed by the business owner).
     if (!caller.isSuperuser) {
-      throw new ForbiddenException(
-        tr('errors.onlyOwnerCanChangePassword'),
-      );
+      const washer = await this.prisma.carWashWasher.findFirst({
+        where: { userId: caller.sub },
+        select: { id: true },
+      });
+      if (!washer) {
+        throw new ForbiddenException(tr('errors.onlyOwnerCanChangePassword'));
+      }
     }
 
     const user = await this.prisma.user.findUnique({

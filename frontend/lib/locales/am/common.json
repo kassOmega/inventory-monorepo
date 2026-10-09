@@ -1287,7 +1287,18 @@
     "collected": "የተሰበሰበ",
     "gap": "ቀሪ",
     "noGap": "የሚሰበሰብ የለም",
-    "needVehicle": "ቢያንስ አንድ ተሽከርካሪ ያክሉ"
+    "needVehicle": "ቢያንስ አንድ ተሽከርካሪ ያክሉ",
+    "status_QUEUED": "ሰልፍ",
+    "status_IN_PROGRESS": "እየታጠበ",
+    "status_COMPLETED": "ታጥቧል",
+    "status_SETTLED": "ተጠናቋል",
+    "queueNumber": "የሰልፍ ቁጥር",
+    "statusTimeline": "የሁኔታ የጊዜ መስመር",
+    "advanceStatus": "ሁኔታ ቀይር",
+    "actionStartWashing": "ማጠብ ጀምር",
+    "actionWashed": "ታጥቧል",
+    "actionPaid": "ተከፍሏል",
+    "actionWashedAndPaid": "ታጥቦ ተከፍሏል"
   },
   "verticals": {
     "retail": "ችርቻሮ እና ስርጭት",

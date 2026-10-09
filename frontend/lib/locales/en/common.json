@@ -1287,7 +1287,18 @@
     "collected": "Collected",
     "gap": "Outstanding",
     "noGap": "Nothing to collect",
-    "needVehicle": "Add at least one vehicle"
+    "needVehicle": "Add at least one vehicle",
+    "status_QUEUED": "Queue",
+    "status_IN_PROGRESS": "Washing",
+    "status_COMPLETED": "Washed",
+    "status_SETTLED": "Complete",
+    "queueNumber": "Queue number",
+    "statusTimeline": "Status timeline",
+    "advanceStatus": "Advance status",
+    "actionStartWashing": "Start washing",
+    "actionWashed": "Washed",
+    "actionPaid": "Paid",
+    "actionWashedAndPaid": "Washed & paid"
   },
   "verticals": {
     "retail": "Retail & Distribution",

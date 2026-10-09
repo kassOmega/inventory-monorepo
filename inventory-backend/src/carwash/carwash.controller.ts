@@ -68,14 +68,14 @@ export class CarWashController {
   // -------------------------------------------------------------------------
   @Get('washers')
   @Permissions('carwash.washers.view')
-  listWashers() {
-    return this.carwash.listWashers();
+  listWashers(@Query('activeOnly') activeOnly?: string) {
+    return this.carwash.listWashers(activeOnly === '1' || activeOnly === 'true');
   }
 
   @Post('washers')
   @Permissions('carwash.washers.create')
-  createWasher(@Body() dto: CreateWasherDto) {
-    return this.carwash.createWasher(dto);
+  createWasher(@Body() dto: CreateWasherDto, @Req() req: RequestWithUser) {
+    return this.carwash.createWasher(dto, req.user.sub);
   }
 
   @Patch('washers/:id')
@@ -83,14 +83,15 @@ export class CarWashController {
   updateWasher(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateWasherDto,
+    @Req() req: RequestWithUser,
   ) {
-    return this.carwash.updateWasher(id, dto);
+    return this.carwash.updateWasher(id, dto, req.user.sub);
   }
 
   @Delete('washers/:id')
   @Permissions('carwash.washers.delete')
-  deleteWasher(@Param('id', ParseIntPipe) id: number) {
-    return this.carwash.deleteWasher(id);
+  deleteWasher(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
+    return this.carwash.deleteWasher(id, req.user.sub);
   }
 
   // -------------------------------------------------------------------------
@@ -104,14 +105,24 @@ export class CarWashController {
 
   @Post('prices')
   @Permissions('carwash.prices.create', 'carwash.prices.edit')
-  upsertPrice(@Body() dto: UpsertPriceDto) {
-    return this.carwash.upsertPrice(dto);
+  upsertPrice(@Body() dto: UpsertPriceDto, @Req() req: RequestWithUser) {
+    return this.carwash.upsertPrice(dto, req.user.sub);
+  }
+
+  @Patch('prices/:id')
+  @Permissions('carwash.prices.create', 'carwash.prices.edit')
+  updatePrice(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpsertPriceDto,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.carwash.updatePrice(id, dto, req.user.sub);
   }
 
   @Delete('prices/:id')
   @Permissions('carwash.prices.delete')
-  deletePrice(@Param('id', ParseIntPipe) id: number) {
-    return this.carwash.deletePrice(id);
+  deletePrice(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
+    return this.carwash.deletePrice(id, req.user.sub);
   }
 
   // -------------------------------------------------------------------------
@@ -243,8 +254,8 @@ export class CarWashController {
 
   @Post('bookings')
   @Permissions('carwash.bookings.create')
-  createBooking(@Body() dto: CreateBookingDto) {
-    return this.carwash.createBooking(dto);
+  createBooking(@Body() dto: CreateBookingDto, @Req() req: RequestWithUser) {
+    return this.carwash.createBooking(dto, req.user.sub);
   }
 
   @Patch('bookings/:id/status')
@@ -252,14 +263,15 @@ export class CarWashController {
   updateBookingStatus(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateBookingStatusDto,
+    @Req() req: RequestWithUser,
   ) {
-    return this.carwash.updateBookingStatus(id, dto.status);
+    return this.carwash.updateBookingStatus(id, dto.status, req.user.sub);
   }
 
   @Delete('bookings/:id')
   @Permissions('carwash.bookings.delete')
-  deleteBooking(@Param('id', ParseIntPipe) id: number) {
-    return this.carwash.deleteBooking(id);
+  deleteBooking(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
+    return this.carwash.deleteBooking(id, req.user.sub);
   }
 
   // -------------------------------------------------------------------------
@@ -286,16 +298,28 @@ export class CarWashController {
     return this.carwash.createWash(dto, req.user.sub);
   }
 
+  @Patch('washes/:id/start')
+  @Permissions('carwash.washes.edit')
+  startWash(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
+    return this.carwash.startWash(id, req.user.sub);
+  }
+
   @Patch('washes/:id/complete')
   @Permissions('carwash.washes.edit')
-  completeWash(@Param('id', ParseIntPipe) id: number) {
-    return this.carwash.completeWash(id);
+  completeWash(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
+    return this.carwash.completeWash(id, req.user.sub);
+  }
+
+  @Patch('washes/:id/settle')
+  @Permissions('carwash.washes.edit')
+  settleWash(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
+    return this.carwash.settleWash(id, req.user.sub);
   }
 
   @Delete('washes/:id')
   @Permissions('carwash.washes.delete')
-  deleteWash(@Param('id', ParseIntPipe) id: number) {
-    return this.carwash.deleteWash(id);
+  deleteWash(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
+    return this.carwash.deleteWash(id, req.user.sub);
   }
 
   @Get('commissions')
@@ -389,8 +413,8 @@ export class CarWashController {
 
   @Post('equipment-issues')
   @Permissions('carwash.equipment.issue')
-  issueEquipment(@Body() dto: IssueEquipmentDto) {
-    return this.carwash.issueEquipment(dto);
+  issueEquipment(@Body() dto: IssueEquipmentDto, @Req() req: RequestWithUser) {
+    return this.carwash.issueEquipment(dto, req.user.sub);
   }
 
   @Patch('equipment-issues/:id/pay')
@@ -398,14 +422,15 @@ export class CarWashController {
   markEquipmentIssuePaid(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: PayEquipmentIssueDto,
+    @Req() req: RequestWithUser,
   ) {
-    return this.carwash.markEquipmentIssuePaid(id, dto.isPaid);
+    return this.carwash.markEquipmentIssuePaid(id, dto.isPaid, req.user.sub);
   }
 
   @Delete('equipment-issues/:id')
   @Permissions('carwash.equipment.delete')
-  deleteEquipmentIssue(@Param('id', ParseIntPipe) id: number) {
-    return this.carwash.deleteEquipmentIssue(id);
+  deleteEquipmentIssue(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
+    return this.carwash.deleteEquipmentIssue(id, req.user.sub);
   }
 
   // -------------------------------------------------------------------------
@@ -436,14 +461,15 @@ export class CarWashController {
   updateExpense(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateCarWashExpenseDto,
+    @Req() req: RequestWithUser,
   ) {
-    return this.carwash.updateExpense(id, dto);
+    return this.carwash.updateExpense(id, dto, req.user.sub);
   }
 
   @Delete('expenses/:id')
   @Permissions('carwash.expenses.delete')
-  deleteExpense(@Param('id', ParseIntPipe) id: number) {
-    return this.carwash.deleteExpense(id);
+  deleteExpense(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
+    return this.carwash.deleteExpense(id, req.user.sub);
   }
 
   // -------------------------------------------------------------------------
@@ -489,7 +515,7 @@ export class CarWashController {
 
   @Patch('settings')
   @Permissions('carwash.settings.edit')
-  updateSettings(@Body() dto: UpdateSettingsDto) {
-    return this.carwash.updateSettings(dto.slotMinutes);
+  updateSettings(@Body() dto: UpdateSettingsDto, @Req() req: RequestWithUser) {
+    return this.carwash.updateSettings(dto.slotMinutes, req.user.sub);
   }
 }

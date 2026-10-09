@@ -79,7 +79,7 @@ export default function CarWashDashboard() {
 
   useEffect(() => {
     if (canViewWashers) {
-      api.get("/carwash/washers").then((r) => setWashers(r.data)).catch(() => undefined);
+      api.get("/carwash/washers?activeOnly=1").then((r) => setWashers(r.data)).catch(() => undefined);
     }
     // Wash types are gated by carwash.prices.view (washers lack it) — only fetch
     // when allowed so the washer dashboard never fires a 403.

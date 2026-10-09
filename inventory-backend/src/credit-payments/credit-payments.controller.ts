@@ -1,4 +1,5 @@
-import { Controller, Post, Put, Delete, Body, Param } from '@nestjs/common';
+import { Controller, Post, Put, Delete, Body, Param, Req } from '@nestjs/common';
+import { RequestWithUser } from '../common/interfaces/request-with-user.interface';
 import { CreditPaymentsService } from './credit-payments.service';
 import {
   CreateCreditPaymentDto,
@@ -10,20 +11,28 @@ export class CreditPaymentsController {
   constructor(private readonly svc: CreditPaymentsService) {}
 
   @Post()
-  create(@Body() body: CreateCreditPaymentDto) {
-    return this.svc.create(body);
+  create(@Body() body: CreateCreditPaymentDto, @Req() req: RequestWithUser) {
+    return this.svc.create({ ...body, actorId: req.user.sub });
   }
 
   @Put(':id')
   async update(
     @Param('id') ref: string,
     @Body() body: UpdateCreditPaymentDto,
+    @Req() req: RequestWithUser,
   ) {
-    return this.svc.update(await this.svc.resolveCreditPaymentId(ref), body);
+    return this.svc.update(
+      await this.svc.resolveCreditPaymentId(ref),
+      body,
+      req.user.sub,
+    );
   }
 
   @Delete(':id')
-  async remove(@Param('id') ref: string) {
-    return this.svc.remove(await this.svc.resolveCreditPaymentId(ref));
+  async remove(@Param('id') ref: string, @Req() req: RequestWithUser) {
+    return this.svc.remove(
+      await this.svc.resolveCreditPaymentId(ref),
+      req.user.sub,
+    );
   }
 }

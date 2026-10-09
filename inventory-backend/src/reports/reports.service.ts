@@ -1744,8 +1744,31 @@ export class ReportsService {
   // Audit
   // =========================================================================
 
-  async getAuditTrail(): Promise<AuditLogResponse[]> {
+  async getAuditTrail(filters?: {
+    startDate?: string;
+    endDate?: string;
+    action?: string;
+    search?: string;
+  }): Promise<AuditLogResponse[]> {
+    const where: Prisma.AuditLogWhereInput = {};
+    if (filters?.startDate || filters?.endDate) {
+      where.createdAt = {
+        ...(filters.startDate ? { gte: new Date(filters.startDate) } : {}),
+        ...(filters.endDate
+          ? { lte: new Date(new Date(filters.endDate).setHours(23, 59, 59, 999)) }
+          : {}),
+      };
+    }
+    if (filters?.action) where.action = filters.action;
+    if (filters?.search) {
+      where.OR = [
+        { action: { contains: filters.search, mode: 'insensitive' } },
+        { details: { contains: filters.search, mode: 'insensitive' } },
+      ];
+    }
+
     const logs = await this.prisma.auditLog.findMany({
+      where,
       include: {
         user: { select: { id: true, email: true, name: true } },
       },
@@ -1759,11 +1782,10 @@ export class ReportsService {
       action: log.action,
       details: log.details,
       createdAt: log.createdAt,
-      user: {
-        id: log.user.id,
-        email: log.user.email,
-        name: log.user.name,
-      },
+      // Null-safe: a deleted user must not crash the trail.
+      user: log.user
+        ? { id: log.user.id, email: log.user.email, name: log.user.name }
+        : { id: 0, email: '', name: 'System' },
     }));
   }
 

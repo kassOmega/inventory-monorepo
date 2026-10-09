@@ -172,7 +172,12 @@ export default function ReportsPage() {
     } else if (tab === "dead-stock") {
       api.get(`/reports/dead-stock?${query}`).then((r) => setDeadStock(r.data));
     } else if (tab === "audit-trail" && canViewFull) {
-      api.get("/reports/audit-trail").then((r) => setAuditTrail(r.data));
+      const aq = new URLSearchParams({
+        ...(startDate ? { startDate } : {}),
+        ...(endDate ? { endDate } : {}),
+        ...(search ? { search } : {}),
+      });
+      api.get(`/reports/audit-trail?${aq.toString()}`).then((r) => setAuditTrail(r.data));
     }
   }, [tab, search, category, location, startDate, endDate, canViewFull, isCarWash]);
 
@@ -914,7 +919,20 @@ export default function ReportsPage() {
 
       {/* AUDIT TRAIL */}
       {tab === "audit-trail" && canViewFull && (
-        <div className="bg-white rounded-xl shadow-sm border overflow-x-auto">
+        <>
+          <FilterPanel
+            showDateFilter
+            datePreset={datePreset}
+            onDatePresetChange={setDatePreset}
+            startDate={startDate}
+            onStartDateChange={setStartDate}
+            endDate={endDate}
+            onEndDateChange={setEndDate}
+            search={search}
+            onSearchChange={setSearch}
+            searchPlaceholder={t("reports.details")}
+          />
+          <div className="bg-white rounded-xl shadow-sm border overflow-x-auto">
           <table className="w-full text-left min-w-[500px] sm:min-w-[600px] text-xs sm:text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
@@ -950,7 +968,8 @@ export default function ReportsPage() {
               )}
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
 
       {/* Quick Request Modal */}

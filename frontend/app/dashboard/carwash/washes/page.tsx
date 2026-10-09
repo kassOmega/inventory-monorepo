@@ -21,7 +21,6 @@ export default function CarWashWashesPage() {
   const [prices, setPrices] = useState<any[]>([]);
   const [form, setForm] = useState({ washerId: "", participantIds: [] as number[], customerId: "", vehicleType: "", washTypeId: "", amount: "", notes: "", plateNumber: "", makeModel: "" });
   const [open, setOpen] = useState(false);
-  const [lastCommission, setLastCommission] = useState<{ ownerShare: number; totalCommission: number } | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [washerId, setWasherId] = useState("");
@@ -33,6 +32,7 @@ export default function CarWashWashesPage() {
   const [aiDetected, setAiDetected] = useState<string | null>(null);
   const [customers, setCustomers] = useState<any[]>([]);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [detail, setDetail] = useState<any | null>(null);
   const [error, setError] = useState("");
 
   const canCreate = hasPermission("carwash.washes.create");
@@ -49,7 +49,7 @@ export default function CarWashWashesPage() {
       });
       const [w, list, wt, pr, vt] = await Promise.all([
         api.get(`/carwash/washes?${q.toString()}`),
-        api.get("/carwash/washers"),
+        api.get("/carwash/washers?activeOnly=1"),
         api.get("/carwash/wash-types"),
         api.get("/carwash/prices"),
         api.get("/carwash/vehicle-types"),
@@ -134,7 +134,7 @@ export default function CarWashWashesPage() {
     e.preventDefault();
     setError("");
     try {
-      const r = await api.post("/carwash/washes", {
+      await api.post("/carwash/washes", {
         customerId: form.customerId ? Number(form.customerId) : null,
         washerId: form.washerId ? Number(form.washerId) : null,
         participantWasherIds: form.participantIds,
@@ -145,7 +145,6 @@ export default function CarWashWashesPage() {
         plateNumber: form.plateNumber.trim() || undefined,
         makeModel: form.makeModel.trim() || undefined,
       });
-      setLastCommission({ ownerShare: r.data.ownerShare, totalCommission: r.data.totalCommission });
       setOpen(false);
       setForm(initialForm());
       await load();
@@ -154,14 +153,45 @@ export default function CarWashWashesPage() {
     }
   };
 
-  const complete = async (id: number) => {
+  // Advance the wash to its next status: QUEUED → IN_PROGRESS → COMPLETED →
+  // SETTLED. Called from the clickable status cell.
+  // Status flow: QUEUED → Washing → Washed → Complete. Each stage has one
+  // clear action; from "Washed" both "Paid" and "Washed & Paid" land on the
+  // final "Complete" status, after which no action is offered.
+  const runAction = async (w: any, action: string, next: string) => {
     setError("");
     try {
-      await api.patch(`/carwash/washes/${id}/complete`);
+      await api.patch(`/carwash/washes/${w.id}/${action}`);
       await load();
+      setDetail((d: any) => (d && d.id === w.id ? { ...d, status: next } : d));
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
     }
+  };
+
+  const statusLabel = (s: string) => t(`carwash.status_${s}`, { defaultValue: s });
+  const statusClass = (s: string) =>
+    s === "SETTLED"
+      ? "bg-emerald-100 text-emerald-700"
+      : s === "COMPLETED"
+        ? "bg-green-100 text-green-700"
+        : s === "IN_PROGRESS"
+          ? "bg-blue-100 text-blue-700"
+          : "bg-amber-100 text-amber-700";
+
+  /** The action buttons for a wash, by current status. Empty when Complete. */
+  const statusActions = (w: any) => {
+    if (!canEdit) return [];
+    if (w.status === "QUEUED")
+      return [{ label: t("carwash.actionStartWashing"), run: () => runAction(w, "start", "IN_PROGRESS") }];
+    if (w.status === "IN_PROGRESS")
+      return [{ label: t("carwash.actionWashed"), run: () => runAction(w, "complete", "COMPLETED") }];
+    if (w.status === "COMPLETED")
+      return [
+        { label: t("carwash.actionPaid"), run: () => runAction(w, "settle", "SETTLED") },
+        { label: t("carwash.actionWashedAndPaid"), run: () => runAction(w, "settle", "SETTLED") },
+      ];
+    return [];
   };
 
   const remove = async (id: number) => {
@@ -191,6 +221,14 @@ export default function CarWashWashesPage() {
     return matchesSearch && matchesStatus && matchesWasher && matchesWashType;
   });
 
+  // Status totals for the current (filtered) list: queue / washing / washed / paid.
+  const counts = {
+    QUEUED: filtered.filter((w) => w.status === "QUEUED").length,
+    IN_PROGRESS: filtered.filter((w) => w.status === "IN_PROGRESS").length,
+    COMPLETED: filtered.filter((w) => w.status === "COMPLETED").length,
+    SETTLED: filtered.filter((w) => w.status === "SETTLED").length,
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -202,11 +240,23 @@ export default function CarWashWashesPage() {
         )}
       </div>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
-      {lastCommission && (
-        <div className="bg-green-50 text-green-700 p-3 rounded text-sm">
-          {t("carwash.washRecorded")} — {t("carwash.totalCommission")} {lastCommission.totalCommission.toLocaleString()}, {t("carwash.ownerShare")} {lastCommission.ownerShare.toLocaleString()}.
-        </div>
-      )}
+
+      {/* Status totals */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {([
+          ["QUEUED", "bg-amber-100 text-amber-700"],
+          ["IN_PROGRESS", "bg-blue-100 text-blue-700"],
+          ["COMPLETED", "bg-green-100 text-green-700"],
+          ["SETTLED", "bg-emerald-100 text-emerald-700"],
+        ] as const).map(([key, cls]) => (
+          <div key={key} className="bg-white p-4 rounded-lg border border-gray-200">
+            <p className="text-xs text-gray-500">{t(`carwash.status_${key}`)}</p>
+            <p className="mt-1">
+              <span className={`text-xl font-bold px-2 py-0.5 rounded ${cls}`}>{counts[key]}</span>
+            </p>
+          </div>
+        ))}
+      </div>
 
       <FilterPanel
         showDateFilter
@@ -241,8 +291,10 @@ export default function CarWashWashesPage() {
               label={t("carwash.status")}
               allLabel={t("carwash.allStatus")}
               options={[
-                { value: "IN_PROGRESS", label: "IN_PROGRESS" },
-                { value: "COMPLETED", label: "COMPLETED" },
+                { value: "QUEUED", label: t("carwash.status_QUEUED") },
+                { value: "IN_PROGRESS", label: t("carwash.status_IN_PROGRESS") },
+                { value: "COMPLETED", label: t("carwash.status_COMPLETED") },
+                { value: "SETTLED", label: t("carwash.status_SETTLED") },
               ]}
             />
           </>
@@ -254,35 +306,133 @@ export default function CarWashWashesPage() {
           <thead className="bg-gray-50 text-left text-xs text-gray-500">
             <tr>
               <th className="px-4 py-2 whitespace-nowrap">{t("carwash.date")}</th>
-              <th className="px-4 py-2 whitespace-nowrap">{t("carwash.type")}</th>
-              <th className="px-4 py-2 whitespace-nowrap">{t("carwash.washType")}</th>
               <th className="px-4 py-2 whitespace-nowrap">{t("carwash.plateNumber")}</th>
               <th className="px-4 py-2 whitespace-nowrap">{t("carwash.washersLabel")}</th>
               <th className="px-4 py-2 whitespace-nowrap">{t("carwash.amount")}</th>
               <th className="px-4 py-2 whitespace-nowrap">{t("carwash.status")}</th>
-              <th className="px-4 py-2"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {filtered.map((w) => (
-              <tr key={w.id}>
-                <td className="px-4 py-2 whitespace-nowrap">{new Date(w.date).toLocaleString()}</td>
-                <td className="px-4 py-2 whitespace-nowrap">{w.vehicleType}</td>
-                <td className="px-4 py-2 whitespace-nowrap">{w.washType?.name ?? "—"}</td>
+              <tr
+                key={w.id}
+                onClick={() => setDetail(w)}
+                className="cursor-pointer hover:bg-gray-50"
+              >
+                <td className="px-4 py-2 whitespace-nowrap">
+                  {new Date(w.date).toLocaleString()}
+                  {w.queueNumber != null && (
+                    <span className="ml-2 text-[11px] text-gray-400">#{w.queueNumber}</span>
+                  )}
+                </td>
                 <td className="px-4 py-2 whitespace-nowrap">{w.plateNumber ?? "—"}</td>
                 <td className="px-4 py-2 text-gray-500 whitespace-nowrap">{[w.washer?.name, ...w.participantWashers.map((p: any) => p.name)].filter(Boolean).join(", ") || "—"}</td>
                 <td className="px-4 py-2 whitespace-nowrap">{w.amount}</td>
-                <td className="px-4 py-2 whitespace-nowrap"><span className={`text-xs px-2 py-0.5 rounded-full ${w.status === "COMPLETED" ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}`}>{w.status}</span></td>
-                <td className="px-4 py-2 text-right whitespace-nowrap">
-                  {canEdit && w.status === "IN_PROGRESS" && <button onClick={() => complete(w.id)} className="text-xs text-green-600 hover:underline mr-2">{t("carwash.complete")}</button>}
-                  {canDelete && <button onClick={() => remove(w.id)} className="text-xs text-red-600 hover:underline">{t("carwash.delete")}</button>}
+                <td className="px-4 py-2 whitespace-nowrap">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${statusClass(w.status)}`}>
+                      {statusLabel(w.status)}
+                    </span>
+                    <span onClick={(e) => e.stopPropagation()} className="flex gap-2">
+                      {statusActions(w).map((a) => (
+                        <button
+                          key={a.label}
+                          type="button"
+                          onClick={a.run}
+                          className="text-xs text-blue-600 hover:underline whitespace-nowrap"
+                        >
+                          {a.label}
+                        </button>
+                      ))}
+                    </span>
+                  </div>
                 </td>
               </tr>
             ))}
-            {filtered.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400">{t("carwash.noWashes")}</td></tr>}
+            {filtered.length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-400">{t("carwash.noWashes")}</td></tr>}
           </tbody>
         </table>
       </div>
+
+      {/* Wash detail modal: full data + status timeline with explicit actions. */}
+      <Modal
+        isOpen={!!detail}
+        onClose={() => setDetail(null)}
+        title={detail ? `${t("carwash.washersLabel")} #${detail.id}` : ""}
+      >
+        {detail && (
+          <div className="space-y-3 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-gray-500">{t("carwash.status")}</span>
+              <div className="flex items-center gap-3">
+                <span className={`text-xs px-2.5 py-1 rounded-full ${statusClass(detail.status)}`}>
+                  {statusLabel(detail.status)}
+                </span>
+                {statusActions(detail).map((a) => (
+                  <button
+                    key={a.label}
+                    type="button"
+                    onClick={a.run}
+                    className="text-xs text-blue-600 hover:underline whitespace-nowrap"
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {detail.queueNumber != null && (
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">{t("carwash.queueNumber")}</span>
+                <span className="font-medium">#{detail.queueNumber}</span>
+              </div>
+            )}
+            {[
+              [t("carwash.date"), new Date(detail.date).toLocaleString()],
+              [t("carwash.customer"), detail.customer?.name ?? "—"],
+              [t("carwash.vehicleType"), detail.vehicleType],
+              [t("carwash.washType"), detail.washType?.name ?? "—"],
+              [t("carwash.plateNumber"), detail.plateNumber ?? "—"],
+              [t("carwash.makeModel"), detail.makeModel ?? "—"],
+              [t("carwash.washersLabel"), [detail.washer?.name, ...detail.participantWashers.map((p: any) => p.name)].filter(Boolean).join(", ") || "—"],
+              [t("carwash.amount"), detail.amount],
+              [t("carwash.notes"), detail.notes ?? "—"],
+            ].map(([k, v]) => (
+              <div key={String(k)} className="flex items-center justify-between gap-3">
+                <span className="text-gray-500">{k}</span>
+                <span className="font-medium text-right">{v}</span>
+              </div>
+            ))}
+
+            {/* Status timeline (time only). */}
+            <div className="pt-3 border-t">
+              <p className="text-xs uppercase text-gray-400 mb-2">{t("carwash.statusTimeline")}</p>
+              <ul className="space-y-1.5">
+                {[
+                  [t("carwash.status_QUEUED"), detail.queuedAt],
+                  [t("carwash.status_IN_PROGRESS"), detail.startedAt],
+                  [t("carwash.status_COMPLETED"), detail.completedAt],
+                  [t("carwash.status_SETTLED"), detail.settledAt],
+                ].map(([label, ts]) => (
+                  <li key={String(label)} className="flex items-center justify-between">
+                    <span className={ts ? "text-gray-700" : "text-gray-300"}>{label}</span>
+                    <span className={ts ? "text-gray-600" : "text-gray-300"}>
+                      {ts ? new Date(ts as string).toLocaleTimeString() : "—"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {canDelete && (
+              <div className="pt-3 border-t text-right">
+                <button onClick={() => remove(detail.id)} className="text-xs text-red-600 hover:underline">
+                  {t("carwash.delete")}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
 
       <Modal isOpen={open} onClose={() => setOpen(false)} title={t("carwash.recordWash")}>
         <form onSubmit={submit} className="space-y-3">

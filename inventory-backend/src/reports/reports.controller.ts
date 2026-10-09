@@ -101,8 +101,13 @@ export class ReportsController {
 
   @Get('audit-trail')
   @Permissions('reports.full')
-  getAuditTrail() {
-    return this.service.getAuditTrail();
+  getAuditTrail(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('action') action?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.service.getAuditTrail({ startDate, endDate, action, search });
   }
 
   @Get('payment-methods-breakdown')

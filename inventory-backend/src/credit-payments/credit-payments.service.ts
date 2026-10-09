@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { asNumericId } from '../common/business-number.util';
+import { auditBestEffort } from '../common/audit.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { tr } from '../i18n/i18n.service';
 
@@ -32,14 +33,23 @@ export class CreditPaymentsService {
     notes?: string;
     paymentMethodId?: number;
     saleId?: number | null;
+    actorId?: number;
   }) {
+    const { actorId, ...paymentData } = data;
     return this.prisma.$transaction(async (tx) => {
-      if (data.saleId) {
-        await this.assertAttribution(tx, data.customerId, data.saleId, data.amount);
+      if (paymentData.saleId) {
+        await this.assertAttribution(tx, paymentData.customerId, paymentData.saleId, paymentData.amount);
       }
-      const payment = await tx.creditPayment.create({ data });
-      if (data.saleId) {
-        await this.applyToSale(tx, data.saleId, data.amount);
+      const payment = await tx.creditPayment.create({ data: paymentData });
+      if (paymentData.saleId) {
+        await this.applyToSale(tx, paymentData.saleId, paymentData.amount);
+      }
+      if (actorId != null) {
+        await auditBestEffort(tx, {
+          userId: actorId,
+          action: 'CREDIT_PAYMENT',
+          details: `Credit payment ${paymentData.amount} for customer #${paymentData.customerId}`,
+        });
       }
       return payment;
     });
@@ -54,6 +64,7 @@ export class CreditPaymentsService {
       paidAt?: string;
       saleId?: number | null;
     },
+    actorId?: number,
   ) {
     const existing = await this.prisma.creditPayment.findUnique({
       where: { id },
@@ -91,11 +102,18 @@ export class CreditPaymentsService {
       if (newSaleId) {
         await this.applyToSale(tx, newSaleId, newAmount);
       }
+      if (actorId != null) {
+        await auditBestEffort(tx, {
+          userId: actorId,
+          action: 'CREDIT_PAYMENT_UPDATED',
+          details: `Credit payment #${id} updated`,
+        });
+      }
       return updated;
     });
   }
 
-  async remove(id: number) {
+  async remove(id: number, actorId?: number) {
     const existing = await this.prisma.creditPayment.findUnique({
       where: { id },
     });
@@ -106,6 +124,13 @@ export class CreditPaymentsService {
         await this.revertFromSale(tx, existing.saleId, existing.amount);
       }
       await tx.creditPayment.delete({ where: { id } });
+      if (actorId != null) {
+        await auditBestEffort(tx, {
+          userId: actorId,
+          action: 'CREDIT_PAYMENT_DELETED',
+          details: `Credit payment #${id} deleted`,
+        });
+      }
       return { message: 'Payment deleted' };
     });
   }

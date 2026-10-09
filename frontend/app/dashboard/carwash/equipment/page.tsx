@@ -25,7 +25,7 @@ export default function CarWashEquipmentPage() {
 
   const load = useCallback(async () => {
     try {
-      const [i, w] = await Promise.all([api.get("/carwash/equipment-issues"), api.get("/carwash/washers")]);
+      const [i, w] = await Promise.all([api.get("/carwash/equipment-issues"), api.get("/carwash/washers?activeOnly=1")]);
       setIssues(i.data);
       setWashers(w.data);
     } catch (e: any) {

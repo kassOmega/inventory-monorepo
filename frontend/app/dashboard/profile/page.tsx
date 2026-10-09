@@ -90,7 +90,9 @@ export default function ProfilePage() {
             <div>
               <label className="block text-sm font-medium text-gray-500 mb-1">{t("common.email")}</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                className="border p-2 rounded-lg w-full text-sm" required />
+                readOnly={profile.emailEditable === false}
+                disabled={profile.emailEditable === false}
+                className={`border p-2 rounded-lg w-full text-sm ${profile.emailEditable === false ? "bg-gray-100 text-gray-500" : ""}`} required />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-500 mb-1">{t("common.phone")}</label>
@@ -105,7 +107,7 @@ export default function ProfilePage() {
         )}
       </div>
 
-      {user?.isSuperuser && (
+      {(user?.isSuperuser || profile.isWasher) && (
         <div className="bg-white rounded-xl shadow-sm border p-6 space-y-4">
           <h2 className="font-semibold text-gray-800">{t("profile.changePassword")}</h2>
         <form onSubmit={changePassword} className="space-y-3">

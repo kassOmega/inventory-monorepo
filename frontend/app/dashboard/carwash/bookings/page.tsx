@@ -52,7 +52,7 @@ export default function CarWashBookingsPage() {
     try {
       const [b, w, c, wt, pr] = await Promise.all([
         api.get(`/carwash/bookings?startDate=${startDate}&endDate=${endDate}`),
-        api.get("/carwash/washers"),
+        api.get("/carwash/washers?activeOnly=1"),
         api.get("/customers").catch(() => ({ data: [] })),
         api.get("/carwash/wash-types").catch(() => ({ data: [] })),
         api.get("/carwash/prices").catch(() => ({ data: [] })),

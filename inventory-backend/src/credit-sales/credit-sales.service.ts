@@ -4,6 +4,7 @@ import {
   asNumericId,
   formatBusinessNumber,
 } from '../common/business-number.util';
+import { auditBestEffort } from '../common/audit.util';
 import { tr } from '../i18n/i18n.service';
 
 @Injectable()
@@ -22,14 +23,17 @@ export class CreditSalesService {
     return row.id;
   }
 
-  async create(data: {
-    customerId: number;
-    totalAmount: number;
-    shopId: number;
-    items: { productId: number; quantity: number; unitPrice: number }[];
-    saleId?: number;
-  }) {
-    return this.prisma.creditSale.create({
+  async create(
+    data: {
+      customerId: number;
+      totalAmount: number;
+      shopId: number;
+      items: { productId: number; quantity: number; unitPrice: number }[];
+      saleId?: number;
+    },
+    actorId?: number,
+  ) {
+    const sale = await this.prisma.creditSale.create({
       data: {
         customerId: data.customerId,
         totalAmount: data.totalAmount,
@@ -45,6 +49,14 @@ export class CreditSalesService {
       },
       include: { items: true },
     });
+    if (actorId != null) {
+      await auditBestEffort(this.prisma, {
+        userId: actorId,
+        action: 'CREDIT_SALE',
+        details: `Credit sale #${sale.id} to customer #${data.customerId} — ${data.totalAmount}`,
+      });
+    }
+    return sale;
   }
 
   async findOne(id: number) {
@@ -59,7 +71,15 @@ export class CreditSalesService {
     };
   }
 
-  async remove(id: number) {
-    return this.prisma.creditSale.delete({ where: { id } });
+  async remove(id: number, actorId?: number) {
+    const removed = await this.prisma.creditSale.delete({ where: { id } });
+    if (actorId != null) {
+      await auditBestEffort(this.prisma, {
+        userId: actorId,
+        action: 'CREDIT_SALE_DELETED',
+        details: `Credit sale #${id} deleted`,
+      });
+    }
+    return removed;
   }
 }

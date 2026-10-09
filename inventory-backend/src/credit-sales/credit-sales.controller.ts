@@ -1,4 +1,5 @@
-import { Controller, Post, Get, Delete, Body, Param } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Body, Param, Req } from '@nestjs/common';
+import { RequestWithUser } from '../common/interfaces/request-with-user.interface';
 import { CreditSalesService } from './credit-sales.service';
 import { CreateCreditSaleDto } from './dto/create-credit-sale.dto';
 
@@ -7,8 +8,8 @@ export class CreditSalesController {
   constructor(private readonly svc: CreditSalesService) {}
 
   @Post()
-  create(@Body() body: CreateCreditSaleDto) {
-    return this.svc.create(body);
+  create(@Body() body: CreateCreditSaleDto, @Req() req: RequestWithUser) {
+    return this.svc.create(body, req.user.sub);
   }
 
   @Get(':id')
@@ -17,7 +18,7 @@ export class CreditSalesController {
   }
 
   @Delete(':id')
-  async remove(@Param('id') ref: string) {
-    return this.svc.remove(await this.svc.resolveCreditSaleId(ref));
+  async remove(@Param('id') ref: string, @Req() req: RequestWithUser) {
+    return this.svc.remove(await this.svc.resolveCreditSaleId(ref), req.user.sub);
   }
 }

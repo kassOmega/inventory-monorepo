@@ -66,11 +66,15 @@ export default function CarWashPricesPage() {
     e.preventDefault();
     setError("");
     try {
-      await api.post("/carwash/prices", {
+      const payload = {
         vehicleType: form.vehicleType,
         washTypeId: form.washTypeId ? Number(form.washTypeId) : null,
         amount: Number(form.amount) || 0,
-      });
+      };
+      // Editing updates the existing row (by id) so changing the vehicle/wash
+      // type moves THAT row instead of creating a new one and leaving the old.
+      if (editing) await api.patch(`/carwash/prices/${editing.id}`, payload);
+      else await api.post("/carwash/prices", payload);
       setOpen(false);
       setForm({ vehicleType: "", washTypeId: "", amount: "" });
       setEditing(null);

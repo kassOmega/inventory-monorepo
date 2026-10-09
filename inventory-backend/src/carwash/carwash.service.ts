@@ -19,6 +19,7 @@ import {
 import * as bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
+import { auditBestEffort } from '../common/audit.util';
 import { normalizePhone } from '../common/phone.util';
 import { tr } from '../i18n/i18n.service';
 import { FinanceService } from '../finance/finance.service';
@@ -276,9 +277,12 @@ export class CarWashService {
   // -------------------------------------------------------------------------
   // Washers
   // -------------------------------------------------------------------------
-  listWashers() {
+  listWashers(activeOnly = false) {
     return this.prisma.carWashWasher.findMany({
-      orderBy: { name: 'asc' },
+      where: activeOnly ? { isActive: true } : undefined,
+      // Active washers first, then alphabetical. This ordering is used everywhere
+      // a washer list is shown (management, assignment pickers, reports).
+      orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
       include: { user: true },
     });
   }
@@ -356,14 +360,14 @@ export class CarWashService {
     return user.id;
   }
 
-  async createWasher(dto: CreateWasherDto) {
+  async createWasher(dto: CreateWasherDto, actorId?: number) {
     const tenantId = this.tenantId();
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const washer = await this.prisma.$transaction(async (tx) => {
         // Create the washer row first, then provision/link its login account so
         // every washer can sign in (by email or phone).
-        const washer = await tx.carWashWasher.create({
+        const created = await tx.carWashWasher.create({
           data: {
             tenantId,
             name: dto.name,
@@ -374,15 +378,23 @@ export class CarWashService {
         });
         await this.provisionWasherAccount(tx, {
           tenantId,
-          washerId: washer.id,
+          washerId: created.id,
           existingUserId: null,
           name: dto.name,
           email: dto.email,
           phone: dto.phone,
           password: dto.password,
         });
-        return tx.carWashWasher.findUniqueOrThrow({ where: { id: washer.id } });
+        if (actorId != null) {
+          await auditBestEffort(tx, {
+            userId: actorId,
+            action: 'CARWASH_WASHER_CREATED',
+            details: `Washer "${dto.name}" added`,
+          });
+        }
+        return tx.carWashWasher.findUniqueOrThrow({ where: { id: created.id } });
       });
+      return washer;
     } catch (err) {
       return this.rethrowDuplicate(
         err,
@@ -391,7 +403,7 @@ export class CarWashService {
     }
   }
 
-  async updateWasher(id: number, dto: UpdateWasherDto) {
+  async updateWasher(id: number, dto: UpdateWasherDto, actorId?: number) {
     const existing = await this.prisma.carWashWasher.findUnique({
       where: { id },
     });
@@ -432,10 +444,17 @@ export class CarWashService {
         }),
       );
     }
+    if (actorId != null) {
+      await auditBestEffort(this.prisma, {
+        userId: actorId,
+        action: 'CARWASH_WASHER_UPDATED',
+        details: `Washer "${dto.name ?? existing.name}" updated`,
+      });
+    }
     return this.prisma.carWashWasher.findUniqueOrThrow({ where: { id } });
   }
 
-  async deleteWasher(id: number) {
+  async deleteWasher(id: number, actorId?: number) {
     const existing = await this.prisma.carWashWasher.findUnique({
       where: { id },
     });
@@ -448,6 +467,13 @@ export class CarWashService {
       await this.prisma.user.update({
         where: { id: existing.userId },
         data: { status: UserStatus.INACTIVE },
+      });
+    }
+    if (actorId != null) {
+      await auditBestEffort(this.prisma, {
+        userId: actorId,
+        action: 'CARWASH_WASHER_DELETED',
+        details: `Washer "${existing.name}" removed`,
       });
     }
     return { id };
@@ -463,19 +489,27 @@ export class CarWashService {
     });
   }
 
-  async upsertPrice(dto: UpsertPriceDto) {
+  async upsertPrice(dto: UpsertPriceDto, actorId?: number) {
     const tenantId = this.tenantId();
     const washTypeId = dto.washTypeId ?? null;
     const existing = await this.prisma.carWashPrice.findFirst({
       where: { tenantId, vehicleType: dto.vehicleType, washTypeId },
     });
     if (existing) {
-      return this.prisma.carWashPrice.update({
+      const updated = await this.prisma.carWashPrice.update({
         where: { id: existing.id },
         data: { amount: dto.amount },
       });
+      if (actorId != null) {
+        await auditBestEffort(this.prisma, {
+          userId: actorId,
+          action: 'CARWASH_PRICE_UPDATED',
+          details: `Price ${dto.vehicleType} -> ${dto.amount}`,
+        });
+      }
+      return updated;
     }
-    return this.prisma.carWashPrice.create({
+    const created = await this.prisma.carWashPrice.create({
       data: {
         tenantId,
         vehicleType: dto.vehicleType,
@@ -483,10 +517,55 @@ export class CarWashService {
         amount: dto.amount,
       },
     });
+    if (actorId != null) {
+      await auditBestEffort(this.prisma, {
+        userId: actorId,
+        action: 'CARWASH_PRICE_CREATED',
+        details: `Price ${dto.vehicleType} ${dto.amount}`,
+      });
+    }
+    return created;
   }
 
-  async deletePrice(id: number) {
+  async updatePrice(id: number, dto: UpsertPriceDto, actorId?: number) {
+    const tenantId = this.tenantId();
+    const washTypeId = dto.washTypeId ?? null;
+    const existing = await this.prisma.carWashPrice.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Price not found');
+    // Reject a change that would collide with another row's (vehicleType, washType).
+    const clash = await this.prisma.carWashPrice.findFirst({
+      where: { tenantId, vehicleType: dto.vehicleType, washTypeId, NOT: { id } },
+    });
+    if (clash) {
+      throw new BadRequestException('A price for that vehicle type and wash type already exists');
+    }
+    const updated = await this.prisma.carWashPrice.update({
+      where: { id },
+      data: {
+        vehicleType: dto.vehicleType,
+        washTypeId,
+        amount: dto.amount,
+      },
+    });
+    if (actorId != null) {
+      await auditBestEffort(this.prisma, {
+        userId: actorId,
+        action: 'CARWASH_PRICE_UPDATED',
+        details: `Price #${id} -> ${dto.vehicleType} ${dto.amount}`,
+      });
+    }
+    return updated;
+  }
+
+  async deletePrice(id: number, actorId?: number) {
     await this.prisma.carWashPrice.delete({ where: { id } });
+    if (actorId != null) {
+      await auditBestEffort(this.prisma, {
+        userId: actorId,
+        action: 'CARWASH_PRICE_DELETED',
+        details: `Price #${id} deleted`,
+      });
+    }
     return { id };
   }
 
@@ -650,7 +729,7 @@ export class CarWashService {
     });
   }
 
-  async createBooking(dto: CreateBookingDto) {
+  async createBooking(dto: CreateBookingDto, actorId?: number) {
     const tenantId = this.tenantId();
     const startsAt = new Date(dto.startsAt);
 
@@ -681,7 +760,7 @@ export class CarWashService {
       positionInQueue = (last?.positionInQueue ?? 0) + 1;
     }
 
-    return this.prisma.carWashBooking.create({
+    const booking = await this.prisma.carWashBooking.create({
       data: {
         tenantId,
         customerId: dto.customerId ?? null,
@@ -714,14 +793,30 @@ export class CarWashService {
         items: { include: { vehicle: true, washType: true } },
       },
     });
+    if (actorId != null) {
+      await auditBestEffort(this.prisma, {
+        userId: actorId,
+        action: 'CARWASH_BOOKING_CREATED',
+        details: `Booking #${booking.id} created (queue ${positionInQueue})`,
+      });
+    }
+    return booking;
   }
 
-  async updateBookingStatus(id: number, status: CarWashBookingStatus) {
+  async updateBookingStatus(id: number, status: CarWashBookingStatus, actorId?: number) {
     await this.assertBooking(id);
-    return this.prisma.carWashBooking.update({
+    const updated = await this.prisma.carWashBooking.update({
       where: { id },
       data: { status },
     });
+    if (actorId != null) {
+      await auditBestEffort(this.prisma, {
+        userId: actorId,
+        action: 'CARWASH_BOOKING_STATUS',
+        details: `Booking #${id} -> ${status}`,
+      });
+    }
+    return updated;
   }
 
   // -------------------------------------------------------------------------
@@ -768,10 +863,27 @@ export class CarWashService {
   }
 
   async createWash(dto: CreateWashDto, userId: number) {
+    const tenantId = this.tenantId();
     const participantIds = dto.participantWasherIds ?? [];
+    // The wash is registered into the queue. The queue number is per tenant per
+    // local day, starting at 1 and incrementing for each registration that day.
+    const when = dto.date ? new Date(dto.date) : new Date();
+    const dayStart = new Date(
+      when.getFullYear(),
+      when.getMonth(),
+      when.getDate(),
+    );
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    const last = await this.prisma.carWash.findFirst({
+      where: { tenantId, date: { gte: dayStart, lt: dayEnd } },
+      orderBy: { queueNumber: 'desc' },
+      select: { queueNumber: true },
+    });
+    const queueNumber = (last?.queueNumber ?? 0) + 1;
+
     const wash = await this.prisma.carWash.create({
       data: {
-        tenantId: this.tenantId(),
+        tenantId,
         customerId: dto.customerId ?? null,
         vehicleId: dto.vehicleId ?? null,
         washerId: dto.washerId ?? null,
@@ -779,7 +891,10 @@ export class CarWashService {
         vehicleType: dto.vehicleType ?? 'Car',
         washTypeId: dto.washTypeId ?? null,
         amount: dto.amount,
-        date: dto.date ? new Date(dto.date) : new Date(),
+        date: when,
+        status: CarWashStatus.QUEUED,
+        queueNumber,
+        queuedAt: new Date(),
         notes: dto.notes,
         plateNumber: dto.plateNumber,
         makeModel: dto.makeModel,
@@ -797,17 +912,68 @@ export class CarWashService {
     if (wash.washer) washersById.set(wash.washer.id, wash.washer);
     for (const p of wash.participantWashers) washersById.set(p.id, p);
 
-    const { commissions, ownerShare } = computeWashCommissions({
+    const { commissions, ownerShare, totalCommission } = computeWashCommissions({
       amount: wash.amount,
       primaryWasherId: wash.washerId,
       participantWasherIds: participantIds,
       washersById,
     });
 
-    return { ...wash, commissions, ownerShare };
+    await auditBestEffort(this.prisma, {
+      userId,
+      action: 'CARWASH_WASH_CREATED',
+      details: `Wash #${wash.id} registered (queue #${queueNumber}) — ${wash.vehicleType} ${wash.plateNumber ?? ''} ${wash.amount}`.trim(),
+    });
+
+    return { ...wash, commissions, ownerShare, totalCommission };
   }
 
-  async completeWash(id: number) {
+  /** QUEUED → IN_PROGRESS. Stamps the start time. */
+  async startWash(id: number, userId?: number) {
+    const wash = await this.prisma.carWash.findUnique({ where: { id } });
+    if (!wash) throw new NotFoundException('Wash not found');
+    const updated = await this.prisma.carWash.update({
+      where: { id },
+      data: {
+        status: CarWashStatus.IN_PROGRESS,
+        startedAt: wash.startedAt ?? new Date(),
+      },
+    });
+    if (userId != null) {
+      await auditBestEffort(this.prisma, {
+        userId,
+        action: 'CARWASH_WASH_STARTED',
+        details: `Wash #${id} started washing`,
+      });
+    }
+    return updated;
+  }
+
+  /** IN_PROGRESS → COMPLETED (washed). Status + timestamp only. */
+  async completeWash(id: number, userId?: number) {
+    const wash = await this.prisma.carWash.findUnique({ where: { id } });
+    if (!wash) throw new NotFoundException('Wash not found');
+    const updated = await this.prisma.carWash.update({
+      where: { id },
+      data: { status: CarWashStatus.COMPLETED, completedAt: wash.completedAt ?? new Date() },
+    });
+    if (userId != null) {
+      await auditBestEffort(this.prisma, {
+        userId,
+        action: 'CARWASH_WASH_WASHED',
+        details: `Wash #${id} washed`,
+      });
+    }
+    return updated;
+  }
+
+  /**
+   * COMPLETED → SETTLED (Complete / paid). This is the final status and the
+   * point where the wash is recognised in the ledger (revenue + washer
+   * commission). A wash that is washed but not yet paid posts nothing.
+   * Idempotent by wash id.
+   */
+  async settleWash(id: number, userId?: number) {
     const wash = await this.prisma.carWash.findUnique({
       where: { id },
       include: { washer: true, participantWashers: true },
@@ -828,11 +994,12 @@ export class CarWashService {
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.carWash.update({
         where: { id },
-        data: { status: CarWashStatus.COMPLETED, completedAt: new Date() },
+        data: {
+          status: CarWashStatus.SETTLED,
+          settledAt: wash.settledAt ?? new Date(),
+        },
       });
 
-      // Only a COMPLETED wash is recognised in the ledger (a wash terminated
-      // before completion posts nothing). Idempotent by wash id.
       const accounts = await tx.account.findMany({ where: { tenantId } });
       const revenueAccount =
         accounts.find((a) => a.name === 'Car Wash Revenue') ??
@@ -853,6 +1020,13 @@ export class CarWashService {
           commission: totalCommission,
           incomeDate: wash.date,
           createdById: wash.recordedById ?? null,
+        });
+      }
+      if (userId != null) {
+        await auditBestEffort(tx, {
+          userId,
+          action: 'CARWASH_WASH_PAID',
+          details: `Wash #${id} settled (paid) — ${wash.amount}`,
         });
       }
       return updated;
@@ -896,7 +1070,7 @@ export class CarWashService {
     });
   }
 
-  async issueEquipment(dto: IssueEquipmentDto) {
+  async issueEquipment(dto: IssueEquipmentDto, actorId?: number) {
     const tenantId = this.tenantId();
     const totalAmount = (dto.unitPrice ?? 0) * dto.quantity;
 
@@ -925,19 +1099,34 @@ export class CarWashService {
         }
       }
 
+      if (actorId != null) {
+        await auditBestEffort(tx, {
+          userId: actorId,
+          action: 'CARWASH_EQUIPMENT_ISSUED',
+          details: `Equipment #${issue.id} issued (qty ${dto.quantity}, total ${totalAmount})`,
+        });
+      }
       return issue;
     });
   }
 
-  async markEquipmentIssuePaid(id: number, isPaid?: boolean) {
+  async markEquipmentIssuePaid(id: number, isPaid?: boolean, actorId?: number) {
     await this.assertEquipmentIssue(id);
-    return this.prisma.carWashEquipmentIssue.update({
+    const updated = await this.prisma.carWashEquipmentIssue.update({
       where: { id },
       data: {
         isPaid: isPaid ?? true,
         paidAt: isPaid === false ? null : new Date(),
       },
     });
+    if (actorId != null) {
+      await auditBestEffort(this.prisma, {
+        userId: actorId,
+        action: 'CARWASH_EQUIPMENT_PAYMENT',
+        details: `Equipment #${id} marked ${(isPaid ?? true) ? 'paid' : 'unpaid'}`,
+      });
+    }
+    return updated;
   }
 
   // -------------------------------------------------------------------------
@@ -1032,7 +1221,7 @@ export class CarWashService {
     const totalAmount = dto.totalAmount ?? summary.ownerShare;
     const remainingBalance = summary.ownerShare - priorTotal - totalAmount;
 
-    return this.prisma.carWashCollection.create({
+    const collection = await this.prisma.carWashCollection.create({
       data: {
         tenantId,
         collectedById: userId,
@@ -1047,6 +1236,12 @@ export class CarWashService {
         notes: dto.notes,
       },
     });
+    await auditBestEffort(this.prisma, {
+      userId,
+      action: 'CARWASH_COLLECTION',
+      details: `Collected ${totalAmount} for ${day.toISOString().slice(0, 10)}`,
+    });
+    return collection;
   }
 
   // Products usable as equipment/store items for the equipment-issue form.
@@ -1063,21 +1258,42 @@ export class CarWashService {
     return { id };
   }
 
-  async deleteBooking(id: number) {
+  async deleteBooking(id: number, actorId?: number) {
     await this.assertBooking(id);
     await this.prisma.carWashBooking.delete({ where: { id } });
+    if (actorId != null) {
+      await auditBestEffort(this.prisma, {
+        userId: actorId,
+        action: 'CARWASH_BOOKING_DELETED',
+        details: `Booking #${id} deleted`,
+      });
+    }
     return { id };
   }
 
-  async deleteWash(id: number) {
+  async deleteWash(id: number, userId?: number) {
     await this.assertWash(id);
     await this.prisma.carWash.delete({ where: { id } });
+    if (userId != null) {
+      await auditBestEffort(this.prisma, {
+        userId,
+        action: 'CARWASH_WASH_DELETED',
+        details: `Wash #${id} deleted`,
+      });
+    }
     return { id };
   }
 
-  async deleteEquipmentIssue(id: number) {
+  async deleteEquipmentIssue(id: number, actorId?: number) {
     await this.assertEquipmentIssue(id);
     await this.prisma.carWashEquipmentIssue.delete({ where: { id } });
+    if (actorId != null) {
+      await auditBestEffort(this.prisma, {
+        userId: actorId,
+        action: 'CARWASH_EQUIPMENT_DELETED',
+        details: `Equipment issue #${id} deleted`,
+      });
+    }
     return { id };
   }
 
@@ -1113,7 +1329,7 @@ export class CarWashService {
 
   async createExpense(dto: CreateCarWashExpenseDto, userId: number) {
     const accountId = await this.resolveExpenseAccountId(dto.category);
-    return this.finance.createExpense(
+    const expense = await this.finance.createExpense(
       {
         accountId,
         amount: dto.amount,
@@ -1122,22 +1338,44 @@ export class CarWashService {
       },
       userId,
     );
+    await auditBestEffort(this.prisma, {
+      userId,
+      action: 'CARWASH_EXPENSE_CREATED',
+      details: `Expense ${dto.category} ${dto.amount}`,
+    });
+    return expense;
   }
 
-  async updateExpense(id: number, dto: UpdateCarWashExpenseDto) {
+  async updateExpense(id: number, dto: UpdateCarWashExpenseDto, actorId?: number) {
     const accountId = dto.category
       ? await this.resolveExpenseAccountId(dto.category)
       : undefined;
-    return this.finance.updateExpense(id, {
+    const expense = await this.finance.updateExpense(id, {
       ...(accountId ? { accountId } : {}),
       ...(dto.amount != null ? { amount: dto.amount } : {}),
       ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
       ...(dto.expenseDate ? { expenseDate: dto.expenseDate } : {}),
     });
+    if (actorId != null) {
+      await auditBestEffort(this.prisma, {
+        userId: actorId,
+        action: 'CARWASH_EXPENSE_UPDATED',
+        details: `Expense #${id} updated`,
+      });
+    }
+    return expense;
   }
 
-  async deleteExpense(id: number) {
-    return this.finance.deleteExpense(id);
+  async deleteExpense(id: number, actorId?: number) {
+    const res = await this.finance.deleteExpense(id);
+    if (actorId != null) {
+      await auditBestEffort(this.prisma, {
+        userId: actorId,
+        action: 'CARWASH_EXPENSE_DELETED',
+        details: `Expense #${id} deleted`,
+      });
+    }
+    return res;
   }
 
   private async resolveExpenseAccountId(category: string): Promise<number> {
@@ -1241,13 +1479,20 @@ export class CarWashService {
     });
   }
 
-  async updateSettings(slotMinutes: number) {
+  async updateSettings(slotMinutes: number, actorId?: number) {
     const tenantId = this.tenantId();
     await this.prisma.carWashProfile.upsert({
       where: { organizationId: tenantId },
       update: { slotMinutes },
       create: { organizationId: tenantId, slotMinutes },
     });
+    if (actorId != null) {
+      await auditBestEffort(this.prisma, {
+        userId: actorId,
+        action: 'CARWASH_SETTINGS_UPDATED',
+        details: `Booking slot set to ${slotMinutes} min`,
+      });
+    }
     return this.prisma.carWashProfile.findUnique({
       where: { organizationId: tenantId },
     });
@@ -1409,7 +1654,7 @@ export class CarWashService {
     const [washers, washes] = await Promise.all([
       this.prisma.carWashWasher.findMany({
         where: scopeWasherId != null ? { id: scopeWasherId } : undefined,
-        orderBy: { name: 'asc' },
+        orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
       }),
       this.prisma.carWash.findMany({
         where: { date: { gte: start, lt: endExclusive } },
@@ -1557,7 +1802,7 @@ export class CarWashService {
         // A washer sees only their own row (so "Washer earnings" can never show
         // other washers); owner/manager sees all.
         where: washerId != null ? { id: washerId } : undefined,
-        orderBy: { name: 'asc' },
+        orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
       }),
     ]);
 
