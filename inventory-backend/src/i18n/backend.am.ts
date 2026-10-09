@@ -326,6 +326,8 @@ export const amMessages: Record<string, any> = {
 
     // የመድረክ አስተዳዳሪ እና የማረጋገጫ ሞጁሎች (ደረጃ 7)።
     onlyPlatformAdmins: 'ይህን ተግባር ማከናወን የሚችሉት የመድረክ አስተዳዳሪዎች ብቻ ናቸው',
+    subscriptionExpired:
+      'ምዝገባዎ አልቋል። ለውጦችን ለማድረግ እንደገና ይክፈሉ — መረጃዎ ለንባብ ይታያል።',
     invalidAccountType: 'የመለያ ዓይነት ትክክል አይደለም።',
     nationalIdOnlyForUsers: 'የተጠቃሚ መለያዎች የብሔራዊ መታወቂያ ሰነድ ብቻ ይፈልጋሉ።',
     noFileUploaded: 'ምንም ፋይል አልተጫነም',

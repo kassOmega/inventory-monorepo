@@ -7,6 +7,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -54,6 +55,8 @@ type WashForSummary = {
 
 @Injectable()
 export class CarWashService {
+  private readonly logger = new Logger(CarWashService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly finance: FinanceService,
@@ -995,7 +998,7 @@ export class CarWashService {
     const washersById = new Map<number, CommissionedWasher>();
     if (wash.washer) washersById.set(wash.washer.id, wash.washer);
     for (const p of wash.participantWashers) washersById.set(p.id, p);
-    const { totalCommission } = computeWashCommissions({
+    const { commissions } = computeWashCommissions({
       amount: wash.amount,
       primaryWasherId: wash.washerId,
       participantWasherIds: wash.participantWashers.map((p) => p.id),
@@ -1021,6 +1024,9 @@ export class CarWashService {
       const commissionAccount = accounts.find(
         (a) => a.name === 'Washer Commission Expense',
       );
+      const ownerShareAccount = accounts.find(
+        (a) => a.name === 'Owner Share Receivable',
+      );
       if (revenueAccount && wash.amount > 0) {
         await this.finance.postCarWashIncome({
           tx,
@@ -1028,9 +1034,11 @@ export class CarWashService {
           washId: id,
           revenueAccountId: revenueAccount.id,
           commissionAccountId: commissionAccount?.id ?? null,
+          receivableAccountId: ownerShareAccount?.id ?? null,
           description: `Car wash #${id}`,
           revenue: wash.amount,
-          commission: totalCommission,
+          // One line per washer so the GL reconciles each washer's % share.
+          washerCommissions: Object.values(commissions),
           incomeDate: wash.date,
           createdById: wash.recordedById ?? null,
         });
@@ -1249,6 +1257,24 @@ export class CarWashService {
         notes: dto.notes,
       },
     });
+    // Post the cash movement to the ledger (Dr Cash / Cr Owner Share
+    // Receivable), clearing the receivable raised when the washes were settled.
+    await this.prisma
+      .$transaction((tx) =>
+        this.finance.postCarWashCollection({
+          tx,
+          tenantId,
+          collectionId: collection.id,
+          amount: totalAmount,
+          collectionDate: day,
+          createdById: userId,
+        }),
+      )
+      .catch((err) =>
+        this.logger.warn(
+          `Car-wash collection #${collection.id} GL posting failed: ${(err as Error).message}`,
+        ),
+      );
     await auditBestEffort(this.prisma, {
       userId,
       action: 'CARWASH_COLLECTION',

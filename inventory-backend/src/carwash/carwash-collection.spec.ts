@@ -20,7 +20,10 @@ function setup(existing: Array<{ totalAmount: number; remainingBalance: number }
       }),
     },
   };
-  const svc = new CarWashService(prisma, {} as any);
+  prisma.$transaction = jest.fn((fn: any) =>
+    fn({ journalEntry: { findFirst: jest.fn(() => Promise.resolve(null)) } }),
+  );
+  const svc = new CarWashService(prisma, { postCarWashCollection: jest.fn(() => Promise.resolve(null)) } as any);
   return { svc, prisma, created };
 }
 

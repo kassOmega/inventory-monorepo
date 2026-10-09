@@ -41,7 +41,7 @@ describe('numeric id / publicId resolution', () => {
       new CreditSalesService(prisma as any).resolveCreditSaleId('7'),
     ).resolves.toBe(7);
     await expect(
-      new CreditPaymentsService(prisma as any).resolveCreditPaymentId('8'),
+      new CreditPaymentsService(prisma as any, {} as any).resolveCreditPaymentId('8'),
     ).resolves.toBe(8);
     await expect(
       new UsersService(prisma as any).resolveUserId('3'),
@@ -70,7 +70,7 @@ describe('numeric id / publicId resolution', () => {
       new CreditSalesService(prisma as any).resolveCreditSaleId(UUID),
     ).resolves.toBe(12);
     await expect(
-      new CreditPaymentsService(prisma as any).resolveCreditPaymentId(UUID),
+      new CreditPaymentsService(prisma as any, {} as any).resolveCreditPaymentId(UUID),
     ).resolves.toBe(15);
     await expect(
       new UsersService(prisma as any).resolveUserId(UUID),
@@ -104,7 +104,7 @@ describe('numeric id / publicId resolution', () => {
       new CreditSalesService(prisma as any).resolveCreditSaleId(UNKNOWN),
     ).rejects.toBeInstanceOf(NotFoundException);
     await expect(
-      new CreditPaymentsService(prisma as any).resolveCreditPaymentId(UNKNOWN),
+      new CreditPaymentsService(prisma as any, {} as any).resolveCreditPaymentId(UNKNOWN),
     ).rejects.toBeInstanceOf(NotFoundException);
     await expect(
       new UsersService(prisma as any).resolveUserId(UNKNOWN),

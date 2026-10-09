@@ -17,12 +17,16 @@ export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
   { name: 'Bank', code: '1010', type: AccountType.ASSET, isSystem: true },
   { name: 'Accounts Receivable', code: '1100', type: AccountType.ASSET },
   { name: 'Input VAT Receivable', code: '1101', type: AccountType.ASSET },
+  // Money advanced to staff, recovered from salary/commission.
+  { name: 'Employee Loans Receivable', code: '1120', type: AccountType.ASSET },
   { name: 'Inventory Asset', code: '1200', type: AccountType.ASSET },
   { name: 'Accounts Payable', code: '2000', type: AccountType.LIABILITY },
   { name: 'Output VAT Payable', code: '2100', type: AccountType.LIABILITY },
   { name: 'Owner Equity', code: '3000', type: AccountType.EQUITY },
   { name: 'Sales Revenue', code: '4000', type: AccountType.INCOME, isSystem: true },
   { name: 'Other Income', code: '4100', type: AccountType.INCOME, isSystem: true },
+  // Employee fines/penalties recovered — offsets labour cost (contra-expense).
+  { name: 'Fines & Penalties Recovered', code: '4200', type: AccountType.INCOME },
   // Count surpluses are a *gain*, not a negative expense: crediting an EXPENSE
   // account here would understate expenses and overstate profit. This income
   // account is the credit side of a positive count variance (see ADJUSTMENT_GAIN).
@@ -70,6 +74,10 @@ export const VERTICAL_ACCOUNTS: Partial<Record<BusinessType, DefaultAccount[]>> 
     { name: 'Car Wash Revenue', code: '4010', type: AccountType.INCOME, isSystem: true },
     { name: 'Equipment Revenue', code: '4110', type: AccountType.INCOME },
     { name: 'Washer Commission Expense', code: '5040', type: AccountType.EXPENSE },
+    // Washers collect the cash from customers; the owner share (revenue −
+    // washer %) is handed to the business owner later. While it is "on the
+    // air" it is a receivable, cleared by a collection.
+    { name: 'Owner Share Receivable', code: '1110', type: AccountType.ASSET },
   ],
 };
 

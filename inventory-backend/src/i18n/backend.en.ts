@@ -338,6 +338,8 @@ export const enMessages: Record<string, any> = {
 
     // Platform-admin + verification modules (Phase 7).
     onlyPlatformAdmins: 'Only platform admins can perform this action',
+    subscriptionExpired:
+      'Your subscription has expired. Renew it to make changes — your data stays readable.',
     invalidAccountType: 'Invalid account type.',
     nationalIdOnlyForUsers: 'User accounts only require a national ID document.',
     noFileUploaded: 'No file uploaded',

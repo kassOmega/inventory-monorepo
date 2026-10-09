@@ -7,13 +7,18 @@ import { Prisma } from '@prisma/client';
 import { asNumericId } from '../common/business-number.util';
 import { auditBestEffort } from '../common/audit.util';
 import { PrismaService } from '../prisma/prisma.service';
+import { FinanceService } from '../finance/finance.service';
+import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { tr } from '../i18n/i18n.service';
 
 type Tx = Prisma.TransactionClient;
 
 @Injectable()
 export class CreditPaymentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private finance: FinanceService,
+  ) {}
 
   /** Accept a numeric id or the UUID publicId, returning the numeric key. */
   async resolveCreditPaymentId(ref: string): Promise<number> {
@@ -44,6 +49,17 @@ export class CreditPaymentsService {
       if (paymentData.saleId) {
         await this.applyToSale(tx, paymentData.saleId, paymentData.amount);
       }
+      // Post the cash settlement to the ledger (Dr Cash/Bank / Cr AR).
+      await this.finance
+        .postCreditPayment({
+          creditPaymentId: payment.id,
+          amount: paymentData.amount,
+          tenantId: getCurrentTenantId(),
+          tx,
+          createdById: actorId ?? null,
+          paymentMethodId: paymentData.paymentMethodId ?? null,
+        })
+        .catch(() => {});
       if (actorId != null) {
         await auditBestEffort(tx, {
           userId: actorId,
@@ -102,6 +118,22 @@ export class CreditPaymentsService {
       if (newSaleId) {
         await this.applyToSale(tx, newSaleId, newAmount);
       }
+      // Repost the settlement at the new amount: remove the old GL entry, then
+      // post again with the corrected amount (both within this transaction).
+      await this.reverseCreditPayment(tx, existing.id).catch(() => {});
+      await this.finance
+        .postCreditPayment({
+          creditPaymentId: existing.id,
+          amount: newAmount,
+          tenantId: getCurrentTenantId(),
+          tx,
+          createdById: actorId ?? null,
+          paymentMethodId:
+            data.paymentMethodId !== undefined
+              ? data.paymentMethodId
+              : existing.paymentMethodId,
+        })
+        .catch(() => {});
       if (actorId != null) {
         await auditBestEffort(tx, {
           userId: actorId,
@@ -123,6 +155,8 @@ export class CreditPaymentsService {
       if (existing.saleId) {
         await this.revertFromSale(tx, existing.saleId, existing.amount);
       }
+      // Remove the GL settlement entry so the ledger reflects the deletion.
+      await this.reverseCreditPayment(tx, existing.id).catch(() => {});
       await tx.creditPayment.delete({ where: { id } });
       if (actorId != null) {
         await auditBestEffort(tx, {
@@ -181,5 +215,15 @@ export class CreditPaymentsService {
         remainingAmount: { increment: amount },
       },
     });
+  }
+
+  /** Delete a credit-payment journal entry (its lines cascade) so it can be
+   *  re-posted or the payment removed. Idempotent: no entry → no-op. */
+  private async reverseCreditPayment(tx: Tx, creditPaymentId: number) {
+    const entry = await tx.journalEntry.findFirst({
+      where: { tenantId: getCurrentTenantId(), reference: `CRP-${creditPaymentId}` },
+      select: { id: true },
+    });
+    if (entry) await tx.journalEntry.delete({ where: { id: entry.id } });
   }
 }

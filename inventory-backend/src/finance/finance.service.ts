@@ -76,6 +76,24 @@ export class FinanceService {
     return id;
   }
 
+  /**
+   * Double-entry guardrail: every journal entry must balance. Callers building
+   * `lines` by hand (auto-posters) run this before writing, so an unbalanced
+   * entry is an obvious error instead of a silent corruption of the trial
+   * balance.
+   */
+  private assertBalancedLines(
+    lines: Array<{ debit?: number | null; credit?: number | null }>,
+  ): void {
+    const debit = round2(lines.reduce((s, l) => s + (Number(l.debit) || 0), 0));
+    const credit = round2(lines.reduce((s, l) => s + (Number(l.credit) || 0), 0));
+    if (Math.abs(debit - credit) > 0.001) {
+      throw new Error(
+        `Unbalanced journal entry: debits ${debit} != credits ${credit}`,
+      );
+    }
+  }
+
   private dateWhere(field: string, startDate?: string, endDate?: string) {
     const where: Record<string, unknown> = {};
     const cond: Record<string, unknown> = {};
@@ -774,23 +792,32 @@ export class FinanceService {
   }
 
   /**
-   * Posts a completed car-wash job's revenue (and, optionally, the washer
-   * commission expense) to the ledger, inside the caller's transaction:
-   *   - OtherIncome (source='CARWASH_WASH', idempotent by wash id) + a journal
-   *     entry Debiting Cash and Crediting the car-wash revenue account.
-   *   - A Washer Commission Expense journal line (Debit commission, Credit the
-   *     revenue account reduces owner share) so the P&L reflects both sides.
-   * The company never posts an in-progress wash — only completion calls this.
+   * Posts a completed car-wash job to the ledger, inside the caller's
+   * transaction. In this vertical the washer collects the customer's cash; the
+   * business's revenue is its OWN share (gross − Σ washer %) and the washer's %
+   * is the washer's own money. While the owner share is still with the washer
+   * ("on the air") it is a RECEIVABLE, cleared later by a collection.
+   *
+   * Balanced entry (CWJ-<washId>):
+   *   - Dr Owner Share Receivable `ownerShare`
+   *   - Cr Car Wash Revenue       `ownerShare`
+   *   - plus, for information only, one zero-sum pair per washer
+   *     (Dr/Cr Car Wash Revenue `commission_w`) so the per-washer split is
+   *     visible in the ledger without changing any account balance.
+   *
+   * Idempotent by wash id (source='CARWASH_WASH').
    */
   async postCarWashIncome(args: {
     tx: any;
     tenantId: number;
     washId: number;
     revenueAccountId: number;
+    receivableAccountId?: number | null;
     commissionAccountId?: number | null;
+    /** Per-washer commission amounts, recorded as informational zero-sum lines. */
+    washerCommissions: number[];
     description: string;
     revenue: number;
-    commission: number;
     incomeDate: Date;
     createdById?: number | null;
   }) {
@@ -800,9 +827,11 @@ export class FinanceService {
     });
     if (existing) return existing;
 
-    const cash = await tx.account.findFirst({
-      where: { tenantId, name: 'Cash', type: AccountType.ASSET },
-    });
+    const totalCommission = round2(
+      args.washerCommissions.reduce((s, c) => s + (Number(c) || 0), 0),
+    );
+    const ownerShare = round2(args.revenue - totalCommission);
+    // The business earns its owner share; that is the income row amount.
     const income = await tx.otherIncome.create({
       data: {
         tenantId,
@@ -810,18 +839,17 @@ export class FinanceService {
         source: 'CARWASH_WASH',
         sourceId: washId,
         description: args.description,
-        amount: args.revenue,
+        amount: ownerShare,
         incomeDate: args.incomeDate,
         createdById: args.createdById ?? null,
       },
     });
 
-    if (!cash) {
-      this.logger.warn(
-        `Car-wash wash #${washId} was posted but its CWJ journal entry was skipped - no 'Cash' account is configured for this organization.`,
-      );
-      return income;
-    }
+    const receivable = args.receivableAccountId
+      ? await tx.account.findUnique({ where: { id: args.receivableAccountId } })
+      : await tx.account.findFirst({
+          where: { tenantId, name: 'Owner Share Receivable' },
+        });
 
     const entry = await tx.journalEntry.create({
       data: {
@@ -832,6 +860,17 @@ export class FinanceService {
         createdById: args.createdById ?? null,
       },
     });
+
+    // Owner share owed to the business (cash is with the washer until collected).
+    // Without a receivable account we cannot post a balanced entry, so skip and
+    // warn (the income row still records the earning).
+    if (!receivable) {
+      this.logger.warn(
+        `Car-wash wash #${washId} was posted but its CWJ journal entry was skipped - no 'Owner Share Receivable' account is configured.`,
+      );
+      return income;
+    }
+
     const lines: Array<{
       tenantId: number;
       journalEntryId: number;
@@ -839,19 +878,78 @@ export class FinanceService {
       debit: number;
       credit: number;
     }> = [
-      { tenantId, journalEntryId: entry.id, accountId: cash.id, debit: args.revenue, credit: 0 },
-      { tenantId, journalEntryId: entry.id, accountId: args.revenueAccountId, debit: 0, credit: args.revenue },
+      { tenantId, journalEntryId: entry.id, accountId: receivable.id, debit: ownerShare, credit: 0 },
+      { tenantId, journalEntryId: entry.id, accountId: args.revenueAccountId, debit: 0, credit: ownerShare },
     ];
-    if (args.commission > 0 && args.commissionAccountId) {
-      // Owner share = revenue - commission: reclass the commission from revenue
-      // to the commission expense so both sides land in the P&L.
+
+    // Per-washer informational split: a zero-sum debit+credit on the revenue
+    // account for each washer's cut, so the ledger shows the % per washer while
+    // leaving every account balance unchanged (the washer's % is not the shop's
+    // money, so it must not affect the shop's revenue or expenses).
+    for (const amount of args.washerCommissions) {
+      const c = round2(Number(amount) || 0);
+      if (c <= 0) continue;
       lines.push(
-        { tenantId, journalEntryId: entry.id, accountId: args.commissionAccountId, debit: args.commission, credit: 0 },
-        { tenantId, journalEntryId: entry.id, accountId: args.revenueAccountId, debit: args.commission, credit: 0 },
+        { tenantId, journalEntryId: entry.id, accountId: args.revenueAccountId, debit: c, credit: 0 },
+        { tenantId, journalEntryId: entry.id, accountId: args.revenueAccountId, debit: 0, credit: c },
       );
     }
+
+    this.assertBalancedLines(lines);
     await tx.journalLine.createMany({ data: lines });
     return income;
+  }
+
+  /**
+   * A car-wash collection: the owner share the washer was holding is handed to
+   * the business. Clears the receivable: Dr Cash / Cr Owner Share Receivable.
+   * Idempotent by collection id (reference `CWC-<id>`).
+   */
+  async postCarWashCollection(args: {
+    tx: any;
+    tenantId: number;
+    collectionId: number;
+    amount: number;
+    collectionDate: Date;
+    createdById?: number | null;
+  }) {
+    const amount = round2(Number(args.amount) || 0);
+    if (amount <= 0) return null;
+    const reference = `CWC-${args.collectionId}`;
+    const existing = await args.tx.journalEntry.findFirst({
+      where: { tenantId: args.tenantId, reference },
+    });
+    if (existing) return existing;
+
+    const cash = await args.tx.account.findFirst({
+      where: { tenantId: args.tenantId, name: 'Cash', type: AccountType.ASSET },
+    });
+    const receivable = await args.tx.account.findFirst({
+      where: { tenantId: args.tenantId, name: 'Owner Share Receivable' },
+    });
+    if (!cash || !receivable) {
+      this.logger.warn(
+        `Car-wash collection #${args.collectionId} was recorded but its CWC journal entry was skipped - 'Cash' and 'Owner Share Receivable' accounts are required.`,
+      );
+      return null;
+    }
+
+    const entry = await args.tx.journalEntry.create({
+      data: {
+        tenantId: args.tenantId,
+        reference,
+        description: `Car wash collection #${args.collectionId}`,
+        entryDate: args.collectionDate,
+        createdById: args.createdById ?? null,
+      },
+    });
+    await args.tx.journalLine.createMany({
+      data: [
+        { tenantId: args.tenantId, journalEntryId: entry.id, accountId: cash.id, debit: amount, credit: 0 },
+        { tenantId: args.tenantId, journalEntryId: entry.id, accountId: receivable.id, debit: 0, credit: amount },
+      ],
+    });
+    return entry;
   }
 
   // --- Auto income from confirmed order payments ---
@@ -2147,6 +2245,185 @@ export class FinanceService {
   }
 
   /**
+   * Customer credit payment (settles a receivable): Dr Cash (or Bank) /
+   * Cr Accounts Receivable. Idempotent by reference `CRP-<id>`. The receivable
+   * was raised at sale time by `postSaleIncome`; this clears it.
+   */
+  async postCreditPayment(args: {
+    creditPaymentId: number;
+    amount: number;
+    tenantId: number | null;
+    tx?: Prisma.TransactionClient;
+    createdById?: number | null;
+    entryDate?: Date;
+    paymentMethodId?: number | null;
+  }): Promise<boolean> {
+    const db = args.tx ?? this.prisma;
+    const amount = round2(Number(args.amount) || 0);
+    if (amount <= 0) return false;
+    const ref = `CRP-${args.creditPaymentId}`;
+    const existing = await db.journalEntry.findFirst({
+      where: { tenantId: args.tenantId, reference: ref },
+    });
+    if (existing) return false;
+
+    const accounts = await db.account.findMany({ where: { tenantId: args.tenantId } });
+    const ar = accounts.find((a) => a.name === 'Accounts Receivable');
+    // Bank when the payment method looks like a transfer/bank, else Cash.
+    const method = args.paymentMethodId
+      ? await db.paymentMethod.findUnique({ where: { id: args.paymentMethodId } })
+      : null;
+    const preferBank = /bank|transfer|telebirr|cbe|awash|dashen/i.test(method?.name ?? '');
+    const cash = preferBank
+      ? (accounts.find((a) => a.name === 'Bank') ?? accounts.find((a) => a.name === 'Cash'))
+      : (accounts.find((a) => a.name === 'Cash') ?? accounts.find((a) => a.name === 'Bank'));
+    if (!ar || !cash) {
+      this.logger.warn(
+        `Credit payment #${args.creditPaymentId} skipped - 'Accounts Receivable' and a Cash/Bank account are required.`,
+      );
+      return false;
+    }
+
+    const entry = await db.journalEntry.create({
+      data: {
+        tenantId: args.tenantId,
+        reference: ref,
+        description: 'Customer credit payment',
+        entryDate: args.entryDate ?? new Date(),
+        createdById: args.createdById ?? null,
+      },
+    });
+    await db.journalLine.createMany({
+      data: [
+        { tenantId: args.tenantId, journalEntryId: entry.id, accountId: cash.id, debit: amount, credit: 0 },
+        { tenantId: args.tenantId, journalEntryId: entry.id, accountId: ar.id, debit: 0, credit: amount },
+      ],
+    });
+    return true;
+  }
+
+  /**
+   * Employee loan issued (cash advanced to staff): Dr Employee Loans Receivable
+   * / Cr Cash. Balance-sheet only (no P&L). Idempotent by `ELN-<id>`.
+   */
+  async postEmployeeLoan(args: {
+    deductionId: number;
+    amount: number;
+    tenantId: number | null;
+    tx?: Prisma.TransactionClient;
+    createdById?: number | null;
+    entryDate?: Date;
+  }): Promise<boolean> {
+    const db = args.tx ?? this.prisma;
+    const amount = round2(Number(args.amount) || 0);
+    if (amount <= 0) return false;
+    await this.ensureDefaultAccounts(db, args.tenantId);
+    const accounts = await db.account.findMany({ where: { tenantId: args.tenantId } });
+    const loan = accounts.find((a) => a.name === 'Employee Loans Receivable');
+    const cash = accounts.find((a) => a.name === 'Cash' && a.type === AccountType.ASSET);
+    if (!loan || !cash) {
+      this.logger.warn(
+        `Employee loan #${args.deductionId} skipped - 'Employee Loans Receivable' and 'Cash' accounts are required.`,
+      );
+      return false;
+    }
+    return this.postContraJournal({
+      ref: `ELN-${args.deductionId}`,
+      amount,
+      tenantId: args.tenantId,
+      tx: args.tx,
+      createdById: args.createdById ?? null,
+      entryDate: args.entryDate ?? new Date(),
+      description: 'Employee loan issued',
+      debitAccountId: loan.id,
+      creditAccountId: cash.id,
+    });
+  }
+
+  /**
+   * Recover a loan or penalty from an employee's salary / commission.
+   *   - LOAN:    Dr Salaries & Wages / Cr Employee Loans Receivable (clears the
+   *              advance).
+   *   - PENALTY: Dr Salaries & Wages / Cr Fines & Penalties Recovered — the fine
+   *              recovered offsets the labour cost (a dedicated contra/other
+   *              income account), which is the standard treatment when there is
+   *              no accrued wage payable to reduce.
+   * Idempotent by `ERR-<recoveryId>`.
+   */
+  async postDeductionRecovery(args: {
+    recoveryId: number;
+    amount: number;
+    kind: 'LOAN' | 'PENALTY';
+    tenantId: number | null;
+    tx?: Prisma.TransactionClient;
+    createdById?: number | null;
+    entryDate?: Date;
+  }): Promise<boolean> {
+    const db = args.tx ?? this.prisma;
+    const amount = round2(Number(args.amount) || 0);
+    if (amount <= 0) return false;
+    const reference = `ERR-${args.recoveryId}`;
+    const existing = await db.journalEntry.findFirst({
+      where: { tenantId: args.tenantId, reference },
+    });
+    if (existing) return false;
+
+    await this.ensureDefaultAccounts(db, args.tenantId);
+    const accounts = await db.account.findMany({ where: { tenantId: args.tenantId } });
+    const wages =
+      accounts.find((a) => a.name === 'Salaries & Wages') ??
+      accounts.find((a) => a.type === AccountType.EXPENSE);
+    const loan = accounts.find((a) => a.name === 'Employee Loans Receivable');
+    const fines = accounts.find((a) => a.name === 'Fines & Penalties Recovered');
+
+    let lines:
+      | Array<{ accountId: number; debit: number; credit: number }>
+      | null = null;
+    if (args.kind === 'LOAN') {
+      if (!wages || !loan) {
+        this.logger.warn(
+          `Loan recovery #${args.recoveryId} skipped - 'Salaries & Wages' and 'Employee Loans Receivable' accounts are required.`,
+        );
+        return false;
+      }
+      // Deduct from the wage and clear the advance receivable.
+      lines = [
+        { accountId: wages.id, debit: amount, credit: 0 },
+        { accountId: loan.id, debit: 0, credit: amount },
+      ];
+    } else {
+      if (!wages || !fines) {
+        this.logger.warn(
+          `Penalty recovery #${args.recoveryId} skipped - 'Salaries & Wages' and a fines account are required.`,
+        );
+        return false;
+      }
+      // The fine recovered reduces the labour cost: credit the contra/other
+      // income account and debit wages (offsetting the deduction from pay).
+      lines = [
+        { accountId: wages.id, debit: amount, credit: 0 },
+        { accountId: fines.id, debit: 0, credit: amount },
+      ];
+    }
+
+    this.assertBalancedLines(lines);
+    const entry = await db.journalEntry.create({
+      data: {
+        tenantId: args.tenantId,
+        reference,
+        description:
+          args.kind === 'LOAN' ? 'Employee loan recovery' : 'Employee penalty recovery',
+        entryDate: args.entryDate ?? new Date(),
+        createdById: args.createdById ?? null,
+      },
+    });
+    await db.journalLine.createMany({
+      data: lines.map((l) => ({ tenantId: args.tenantId, journalEntryId: entry.id, ...l })),
+    });
+    return true;
+  }
+
+  /**
    * Vendor-bill payment settlement: Debit Accounts Payable ↔ Credit Cash (VBP-...).
    */
   async postVendorBillPayment(args: {
@@ -2386,6 +2663,7 @@ export class FinanceService {
 
   async createJournalEntry(dto: CreateJournalEntryDto, userId: number) {
     const tenantId = this.tenant();
+    this.assertBalancedLines(dto.lines);
     const totalDebit = dto.lines.reduce((s, l) => s + (l.debit ?? 0), 0);
     const totalCredit = dto.lines.reduce((s, l) => s + (l.credit ?? 0), 0);
     if (Math.abs(totalDebit - totalCredit) > 0.001) {
