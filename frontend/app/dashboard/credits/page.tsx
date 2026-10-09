@@ -5,6 +5,7 @@ import { useSingleLocationAutofill } from "@/lib/singleLocation";
 import CustomerForm from "@/app/components/CustomerForm";
 import Modal from "@/app/components/Modal";
 import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
+import { FilterSelect } from "@/app/components/FilterPanel";
 import Loading from "@/app/components/Loading";
 import RowActionsMenu from "@/app/components/RowActionsMenu";
 import { useToast } from "@/app/components/ToastProvider";
@@ -39,7 +40,14 @@ export default function CreditsPage() {
   );
   // Autofill the sole shop when the business has only one.
   useSingleLocationAutofill(locations, locationFilter, setLocationFilter);
-  const [onlyDebt, setOnlyDebt] = useState(false);
+  // Credit-specific status filter, mapped to the customers API params:
+  //   debt    -> onlyDebt=true
+  //   blocked -> canTakeCredit=false
+  //   archived-> archivedOnly=true
+  //   eligible-> canTakeCredit=true
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "debt" | "eligible" | "blocked" | "archived"
+  >("all");
   const [showNewModal, setShowNewModal] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<any>(null);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -58,7 +66,10 @@ export default function CreditsPage() {
       const params = new URLSearchParams();
       if (shopId) params.set("shopId", String(shopId));
       if (search.trim()) params.set("search", search.trim());
-      if (onlyDebt) params.set("onlyDebt", "true");
+      if (statusFilter === "debt") params.set("onlyDebt", "true");
+      if (statusFilter === "eligible") params.set("canTakeCredit", "true");
+      if (statusFilter === "blocked") params.set("canTakeCredit", "false");
+      if (statusFilter === "archived") params.set("archivedOnly", "true");
       params.set("page", String(creditPaged.page));
       params.set("pageSize", String(creditPaged.pageSize));
       const res = await api.get(`/customers?${params}`);
@@ -74,7 +85,7 @@ export default function CreditsPage() {
   };
 
   // Reset to page 1 whenever the filters change, then fetch the new page.
-  const filterSig = `${locationFilter}|${search}|${onlyDebt}`;
+  const filterSig = `${locationFilter}|${search}|${statusFilter}`;
   const lastFilterRef = useRef(filterSig);
 
   useEffect(() => {
@@ -138,15 +149,18 @@ export default function CreditsPage() {
         locations={isOwner ? locations : undefined}
         showLocation={isOwner}
         extra={
-          <label className="flex items-center gap-1.5 text-xs sm:text-sm text-gray-600 whitespace-nowrap sm:mt-5">
-            <input
-              type="checkbox"
-              checked={onlyDebt}
-              onChange={(e) => setOnlyDebt(e.target.checked)}
-              className="rounded"
-            />{" "}
-            {t("credits.onlyWithDebt")}
-          </label>
+          <FilterSelect
+            label={t("common.status")}
+            value={statusFilter}
+            onChange={(v) => setStatusFilter(v as typeof statusFilter)}
+            options={[
+              { value: "all", label: t("crm.filterAll") },
+              { value: "debt", label: t("credits.filterDebt") },
+              { value: "eligible", label: t("credits.filterEligible") },
+              { value: "blocked", label: t("crm.filterBlocked") },
+              { value: "archived", label: t("crm.filterArchived") },
+            ]}
+          />
         }
       />
 

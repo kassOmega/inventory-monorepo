@@ -519,7 +519,8 @@
     "toPay": "To pay",
     "settled": "Settled",
     "payablesGroupHeader": "{{date}} · {{count}} credit purchase",
-    "payablesGroupHeaderPlural": "{{date}} · {{count}} credit purchases"
+    "payablesGroupHeaderPlural": "{{date}} · {{count}} credit purchases",
+    "filterEligible": "Can take credit"
   },
   "products": {
     "priceList": {

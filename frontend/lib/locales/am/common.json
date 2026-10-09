@@ -519,7 +519,8 @@
     "toPay": "የሚከፈል",
     "settled": "ተቀርቷል",
     "payablesGroupHeader": "{{date}} · {{count}} የዕዳ ግዢ",
-    "payablesGroupHeaderPlural": "{{date}} · {{count}} የዕዳ ግዢዎች"
+    "payablesGroupHeaderPlural": "{{date}} · {{count}} የዕዳ ግዢዎች",
+    "filterEligible": "በዕዳ መውሰድ የሚችሉ"
   },
   "products": {
     "priceList": {
