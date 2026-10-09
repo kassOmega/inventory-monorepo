@@ -1,6 +1,7 @@
 "use client";
 
 import Loading from "@/app/components/Loading";
+import Button from "@/app/components/Button";
 import Modal from "@/app/components/Modal";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useToast } from "@/app/components/ToastProvider";
@@ -32,6 +33,8 @@ export default function ManufacturingFlowsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [form, setForm] = useState(emptyForm());
+  const [saving, setSaving] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [opDraft, setOpDraft] = useState<Record<number, string>>({});
   const canManage = hasPermission("manufacturing.manage");
 
@@ -105,6 +108,7 @@ export default function ManufacturingFlowsPage() {
           operations: s.ops,
         })),
     };
+    setSaving(true);
     try {
       if (editing) {
         await api.patch(`/manufacturing/flows/${editing.id}`, payload);
@@ -119,38 +123,49 @@ export default function ManufacturingFlowsPage() {
       load();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || t("mfg.flows.saveFailed"));
+    } finally {
+      setSaving(false);
     }
   };
 
   const setDefault = async (flow: any) => {
+    setBusyKey(`default-${flow.id}`);
     try {
       await api.post(`/manufacturing/flows/${flow.id}/default`);
       toast.success(t("mfg.flows.defaultUpdated"));
       load();
     } catch {
       toast.error(t("mfg.flows.defaultFailed"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
   const toggleActive = async (flow: any) => {
+    setBusyKey(`toggle-${flow.id}`);
     try {
       await api.patch(`/manufacturing/flows/${flow.id}`, { active: !flow.active });
       toast.success(t("mfg.common.updated"));
       load();
     } catch {
       toast.error(t("mfg.common.updateFailed"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
   const remove = async (flow: any) => {
     const ok = await confirm(t("mfg.flows.deleteConfirm", { name: flow.name }));
     if (!ok) return;
+    setBusyKey(`del-${flow.id}`);
     try {
       await api.delete(`/manufacturing/flows/${flow.id}`);
       toast.success(t("mfg.flows.deleted"));
       load();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || t("mfg.flows.deleteFailed"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -196,13 +211,13 @@ export default function ManufacturingFlowsPage() {
                 {canManage && (
                   <div className="flex gap-2 text-xs shrink-0">
                     {!flow.isDefault && (
-                      <button onClick={() => setDefault(flow)} className="text-blue-600 hover:underline">{t("mfg.flows.setDefault")}</button>
+                      <Button variant="ghost" size="sm" loading={busyKey === `default-${flow.id}`} onClick={() => setDefault(flow)} className="!px-0 text-blue-600 hover:underline">{t("mfg.flows.setDefault")}</Button>
                     )}
                     <button onClick={() => openEdit(flow)} className="text-gray-600 hover:underline">{t("mfg.common.edit")}</button>
-                    <button onClick={() => toggleActive(flow)} className="text-gray-500 hover:underline">
+                    <Button variant="ghost" size="sm" loading={busyKey === `toggle-${flow.id}`} onClick={() => toggleActive(flow)} className="!px-0 text-gray-500 hover:underline">
                       {flow.active ? t("mfg.flows.disable") : t("mfg.flows.enable")}
-                    </button>
-                    <button onClick={() => remove(flow)} className="text-red-600 hover:underline">{t("mfg.common.delete")}</button>
+                    </Button>
+                    <Button variant="ghost" size="sm" loading={busyKey === `del-${flow.id}`} onClick={() => remove(flow)} className="!px-0 text-red-600 hover:underline">{t("mfg.common.delete")}</Button>
                   </div>
                 )}
               </div>
@@ -341,9 +356,9 @@ export default function ManufacturingFlowsPage() {
 
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setShowForm(false)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">{t("mfg.common.cancel")}</button>
-            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">
+            <Button type="submit" loading={saving}>
               {editing ? t("mfg.flows.saveFlow") : t("mfg.flows.createFlow")}
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>

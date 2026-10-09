@@ -5,6 +5,7 @@ import Modal from "@/app/components/Modal";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useToast } from "@/app/components/ToastProvider";
 import api from "@/lib/api";
+import Button from "@/app/components/Button";
 import { useAuth } from "@/context/AuthContext";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -23,6 +24,8 @@ export default function ManufacturingTeamsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [form, setForm] = useState(emptyForm());
+  const [saving, setSaving] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const canManage = hasPermission("manufacturing.manage");
 
   const load = useCallback(async () => {
@@ -40,6 +43,7 @@ export default function ManufacturingTeamsPage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim()) return;
+    setSaving(true);
     try {
       if (editing) {
         await api.patch(`/manufacturing/teams/${editing.id}`, {
@@ -60,6 +64,8 @@ export default function ManufacturingTeamsPage() {
       load();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || t("mfg.teams.saveFailed"));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -70,12 +76,15 @@ export default function ManufacturingTeamsPage() {
   };
 
   const toggleActive = async (team: any) => {
+    setBusyKey(`toggle-${team.id}`);
     try {
       await api.patch(`/manufacturing/teams/${team.id}`, { active: !team.active });
       toast.success(t("mfg.common.updated"));
       load();
     } catch {
       toast.error(t("mfg.common.updateFailed"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -85,23 +94,29 @@ export default function ManufacturingTeamsPage() {
     if (target < 0 || target >= teams.length) return;
     const next = teams.map((t) => t.id);
     [next[idx], next[target]] = [next[target], next[idx]];
+    setBusyKey(`move-${team.id}`);
     try {
       await api.patch("/manufacturing/teams/reorder", { ids: next });
       load();
     } catch {
       toast.error(t("mfg.teams.reorderFailed"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
   const remove = async (team: any) => {
     const ok = await confirm(t("mfg.teams.deleteConfirm", { name: team.name }));
     if (!ok) return;
+    setBusyKey(`del-${team.id}`);
     try {
       await api.delete(`/manufacturing/teams/${team.id}`);
       toast.success(t("mfg.teams.deleted"));
       load();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || t("mfg.teams.deleteFailed"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -153,13 +168,13 @@ export default function ManufacturingTeamsPage() {
                 {canManage && (
                   <td className="p-3">
                     <div className="flex items-center justify-end gap-2 text-xs">
-                      <button onClick={() => move(team, -1)} disabled={i === 0} className="text-gray-500 hover:text-gray-800 disabled:opacity-30">↑</button>
-                      <button onClick={() => move(team, 1)} disabled={i === teams.length - 1} className="text-gray-500 hover:text-gray-800 disabled:opacity-30">↓</button>
+                      <button onClick={() => move(team, -1)} disabled={i === 0 || busyKey === `move-${team.id}`} className="text-gray-500 hover:text-gray-800 disabled:opacity-30">{busyKey === `move-${team.id}` ? <Loading size="sm" /> : "↑"}</button>
+                      <button onClick={() => move(team, 1)} disabled={i === teams.length - 1 || busyKey === `move-${team.id}`} className="text-gray-500 hover:text-gray-800 disabled:opacity-30">{busyKey === `move-${team.id}` ? <Loading size="sm" /> : "↓"}</button>
                       <button onClick={() => openEdit(team)} className="text-blue-600 hover:underline">{t("mfg.common.edit")}</button>
-                      <button onClick={() => toggleActive(team)} className="text-gray-600 hover:underline">
+                      <Button variant="ghost" size="sm" loading={busyKey === `toggle-${team.id}`} onClick={() => toggleActive(team)} className="!px-0 text-gray-600 hover:underline">
                         {team.active ? t("mfg.common.deactivate") : t("mfg.common.activate")}
-                      </button>
-                      <button onClick={() => remove(team)} className="text-red-600 hover:underline">{t("mfg.common.delete")}</button>
+                      </Button>
+                      <Button variant="ghost" size="sm" loading={busyKey === `del-${team.id}`} onClick={() => remove(team)} className="!px-0 text-red-600 hover:underline">{t("mfg.common.delete")}</Button>
                     </div>
                   </td>
                 )}
@@ -192,9 +207,9 @@ export default function ManufacturingTeamsPage() {
           </div>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setShowForm(false)} className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm">{t("mfg.common.cancel")}</button>
-            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">
+            <Button type="submit" loading={saving}>
               {editing ? t("mfg.teams.saveTeam") : t("mfg.teams.addTitle")}
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>
