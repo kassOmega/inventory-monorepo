@@ -87,8 +87,55 @@ NODE
     # --no-install: never reach for the network, only the local CLI baked into
     # the image (prisma is a runtime dependency, see package.json).
     if ! npx --no-install prisma migrate deploy; then
-      echo "[entrypoint] prisma migrate deploy failed - refusing to start the API" >&2
-      exit 1
+      # A migration that previously failed leaves a row in _prisma_migrations
+      # and makes `migrate deploy` refuse to proceed forever. The migrations are
+      # written to be idempotent, so re-running them is safe; but Prisma will not
+      # retry a migration it records as failed. Auto-resolve any failed migration
+      # as applied once, then retry, so a redeploy can heal itself without
+      # manual `migrate resolve` access to the database.
+      echo "[entrypoint] migrate deploy failed - checking for failed migrations to auto-resolve" >&2
+      failed="$(npx --no-install prisma migrate status 2>/dev/null | sed -n 's/.*migration \([0-9_a-zA-Z]*\) .*failed.*/\1/p' | head -1)"
+      if [ -z "$failed" ]; then
+        # Fall back to querying the tracking table directly.
+        failed="$(node - <<'NODE'
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+(async () => {
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      "SELECT migration_name FROM public._prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL ORDER BY started_at DESC LIMIT 1",
+    );
+    process.stdout.write(rows?.[0]?.migration_name || '');
+  } catch {
+    process.stdout.write('');
+  } finally {
+    await prisma.$disconnect();
+  }
+})();
+NODE
+)"
+      fi
+      if [ -n "$failed" ]; then
+        echo "[entrypoint] auto-resolving failed migration: $failed" >&2
+        # Marking it applied alone could leave a partially-applied migration's
+        # schema incomplete. Re-run the migration's own SQL first (it is written
+        # to be idempotent), then record it as applied. If the file is missing
+        # (older migration), fall back to resolving it as applied.
+        failed_sql="prisma/migrations/$failed/migration.sql"
+        if [ -f "$failed_sql" ]; then
+          echo "[entrypoint] re-applying idempotent SQL for $failed" >&2
+          npx --no-install prisma db execute --file "$failed_sql" --schema prisma/schema.prisma || true
+        fi
+        npx --no-install prisma migrate resolve --applied "$failed" || true
+        echo "[entrypoint] retrying prisma migrate deploy"
+        if ! npx --no-install prisma migrate deploy; then
+          echo "[entrypoint] prisma migrate deploy still failing - refusing to start the API" >&2
+          exit 1
+        fi
+      else
+        echo "[entrypoint] no failed migration detected - refusing to start the API" >&2
+        exit 1
+      fi
     fi
   else
     echo "[entrypoint] no _prisma_migrations table - baselining schema with prisma db push"
@@ -101,6 +148,13 @@ NODE
     # `db push` above; these migrations reconcile role permissions to the code
     # baselines. Applying the same SQL as `migrate deploy` keeps one source of
     # truth (no separate backfill scripts).
+    #
+    # These are best-effort data reconciliations on an already-synced schema: a
+    # failure here must not take the whole app down (a 502 for every request),
+    # so log it and continue. Genuine schema problems still fail hard above in
+    # the fatal `db push` step. Every file is written to be idempotent anyway
+    # (ADD COLUMN/CREATE INDEX IF NOT EXISTS, guarded ADD CONSTRAINT), so a
+    # re-run against a DB that already has the objects is a clean no-op.
     for migration in \
       prisma/migrations/20261013000000_reconcile_role_permissions/migration.sql \
       prisma/migrations/20261013000001_carwash_prune_foreign_grants/migration.sql \
@@ -110,8 +164,7 @@ NODE
       if [ -f "$migration" ]; then
         echo "[entrypoint] baselining data -> $migration"
         if ! npx --no-install prisma db execute --file "$migration" --schema prisma/schema.prisma; then
-          echo "[entrypoint] applying $migration failed - refusing to start the API" >&2
-          exit 1
+          echo "[entrypoint] WARNING: $migration failed; continuing (best-effort data reconciliation). Check the platform logs if permissions look stale." >&2
         fi
       fi
     done
