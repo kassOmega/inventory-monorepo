@@ -2,6 +2,7 @@
 import PurchaseForm from "@/app/components/PurchaseForm";
 import SaleForm from "@/app/components/SaleForm";
 import Modal from "@/app/components/Modal";
+import Button from "@/app/components/Button";
 import ClearableInput from "@/app/components/ClearableInput";
 import Loading from "@/app/components/Loading";
 import RowActionsMenu from "@/app/components/RowActionsMenu";
@@ -74,6 +75,9 @@ export default function CustomerDetailPage() {
   const [editPaySaleId, setEditPaySaleId] = useState("");
   const [editNewMethodName, setEditNewMethodName] = useState("");
   const [showSaleModal, setShowSaleModal] = useState(false);
+  const [recordingPayment, setRecordingPayment] = useState(false);
+  const [updatingPayment, setUpdatingPayment] = useState(false);
+  const [creatingMethod, setCreatingMethod] = useState(false);
 
   const fetchCustomer = async () => {
     const params = new URLSearchParams();
@@ -104,6 +108,7 @@ export default function CustomerDetailPage() {
 
   const handleRecordPayment = async (e: React.FormEvent) => {
     e.preventDefault();
+    setRecordingPayment(true);
     try {
       await api.post("/credit-payments", {
         customerId: customer?.id ?? Number(id),
@@ -122,6 +127,8 @@ export default function CustomerDetailPage() {
     } catch (err: any) {
       markHandled(err);
       toast.error(t("credits.failedRecordPayment"));
+    } finally {
+      setRecordingPayment(false);
     }
   };
 
@@ -160,6 +167,7 @@ export default function CustomerDetailPage() {
 
   const handleUpdatePayment = async (e: React.FormEvent) => {
     e.preventDefault();
+    setUpdatingPayment(true);
     try {
       await api.put(
         `/credit-payments/${editingPayment.publicId ?? editingPayment.id}`,
@@ -180,6 +188,8 @@ export default function CustomerDetailPage() {
     } catch (err: any) {
       markHandled(err);
       toast.error(t("credits.failedUpdatePayment"));
+    } finally {
+      setUpdatingPayment(false);
     }
   };
 
@@ -689,8 +699,10 @@ export default function CustomerDetailPage() {
               />
               <button
                 type="button"
+                disabled={creatingMethod}
                 onClick={async () => {
                   if (!newMethodName.trim()) return;
+                  setCreatingMethod(true);
                   try {
                     const r = await api.post("/payment-methods", {
                       name: newMethodName.trim(),
@@ -704,11 +716,20 @@ export default function CustomerDetailPage() {
                       err?.response?.data?.message ??
                         t("credits.failedAddMethod"),
                     );
+                  } finally {
+                    setCreatingMethod(false);
                   }
                 }}
-                className="bg-gray-200 px-2 rounded-lg text-xs"
+                className="bg-gray-200 px-2 rounded-lg text-xs inline-flex items-center justify-center disabled:opacity-60"
               >
-                +
+                {creatingMethod ? (
+                  <Loading
+                    size="sm"
+                    className="border-gray-400/40 border-t-gray-600"
+                  />
+                ) : (
+                  "+"
+                )}
               </button>
             </div>
           </div>
@@ -723,12 +744,15 @@ export default function CustomerDetailPage() {
               className="border p-2 rounded-lg w-full text-sm"
             />
           </div>
-          <button
+          <Button
             type="submit"
-            className="bg-green-600 text-white p-2 rounded-lg text-sm font-medium mt-2 hover:bg-green-700"
+            loading={recordingPayment}
+            variant="emerald"
+            shape="rounded-lg"
+            className="mt-2 !p-2 !text-sm font-medium"
           >
             {t("credits.recordPayment")}
-          </button>
+          </Button>
         </form>
       </Modal>
 
@@ -833,12 +857,15 @@ export default function CustomerDetailPage() {
               className="border p-2 rounded-lg w-full text-sm"
             />
           </div>
-          <button
+          <Button
             type="submit"
-            className="bg-green-600 text-white p-2 rounded-lg text-sm font-medium mt-2 hover:bg-green-700"
+            loading={updatingPayment}
+            variant="emerald"
+            shape="rounded-lg"
+            className="mt-2 !p-2 !text-sm font-medium"
           >
             {t("credits.updatePayment")}
-          </button>
+          </Button>
         </form>
       </Modal>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import SearchableSelect from "@/app/components/SearchableSelect";
+import Button from "@/app/components/Button";
 import { VERTICAL_LABELS } from "@/lib/verticals";
 import { statusLabel } from "@/lib/statusLabel";
 import api from "@/lib/api";
@@ -136,6 +137,9 @@ export default function AdminBusinessesPage() {
   });
   // Pending verification-status selection per business (applied on "Apply").
   const [vDraft, setVDraft] = useState<Record<number, string>>({});
+  const [creating, setCreating] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -156,6 +160,7 @@ export default function AdminBusinessesPage() {
   const createOrg = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setCreating(true);
     try {
       const res = await api.post("/admin/organizations", {
         ownerUserId: Number(form.ownerUserId),
@@ -186,14 +191,21 @@ export default function AdminBusinessesPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("biz.createFail"));
+    } finally {
+      setCreating(false);
     }
   };
 
   const toggleOrgStatus = async (id: number, status: string) => {
-    await api.patch(`/admin/organizations/${id}/status`, {
-      status: status === "ACTIVE" ? "INACTIVE" : "ACTIVE",
-    });
-    await load();
+    setBusyKey(`status-${id}`);
+    try {
+      await api.patch(`/admin/organizations/${id}/status`, {
+        status: status === "ACTIVE" ? "INACTIVE" : "ACTIVE",
+      });
+      await load();
+    } finally {
+      setBusyKey(null);
+    }
   };
 
   // Admin can move a business to ANY verification status from any current one
@@ -201,6 +213,7 @@ export default function AdminBusinessesPage() {
   const setVerificationStatus = async (id: number, status: string) => {
     if (!status) return;
     setError("");
+    setBusyKey(`verif-${id}`);
     try {
       await api.post(`/admin/verification/business/${id}/status`, { status });
       await load();
@@ -211,6 +224,8 @@ export default function AdminBusinessesPage() {
       });
     } catch (e: any) {
       setError(e?.response?.data?.message ?? t("adm.biz.verifStatusFail"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -233,6 +248,7 @@ export default function AdminBusinessesPage() {
   const saveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSavingEdit(true);
     try {
       await api.patch(`/admin/organizations/${editing.id}`, {
         name: editForm.name,
@@ -254,17 +270,22 @@ export default function AdminBusinessesPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("biz.updateFail"));
+    } finally {
+      setSavingEdit(false);
     }
   };
 
   const deleteOrg = async (id: number, name: string) => {
     if (!(await confirm(t("biz.confirmDelete", { name })))) return;
     setError("");
+    setBusyKey(`del-${id}`);
     try {
       await api.delete(`/admin/organizations/${id}`);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("biz.deleteFail"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -373,9 +394,9 @@ export default function AdminBusinessesPage() {
             />
             {tinCertificate && <span className="text-[11px] text-green-600 mt-1 block">✓ {tinCertificate.name}</span>}
           </label>
-          <button type="submit" className="bg-gray-800 text-white rounded p-2 text-sm font-medium md:col-span-2">
+          <Button type="submit" loading={creating} variant="dark" className="md:col-span-2">
             {t("biz.createBusiness")}
-          </button>
+          </Button>
         </form>
       </div>
 
@@ -422,28 +443,32 @@ export default function AdminBusinessesPage() {
                       </option>
                     ))}
                   </select>
-                  <button
+                  <Button
                     onClick={() => setVerificationStatus(o.id, vDraft[o.id] ?? o.verificationStatus ?? "PENDING")}
                     disabled={!vDraft[o.id] || vDraft[o.id] === o.verificationStatus}
-                    className="text-xs px-2 py-1 rounded bg-gray-800 text-white disabled:opacity-40"
+                    loading={busyKey === `verif-${o.id}`}
+                    size="sm"
+                    variant="dark"
+                    className="!text-xs"
                     title={t("adm.biz.applyTitle")}
                   >
                     {t("common.apply")}
-                  </button>
+                  </Button>
                   <button onClick={() => startEdit(o)} className="text-xs text-blue-600 hover:underline">
                     {t("common.edit")}
                   </button>
-                  <button onClick={() => deleteOrg(o.id, o.name)} className="text-xs text-red-600 hover:underline">
+                  <Button variant="ghost" size="sm" loading={busyKey === `del-${o.id}`} onClick={() => deleteOrg(o.id, o.name)} className="!px-0 text-xs text-red-600 hover:underline">
                     {t("common.delete")}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     onClick={() => toggleOrgStatus(o.id, o.status)}
-                    className={`text-xs px-2 py-1 rounded-full ${
-                      o.status === "ACTIVE" ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-500"
-                    }`}
+                    loading={busyKey === `status-${o.id}`}
+                    size="sm"
+                    variant="ghost"
+                    className={`!rounded-full !text-xs ${o.status === "ACTIVE" ? "!bg-green-100 !text-green-700" : "!bg-gray-200 !text-gray-500"}`}
                   >
                     {o.status === "ACTIVE" ? t("status.active") : t("status.inactive")}
-                  </button>
+                  </Button>
                 </div>
               </li>
             );
@@ -543,9 +568,9 @@ export default function AdminBusinessesPage() {
                 <button type="button" onClick={() => setEditing(null)} className="px-3 py-2 text-sm text-gray-600">
                   {t("common.cancel")}
                 </button>
-                <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">
+                <Button type="submit" loading={savingEdit} variant="dark" className="!px-3 !text-sm">
                   {t("common.save")}
-                </button>
+                </Button>
               </div>
             </form>
           </div>
