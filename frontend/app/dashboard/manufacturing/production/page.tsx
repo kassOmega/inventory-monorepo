@@ -1,7 +1,8 @@
 "use client";
 
 import Loading from "@/app/components/Loading";
-import ClearableInput from "@/app/components/ClearableInput";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
+import { FilterSelect } from "@/app/components/FilterPanel";
 import Modal from "@/app/components/Modal";
 import RowActionsMenu from "@/app/components/RowActionsMenu";
 import { useConfirm } from "@/app/components/ConfirmProvider";
@@ -220,25 +221,20 @@ export default function ManufacturingProductionPage() {
         )}
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-2 mb-6">
-        <ClearableInput
-          value={search}
-          onChange={setSearch}
-          placeholder={t("mfg.workOrders.searchPlaceholder")}
-          inputClassName="border p-2 rounded-lg w-full text-sm"
-          className="flex-1"
-        />
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="border p-2 rounded-lg bg-white text-sm"
-        >
-          <option value="">{t("mfg.workOrders.allStatuses")}</option>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>{{ [s]: null }[s]}{statusLabel(s)}</option>
-          ))}
-        </select>
-      </div>
+      <CollapsibleFilterPanel
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("mfg.workOrders.searchPlaceholder")}
+        extra={
+          <FilterSelect
+            label={t("common.status")}
+            value={statusFilter}
+            onChange={setStatusFilter}
+            allLabel={t("mfg.workOrders.allStatuses")}
+            options={STATUSES.map((s) => ({ value: s, label: statusLabel(s) }))}
+          />
+        }
+      />
 
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
         <div className="overflow-x-auto">

@@ -1,6 +1,6 @@
 "use client";
 import api from "@/lib/api";
-import ClearableInput from "@/app/components/ClearableInput";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
 import Modal from "@/app/components/Modal";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useAuth } from "@/context/AuthContext";
@@ -289,18 +289,14 @@ export default function DesignCatalogPage() {
 
         {/* Items */}
         <div className="space-y-3">
-          <div className="flex flex-wrap gap-2">
-            <ClearableInput
-              value={search}
-              onChange={setSearch}
-              placeholder={t("mfg.catalog.searchPlaceholder")}
-              inputClassName="border border-gray-300 rounded p-2 text-sm w-full"
-              className="flex-1 min-w-[180px]"
-            />
-            <span className="text-xs text-gray-400 self-center">
-              {t("mfg.catalog.designsCount", { count: shown.length })}
-            </span>
-          </div>
+          <CollapsibleFilterPanel
+            search={search}
+            onSearchChange={setSearch}
+            searchPlaceholder={t("mfg.catalog.searchPlaceholder")}
+          />
+          <p className="text-xs text-gray-400">
+            {t("mfg.catalog.designsCount", { count: shown.length })}
+          </p>
           {shown.length === 0 ? (
             <p className="text-gray-400 text-sm py-8 text-center">
               {filterCat ? t("mfg.catalog.noneInCategory") : t("mfg.catalog.none")}

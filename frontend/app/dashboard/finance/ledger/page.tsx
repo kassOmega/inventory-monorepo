@@ -1,6 +1,7 @@
 "use client";
 import api from "@/lib/api";
-import ClearableInput from "@/app/components/ClearableInput";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
+import { FilterSelect } from "@/app/components/FilterPanel";
 import DateFilter, { getDateRange } from "@/app/components/DateFilter";
 import Modal from "@/app/components/Modal";
 import { useAuth } from "@/context/AuthContext";
@@ -882,53 +883,44 @@ export default function LedgerPage() {
         endDate={endDate}
         onEndDateChange={setEndDate}
       />
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-3 py-2.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={filters.locationId}
-            onChange={(e) => setFilters((f) => ({ ...f, locationId: e.target.value }))}
-            className="border border-gray-300 rounded p-2 text-sm"
-          >
-            <option value="">{t("sales.allLocations")}</option>
-            {locations.map((l: any) => (
-              <option key={l.id} value={l.id}>{l.name}</option>
-            ))}
-          </select>
-          <select
-            value={filters.moduleSource}
-            onChange={(e) => setFilters((f) => ({ ...f, moduleSource: e.target.value }))}
-            className="border border-gray-300 rounded p-2 text-sm"
-          >
-            {MODULE_OPTIONS.map((m) => (
-              <option key={m.key} value={m.key}>{t(m.labelKey)}</option>
-            ))}
-          </select>
-          <select
-            value={filters.status}
-            onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
-            className="border border-gray-300 rounded p-2 text-sm"
-          >
-            {STATUS_OPTIONS.map((s) => (
-              <option key={s.key} value={s.key}>{t(s.labelKey)}</option>
-            ))}
-          </select>
-          <ClearableInput
-            value={filters.search}
-            onChange={(v) => setFilters((f) => ({ ...f, search: v }))}
-            placeholder={t("ledger.searchPh")}
-            className="flex-1 min-w-[180px]"
-            inputClassName="border border-gray-300 rounded p-2 text-sm w-full"
-          />
-          {(filters.locationId || filters.moduleSource !== "ALL" || filters.status !== "ALL" || filters.search) && (
-            <button
-              onClick={() => setFilters({ locationId: "", moduleSource: "ALL", status: "ALL", search: "" })}
-              className="text-xs text-gray-500 hover:text-gray-700 underline"
-            >
-              {t("ledger.resetFilters")}
-            </button>
-          )}
-        </div>
-      </div>
+      <CollapsibleFilterPanel
+        search={filters.search}
+        onSearchChange={(v) => setFilters((f) => ({ ...f, search: v }))}
+        searchPlaceholder={t("ledger.searchPh")}
+        extra={
+          <>
+            <FilterSelect
+              label={t("common.location")}
+              value={filters.locationId}
+              onChange={(v) => setFilters((f) => ({ ...f, locationId: v }))}
+              allLabel={t("sales.allLocations")}
+              options={locations.map((l: any) => ({ value: String(l.id), label: l.name }))}
+            />
+            <FilterSelect
+              label={t("ledger.colSource")}
+              value={filters.moduleSource}
+              onChange={(v) => setFilters((f) => ({ ...f, moduleSource: v }))}
+              options={MODULE_OPTIONS.map((m) => ({ value: m.key, label: t(m.labelKey) }))}
+            />
+            <FilterSelect
+              label={t("common.status")}
+              value={filters.status}
+              onChange={(v) => setFilters((f) => ({ ...f, status: v }))}
+              options={STATUS_OPTIONS.map((s) => ({ value: s.key, label: t(s.labelKey) }))}
+            />
+            {(filters.locationId || filters.moduleSource !== "ALL" || filters.status !== "ALL" || filters.search) && (
+              <div className="flex items-end">
+                <button
+                  onClick={() => setFilters({ locationId: "", moduleSource: "ALL", status: "ALL", search: "" })}
+                  className="text-xs text-gray-500 hover:text-gray-700 underline"
+                >
+                  {t("ledger.resetFilters")}
+                </button>
+              </div>
+            )}
+          </>
+        }
+      />
       <div className="flex flex-wrap gap-2">
         {TABS.map((x) => (
           <button

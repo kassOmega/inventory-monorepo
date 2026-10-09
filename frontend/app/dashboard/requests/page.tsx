@@ -3,7 +3,8 @@ import AiPhotoPicker from "@/app/components/AiPhotoPicker";
 import BarcodeScanner from "@/app/components/BarcodeScanner";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import CustomerForm from "@/app/components/CustomerForm";
-import FilterRow, { FilterField } from "@/app/components/FilterRow";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
+import { FilterSelect } from "@/app/components/FilterPanel";
 import Loading from "@/app/components/Loading";
 import Modal from "@/app/components/Modal";
 import Pagination from "@/app/components/Pagination";
@@ -1172,88 +1173,77 @@ export default function RequestsPage() {
         )}
       </div>
 
-      {/* Global Filters */}
-      <FilterRow>
-        <FilterField label={t("common.status")}>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="border p-2 rounded-lg w-full bg-white text-sm"
-          >
-            <option value="">{t("common.all")}</option>
-            {statuses.map((s) => (
-              <option key={s} value={s}>
-                {statusLabel(s)}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-
-        {hasPermission("requests.approve") && (
-          <FilterField label={t("common.location")}>
-            <select
-              value={locationFilter}
-              onChange={(e) => setLocationFilter(e.target.value)}
-              className="border p-2 rounded-lg w-full bg-white text-sm"
-            >
-              <option value="">{t("common.all")}</option>
-              {locations.map((l: any) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
-          </FilterField>
-        )}
-
-        <FilterField label={t("products.category")}>
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            className="border p-2 rounded-lg w-full bg-white text-sm"
-          >
-            <option value="">{t("common.all")}</option>
-            {categories.map((c: any) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-
-        <FilterField label={t("common.product")}>
-          <select
-            value={productFilter}
-            onChange={(e) => setProductFilter(e.target.value)}
-            className="border p-2 rounded-lg w-full bg-white text-sm"
-          >
-            <option value="">{t("common.all")}</option>
-            {products.map((p: any) => (
-              <option key={p.id} value={p.id}>
-                {p.brand} {p.baseName}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-
-        <FilterField label={t("common.startDate")}>
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="border p-2 rounded-lg w-full text-sm"
-          />
-        </FilterField>
-
-        <FilterField label={t("common.endDate")}>
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="border p-2 rounded-lg w-full text-sm"
-          />
-        </FilterField>
-      </FilterRow>
+      {/* Global Filters — the shared Sales-style panel, collapsible. */}
+      <CollapsibleFilterPanel
+        extra={
+          <>
+            <FilterSelect
+              label={t("common.status")}
+              value={statusFilter}
+              onChange={setStatusFilter}
+              allLabel={t("common.all")}
+              options={statuses.map((s) => ({
+                value: s,
+                label: statusLabel(s),
+              }))}
+            />
+            {hasPermission("requests.approve") && (
+              <FilterSelect
+                label={t("common.location")}
+                value={locationFilter}
+                onChange={setLocationFilter}
+                allLabel={t("common.all")}
+                options={locations.map((l: any) => ({
+                  value: String(l.id),
+                  label: l.name,
+                }))}
+              />
+            )}
+            <FilterSelect
+              label={t("products.category")}
+              value={categoryFilter}
+              onChange={setCategoryFilter}
+              allLabel={t("common.all")}
+              options={categories.map((c: any) => ({
+                value: String(c.id),
+                label: c.name,
+              }))}
+            />
+            <FilterSelect
+              label={t("common.product")}
+              value={productFilter}
+              onChange={setProductFilter}
+              allLabel={t("common.all")}
+              options={products.map((p: any) => ({
+                value: String(p.id),
+                label: `${p.brand} ${p.baseName}`,
+              }))}
+            />
+            <div>
+              <label className="block text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">
+                {t("common.startDate")}
+              </label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="border p-1.5 sm:p-2 rounded-lg w-full bg-white text-xs sm:text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">
+                {t("common.endDate")}
+              </label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="border p-1.5 sm:p-2 rounded-lg w-full bg-white text-xs sm:text-sm"
+              />
+            </div>
+          </>
+        }
+      />
 
       <div className="bg-white rounded-xl shadow-sm border overflow-x-auto">
         <table className="w-full text-left min-w-[600px] sm:min-w-[700px] text-xs sm:text-sm">

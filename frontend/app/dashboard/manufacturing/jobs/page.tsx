@@ -1,7 +1,8 @@
 "use client";
 
 import Loading from "@/app/components/Loading";
-import ClearableInput from "@/app/components/ClearableInput";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
+import { FilterSelect } from "@/app/components/FilterPanel";
 import Modal from "@/app/components/Modal";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useToast } from "@/app/components/ToastProvider";
@@ -168,21 +169,20 @@ export default function ManufacturingJobsPage() {
           </button>
         )}
       </div>
-      <div className="flex flex-col sm:flex-row gap-2 mb-6">
-        <ClearableInput
-          value={search}
-          onChange={setSearch}
-          placeholder={t("mfg.jobs.searchPlaceholder")}
-          inputClassName="border p-2 rounded-lg w-full text-sm"
-          className="flex-1"
-        />
-        <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} className="border p-2 rounded-lg bg-white text-sm">
-          <option value="">{t("mfg.jobs.allStages")}</option>
-          {STAGES.map((s) => (
-            <option key={s} value={s}>{statusLabel(s)}</option>
-          ))}
-        </select>
-      </div>
+      <CollapsibleFilterPanel
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("mfg.jobs.searchPlaceholder")}
+        extra={
+          <FilterSelect
+            label={t("common.status")}
+            value={stageFilter}
+            onChange={setStageFilter}
+            allLabel={t("mfg.jobs.allStages")}
+            options={STAGES.map((s) => ({ value: s, label: statusLabel(s) }))}
+          />
+        }
+      />
 
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
         <div className="overflow-x-auto">

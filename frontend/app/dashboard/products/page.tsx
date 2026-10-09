@@ -1,6 +1,6 @@
 "use client";
 import CategoriesManager from "@/app/components/CategoriesManager";
-import ClearableInput from "@/app/components/ClearableInput";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import Loading from "@/app/components/Loading";
 import Modal from "@/app/components/Modal";
@@ -358,36 +358,26 @@ export default function ProductsPage() {
         <CategoriesManager />
       ) : (
         <>
-          <div className="flex w-full items-start md:items-center mb-6 gap-3">
-            <ClearableInput
-              placeholder={t("products.searchPlaceholder")}
-              value={search}
-              onChange={setSearch}
-              className="flex-1"
-              inputClassName="border p-2 rounded-lg w-full text-sm"
-            />
-            {/* Count many items (and variants, across locations) in one sheet. */}
-            {canAdjust && (
+          {/* The shared Sales-style filter panel, collapsible (starts expanded).
+              The Stock Count link is an action, not a filter, so it stays out. */}
+          {canAdjust && (
+            <div className="flex justify-end mb-2">
               <Link
                 href="/dashboard/adjust-stock"
                 className="border border-blue-600 text-blue-700 rounded-lg px-3 py-2 text-sm whitespace-nowrap hover:bg-blue-50"
               >
                 {t("nav.stockCount")}
               </Link>
-            )}
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="border p-2 rounded-lg bg-white text-sm"
-            >
-              <option value="">{t("sales.allCategories")}</option>
-              {categories.map((c: any) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
+            </div>
+          )}
+          <CollapsibleFilterPanel
+            search={search}
+            onSearchChange={setSearch}
+            searchPlaceholder={t("products.searchPlaceholder")}
+            category={categoryFilter}
+            onCategoryChange={setCategoryFilter}
+            categories={categories}
+          />
 
           <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
             <div className="overflow-x-auto">

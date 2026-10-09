@@ -1,7 +1,7 @@
 "use client";
 
 import Loading from "@/app/components/Loading";
-import ClearableInput from "@/app/components/ClearableInput";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
 import Modal from "@/app/components/Modal";
 import RowActionsMenu from "@/app/components/RowActionsMenu";
 import { useConfirm } from "@/app/components/ConfirmProvider";
@@ -186,12 +186,10 @@ export default function ManufacturingBomsPage() {
         )}
       </div>
 
-      <ClearableInput
-        value={search}
-        onChange={setSearch}
-        placeholder={t("mfg.boms.searchPlaceholder")}
-        inputClassName="border p-2 rounded-lg w-full sm:w-96 text-sm"
-        className="w-full sm:w-96 mb-6"
+      <CollapsibleFilterPanel
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("mfg.boms.searchPlaceholder")}
       />
 
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">

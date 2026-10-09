@@ -3,7 +3,7 @@
 // same reusable form the till uses so a profile created here and one created
 // mid-sale are identical.
 import { useConfirm } from "@/app/components/ConfirmProvider";
-import ClearableInput from "@/app/components/ClearableInput";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
 import CustomerForm from "@/app/components/CustomerForm";
 import Loading from "@/app/components/Loading";
 import Modal from "@/app/components/Modal";
@@ -176,37 +176,37 @@ export default function CustomersPage() {
         ))}
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-2 mb-4">
-        <ClearableInput
-          placeholder={t("crm.searchPlaceholder")}
-          value={search}
-          onChange={setSearch}
-          className="flex-1"
-          inputClassName="border p-2 rounded-lg w-full text-sm"
-        />
-        <div className="flex gap-1 overflow-x-auto">
-          {(
-            [
-              ["all", "crm.filterAll"],
-              ["debt", "crm.filterDebt"],
-              ["blocked", "crm.filterBlocked"],
-              ["archived", "crm.filterArchived"],
-            ] as [FilterKind, string][]
-          ).map(([value, key]) => (
-            <button
-              key={value}
-              onClick={() => setFilter(value)}
-              className={`px-3 py-2 rounded-lg text-xs sm:text-sm whitespace-nowrap ${
-                filter === value
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              }`}
-            >
-              {t(key)}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* The shared Sales-style filter panel, collapsible (starts expanded).
+          The All/Debt/Blocked/Archived switch is a view toggle and stays. */}
+      <CollapsibleFilterPanel
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("crm.searchPlaceholder")}
+        extra={
+          <div className="flex gap-1 overflow-x-auto sm:mt-5">
+            {(
+              [
+                ["all", "crm.filterAll"],
+                ["debt", "crm.filterDebt"],
+                ["blocked", "crm.filterBlocked"],
+                ["archived", "crm.filterArchived"],
+              ] as [FilterKind, string][]
+            ).map(([value, key]) => (
+              <button
+                key={value}
+                onClick={() => setFilter(value)}
+                className={`px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm whitespace-nowrap ${
+                  filter === value
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >
+                {t(key)}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       {/* TABLE */}
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">

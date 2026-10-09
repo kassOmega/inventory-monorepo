@@ -1,7 +1,8 @@
 "use client";
 
 import Loading from "@/app/components/Loading";
-import ClearableInput from "@/app/components/ClearableInput";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
+import { FilterSelect } from "@/app/components/FilterPanel";
 import Modal from "@/app/components/Modal";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useToast } from "@/app/components/ToastProvider";
@@ -232,14 +233,23 @@ export default function ManufacturingPurchasingPage() {
         )}
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2 mb-3">
-        {["", ...STATUSES].map((s) => (
-          <button key={s || "all"} onClick={() => setStatus(s)} className={`px-3 py-1 rounded-full text-xs border ${status === s ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 border-gray-200"}`}>
-            {s ? t(STATUS_KEY[s] ?? "") || s : t("mfg.purchasing.stAll")}
-          </button>
-        ))}
-        <ClearableInput value={search} onChange={setSearch} placeholder={t("mfg.purchasing.searchPlaceholder")} className="ml-auto w-56" inputClassName="border p-2 rounded-lg w-full text-sm" />
-      </div>
+      <CollapsibleFilterPanel
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("mfg.purchasing.searchPlaceholder")}
+        extra={
+          <FilterSelect
+            label={t("common.status")}
+            value={status}
+            onChange={setStatus}
+            allLabel={t("mfg.purchasing.stAll")}
+            options={STATUSES.map((s) => ({
+              value: s,
+              label: t(STATUS_KEY[s] ?? "") || s,
+            }))}
+          />
+        }
+      />
 
       <div className="bg-white rounded-xl shadow-sm border overflow-x-auto">
         <table className="w-full text-left min-w-[860px] text-xs sm:text-sm">

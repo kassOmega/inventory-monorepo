@@ -4,7 +4,7 @@ import SaleForm from "@/app/components/SaleForm";
 import { useSingleLocationAutofill } from "@/lib/singleLocation";
 import CustomerForm from "@/app/components/CustomerForm";
 import Modal from "@/app/components/Modal";
-import ClearableInput from "@/app/components/ClearableInput";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
 import Loading from "@/app/components/Loading";
 import RowActionsMenu from "@/app/components/RowActionsMenu";
 import { useToast } from "@/app/components/ToastProvider";
@@ -128,38 +128,27 @@ export default function CreditsPage() {
         </button>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-2 mb-4">
-        <ClearableInput
-          placeholder={t("credits.searchByName")}
-          value={search}
-          onChange={setSearch}
-          className="flex-1"
-          inputClassName="border p-2 rounded-lg w-full text-sm"
-        />
-        {isOwner && (
-          <select
-            value={locationFilter}
-            onChange={(e) => setLocationFilter(e.target.value)}
-            className="border p-2 rounded-lg bg-white text-sm"
-          >
-            <option value="">{t("credits.allShops")}</option>
-            {locations.map((l: any) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-        )}
-        <label className="flex items-center gap-1.5 text-xs sm:text-sm text-gray-600 whitespace-nowrap">
-          <input
-            type="checkbox"
-            checked={onlyDebt}
-            onChange={(e) => setOnlyDebt(e.target.checked)}
-            className="rounded"
-          />{" "}
-          {t("credits.onlyWithDebt")}
-        </label>
-      </div>
+      {/* The shared Sales-style filter panel, collapsible (starts expanded). */}
+      <CollapsibleFilterPanel
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("credits.searchByName")}
+        location={locationFilter}
+        onLocationChange={setLocationFilter}
+        locations={isOwner ? locations : undefined}
+        showLocation={isOwner}
+        extra={
+          <label className="flex items-center gap-1.5 text-xs sm:text-sm text-gray-600 whitespace-nowrap sm:mt-5">
+            <input
+              type="checkbox"
+              checked={onlyDebt}
+              onChange={(e) => setOnlyDebt(e.target.checked)}
+              className="rounded"
+            />{" "}
+            {t("credits.onlyWithDebt")}
+          </label>
+        }
+      />
 
       <div className="bg-white rounded-xl shadow-sm border overflow-x-auto">
         <table className="w-full text-left text-xs sm:text-sm min-w-[820px]">

@@ -7,7 +7,8 @@
 // draws attention to is how the buy side settles. The tabs filter that one list;
 // they do not switch to a second implementation.
 import { getDateRange } from "@/app/components/DateFilter";
-import ClearableInput from "@/app/components/ClearableInput";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
+import { FilterSelect } from "@/app/components/FilterPanel";
 import { useSingleLocationAutofill } from "@/lib/singleLocation";
 import Loading from "@/app/components/Loading";
 import PurchaseForm, { PurchaseMode } from "@/app/components/PurchaseForm";
@@ -20,7 +21,6 @@ import { useToast } from "@/app/components/ToastProvider";
 import { useAuth } from "@/context/AuthContext";
 import api, { markHandled } from "@/lib/api";
 import { fmtCurrency } from "@/lib/currency";
-import { formatDate } from "@/lib/datetime";
 import { statusLabel } from "@/lib/statusLabel";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -86,14 +86,6 @@ function StatGroup({
   );
 }
 
-/** The range shortcuts behind the Filters toggle; labels live in `filters.*`. */
-const DATE_PRESETS: { key: DatePreset; labelKey: string }[] = [
-  { key: "today", labelKey: "filters.dateToday" },
-  { key: "week", labelKey: "filters.dateWeek" },
-  { key: "month", labelKey: "filters.dateMonth" },
-  { key: "year", labelKey: "filters.dateYear" },
-];
-
 export default function PurchasesPage() {
   const { t } = useTranslation();
   const { user, hasPermission } = useAuth();
@@ -124,9 +116,6 @@ export default function PurchasesPage() {
   const [viewTarget, setViewTarget] = useState<any>(null);
   const [fetching, setFetching] = useState(true);
   const [daySheet, setDaySheet] = useState<any>(null);
-  // The date range is the one filter that is not touched on every visit, so it
-  // hides behind the Filters toggle.
-  const [showFilters, setShowFilters] = useState(false);
   // The smart-cards summary is collapsible and starts collapsed (its header keeps
   // the headline number visible); the choice is remembered across visits.
   const [statsOpen, setStatsOpen] = useState(false);
@@ -267,15 +256,6 @@ export default function PurchasesPage() {
     .filter((r) => r.paymentType === "CREDIT")
     .reduce((sum, r) => sum + recordedMargin(r), 0);
 
-  // The chip on the Filters button, so a collapsed panel still says which range
-  // the list below it is showing.
-  const activeRange =
-    startDate || endDate
-      ? `${startDate ? formatDate(`${startDate}T00:00:00`) : "—"} – ${
-          endDate ? formatDate(`${endDate}T00:00:00`) : "—"
-        }`
-      : "";
-
   if (fetching && rows.length === 0 && !stats) return <Loading className="py-24" />;
 
   return (
@@ -316,133 +296,78 @@ export default function PurchasesPage() {
         ))}
       </div>
 
-      {/* One slim toolbar. The filters a shopkeeper touches on every visit stay
-          visible; the date range hides behind Filters and reports itself as a
-          chip, so the list gets the room instead of the chrome. */}
-      <div className="flex flex-wrap items-center gap-2 mb-3">
-        <ClearableInput
-          value={search}
-          onChange={setSearch}
-          placeholder={t("filters.searchProducts")}
-          className="flex-1 min-w-[150px]"
-          inputClassName="border p-1.5 sm:p-2 rounded-lg w-full text-xs sm:text-sm"
-        />
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="border p-1.5 sm:p-2 rounded-lg bg-white text-xs sm:text-sm"
-        >
-          <option value="">{t("purchases.allStatus")}</option>
-          <option value="PENDING">{statusLabel("PENDING")}</option>
-          <option value="APPROVED">{statusLabel("APPROVED")}</option>
-          <option value="REJECTED">{statusLabel("REJECTED")}</option>
-        </select>
-        {tab !== "PAID" && (
-          <select
-            value={paymentStatusFilter}
-            onChange={(e) => setPaymentStatusFilter(e.target.value)}
-            className="border p-1.5 sm:p-2 rounded-lg bg-white text-xs sm:text-sm"
-          >
-            <option value="">{t("purchases.allPaymentStatus")}</option>
-            <option value="UNPAID">{statusLabel("UNPAID")}</option>
-            <option value="PARTIALLY_PAID">
-              {statusLabel("PARTIALLY_PAID")}
-            </option>
-            <option value="PAID">{statusLabel("PAID")}</option>
-          </select>
-        )}
-        {tab !== "PAID" && (
-          <div className="w-full sm:w-44">
-            <SearchableSelect
-              options={vendors.map((v: any) => ({
-                value: String(v.id),
-                label: v.name,
-                searchText: `${v.name ?? ""} ${v.phone ?? ""}`,
-              }))}
-              value={vendorFilter}
-              onChange={setVendorFilter}
-              placeholder={t("purchases.filterVendor")}
-              clearable
-              clearLabel={t("common.clear")}
+      {/* The shared Sales-style filter panel, collapsible (starts expanded). */}
+      <CollapsibleFilterPanel
+        showDateFilter
+        datePreset={datePreset}
+        onDatePresetChange={setDatePreset}
+        startDate={startDate}
+        onStartDateChange={setStartDate}
+        endDate={endDate}
+        onEndDateChange={setEndDate}
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("filters.searchProducts")}
+        extra={
+          <>
+            <FilterSelect
+              label={t("common.status")}
+              value={statusFilter}
+              onChange={setStatusFilter}
+              allLabel={t("purchases.allStatus")}
+              options={[
+                { value: "PENDING", label: statusLabel("PENDING") },
+                { value: "APPROVED", label: statusLabel("APPROVED") },
+                { value: "REJECTED", label: statusLabel("REJECTED") },
+              ]}
             />
-          </div>
-        )}
-        {isOwner && shops.length > 0 && (
-          <select
-            value={shopFilter}
-            onChange={(e) => setShopFilter(e.target.value)}
-            className="border p-1.5 sm:p-2 rounded-lg bg-white text-xs sm:text-sm"
-          >
-            <option value="">{t("filters.allLocations")}</option>
-            {shops.map((s: any) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        )}
-        <button
-          type="button"
-          onClick={() => setShowFilters((v) => !v)}
-          className={
-            "px-2.5 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium border whitespace-nowrap transition " +
-            (showFilters
-              ? "bg-blue-50 text-blue-700 border-blue-200"
-              : "bg-white text-gray-600 hover:bg-gray-50")
-          }
-        >
-          {t("common.filters")}
-          {!showFilters && activeRange && (
-            <span className="ml-1 text-[10px] sm:text-xs text-gray-400">
-              {activeRange}
-            </span>
-          )}
-        </button>
-      </div>
-
-      {/* Looking back at an older range is rare enough to hide: the presets stay
-          one tap away and the custom dates sit next to them. */}
-      {showFilters && (
-        <div className="bg-white rounded-xl shadow-sm border p-2 sm:p-3 mb-3 flex flex-wrap items-center gap-1.5 sm:gap-2">
-          {DATE_PRESETS.map((p) => (
-            <button
-              key={p.key}
-              type="button"
-              onClick={() => {
-                setDatePreset(p.key);
-                const range = getDateRange(p.key);
-                setStartDate(range.start);
-                setEndDate(range.end);
-              }}
-              className={
-                "px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-medium transition " +
-                (datePreset === p.key
-                  ? "bg-blue-600 text-white shadow"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200")
-              }
-            >
-              {t(p.labelKey)}
-            </button>
-          ))}
-          <div className="flex items-center gap-1 sm:gap-2 ml-0.5 sm:ml-1 flex-wrap">
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="border p-1 rounded text-[11px] sm:text-xs bg-white"
-            />
-            <span className="text-gray-400 text-[11px] sm:text-xs">
-              {t("filters.to")}
-            </span>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="border p-1 rounded text-[11px] sm:text-xs bg-white"
-            />
-          </div>
-        </div>
-      )}
+            {tab !== "PAID" && (
+              <FilterSelect
+                label={t("purchases.paymentStatus")}
+                value={paymentStatusFilter}
+                onChange={setPaymentStatusFilter}
+                allLabel={t("purchases.allPaymentStatus")}
+                options={[
+                  { value: "UNPAID", label: statusLabel("UNPAID") },
+                  { value: "PARTIALLY_PAID", label: statusLabel("PARTIALLY_PAID") },
+                  { value: "PAID", label: statusLabel("PAID") },
+                ]}
+              />
+            )}
+            {tab !== "PAID" && (
+              <div>
+                <label className="block text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">
+                  {t("purchases.vendor")}
+                </label>
+                <SearchableSelect
+                  options={vendors.map((v: any) => ({
+                    value: String(v.id),
+                    label: v.name,
+                    searchText: `${v.name ?? ""} ${v.phone ?? ""}`,
+                  }))}
+                  value={vendorFilter}
+                  onChange={setVendorFilter}
+                  placeholder={t("purchases.filterVendor")}
+                  clearable
+                  clearLabel={t("common.clear")}
+                />
+              </div>
+            )}
+            {isOwner && shops.length > 0 && (
+              <FilterSelect
+                label={t("filters.location")}
+                value={shopFilter}
+                onChange={setShopFilter}
+                allLabel={t("filters.allLocations")}
+                options={shops.map((s: any) => ({
+                  value: String(s.id),
+                  label: s.name,
+                }))}
+              />
+            )}
+          </>
+        }
+      />
 
       {/* Smart-cards summary: collapsible, starts collapsed with the headline
           number kept in the header, so on a phone it costs one slim row and the
