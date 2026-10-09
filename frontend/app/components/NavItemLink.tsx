@@ -4,7 +4,13 @@
 // quick nav so both agree on what "active" means (isNavItemActive, which also
 // covers the extra tab routes a menu item can declare via `match`) — each surface
 // only supplies its own class names.
+//
+// While the route is committing (Next.js is fetching the target page's data) the
+// label is replaced in place by a small spinner, so tapping a nav item always
+// gives feedback instead of looking inert until the new page paints.
 import Link from "next/link";
+import { useLinkStatus } from "next/link";
+import Loading from "./Loading";
 import {
   isNavItemActive,
   type DashboardNavItem,
@@ -17,6 +23,17 @@ interface Props {
   className: string | ((active: boolean) => string);
   /** Called after the link is followed (e.g. to close the mobile drawer). */
   onNavigate?: () => void;
+}
+
+/** Inner spinner that must live inside <Link> to read its pending status. */
+function PendingIndicator({ label }: { label: string }) {
+  const { pending } = useLinkStatus();
+  // Keep the element mounted (stable layout) and swap the label for the spinner.
+  return pending ? (
+    <Loading size="sm" className="border-gray-400/40 border-t-current" />
+  ) : (
+    <span>{label}</span>
+  );
 }
 
 export default function NavItemLink({
@@ -34,7 +51,7 @@ export default function NavItemLink({
       aria-current={active ? "page" : undefined}
       className={typeof className === "function" ? className(active) : className}
     >
-      {item.label}
+      <PendingIndicator label={item.label} />
     </Link>
   );
 }

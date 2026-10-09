@@ -1,6 +1,8 @@
 "use client";
 
 import api from "@/lib/api";
+import Button from "@/app/components/Button";
+import Loading from "@/app/components/Loading";
 import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
 import Modal from "@/app/components/Modal";
 import { useConfirm } from "@/app/components/ConfirmProvider";
@@ -33,6 +35,13 @@ export default function CarWashPricesPage() {
   const [washTypeFilter, setWashTypeFilter] = useState("");
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"prices" | "washTypes" | "vehicleTypes">("prices");
+  // Busy flags for every async action on this page, so each control shows a
+  // spinner and cannot be double-fired while its request is in flight.
+  const [saving, setSaving] = useState(false);
+  const [savingWashType, setSavingWashType] = useState(false);
+  const [savingVehicleType, setSavingVehicleType] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [creatingType, setCreatingType] = useState<string | null>(null);
 
   const canWrite = hasPermission("carwash.prices.create") || hasPermission("carwash.prices.edit");
   const canDelete = hasPermission("carwash.prices.delete");
@@ -65,6 +74,7 @@ export default function CarWashPricesPage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSaving(true);
     try {
       const payload = {
         vehicleType: form.vehicleType,
@@ -81,17 +91,22 @@ export default function CarWashPricesPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setSaving(false);
     }
   };
 
   const remove = async (id: number) => {
     if (!(await confirm(t("carwash.deleteConfirm")))) return;
     setError("");
+    setBusyId(`price-${id}`);
     try {
       await api.delete(`/carwash/prices/${id}`);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedDelete"));
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -104,6 +119,7 @@ export default function CarWashPricesPage() {
   const submitWashType = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSavingWashType(true);
     try {
       if (editingWashType) {
         await api.patch(`/carwash/wash-types/${editingWashType.id}`, { name: washTypeForm.trim() });
@@ -116,17 +132,22 @@ export default function CarWashPricesPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setSavingWashType(false);
     }
   };
 
   const removeWashType = async (w: any) => {
     if (!(await confirm(t("carwash.deleteConfirm")))) return;
     setError("");
+    setBusyId(`wash-type-${w.id}`);
     try {
       await api.delete(`/carwash/wash-types/${w.id}`);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedDelete"));
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -139,6 +160,7 @@ export default function CarWashPricesPage() {
   const submitVehicleType = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSavingVehicleType(true);
     try {
       if (editingVehicleType) {
         await api.patch(`/carwash/vehicle-types/${editingVehicleType.id}`, { name: vehicleTypeForm.trim() });
@@ -151,17 +173,22 @@ export default function CarWashPricesPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setSavingVehicleType(false);
     }
   };
 
   const removeVehicleType = async (v: any) => {
     if (!(await confirm(t("carwash.deleteConfirm")))) return;
     setError("");
+    setBusyId(`vehicle-type-${v.id}`);
     try {
       await api.delete(`/carwash/vehicle-types/${v.id}`);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedDelete"));
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -169,6 +196,7 @@ export default function CarWashPricesPage() {
     const name = newVehicleType.trim();
     if (!name) return;
     setError("");
+    setCreatingType("vehicle");
     try {
       await api.post("/carwash/vehicle-types", { name });
       setForm((f) => ({ ...f, vehicleType: name }));
@@ -177,6 +205,8 @@ export default function CarWashPricesPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setCreatingType(null);
     }
   };
 
@@ -184,6 +214,7 @@ export default function CarWashPricesPage() {
     const name = newWashType.trim();
     if (!name) return;
     setError("");
+    setCreatingType("wash");
     try {
       const r = await api.post("/carwash/wash-types", { name });
       setForm((f) => ({ ...f, washTypeId: String(r.data.id) }));
@@ -192,6 +223,8 @@ export default function CarWashPricesPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setCreatingType(null);
     }
   };
 
@@ -245,7 +278,7 @@ export default function CarWashPricesPage() {
                   <span className="text-sm font-medium text-gray-700">{w.name}</span>
                   <div className="flex gap-3">
                     {canWrite && <button onClick={() => openWashTypeModal(w)} className="text-xs text-blue-600 hover:underline">{t("carwash.edit")}</button>}
-                    {canDelete && <button onClick={() => removeWashType(w)} className="text-xs text-red-600 hover:underline">{t("carwash.delete")}</button>}
+                    {canDelete && <Button variant="ghost" size="sm" loading={busyId === `wash-type-${w.id}`} onClick={() => removeWashType(w)} className="!px-0 text-xs text-red-600 hover:underline">{t("carwash.delete")}</Button>}
                   </div>
                 </li>
               ))}
@@ -273,7 +306,7 @@ export default function CarWashPricesPage() {
                   <span className="text-sm font-medium text-gray-700">{v.name}</span>
                   <div className="flex gap-3">
                     {canWrite && <button onClick={() => openVehicleTypeModal(v)} className="text-xs text-blue-600 hover:underline">{t("carwash.edit")}</button>}
-                    {canDelete && <button onClick={() => removeVehicleType(v)} className="text-xs text-red-600 hover:underline">{t("carwash.delete")}</button>}
+                    {canDelete && <Button variant="ghost" size="sm" loading={busyId === `vehicle-type-${v.id}`} onClick={() => removeVehicleType(v)} className="!px-0 text-xs text-red-600 hover:underline">{t("carwash.delete")}</Button>}
                   </div>
                 </li>
               ))}
@@ -326,7 +359,7 @@ export default function CarWashPricesPage() {
                 <td className="px-4 py-2 whitespace-nowrap">{p.amount}</td>
                 <td className="px-4 py-2 text-right whitespace-nowrap">
                   {canWrite && <button onClick={() => openEdit(p)} className="text-xs text-blue-600 hover:underline mr-2">{t("carwash.edit")}</button>}
-                  {canDelete && <button onClick={() => remove(p.id)} className="text-xs text-red-600 hover:underline">{t("carwash.delete")}</button>}
+                  {canDelete && <Button variant="ghost" size="sm" loading={busyId === `price-${p.id}`} onClick={() => remove(p.id)} className="!px-0 text-xs text-red-600 hover:underline">{t("carwash.delete")}</Button>}
                 </td>
               </tr>
             ))}
@@ -350,7 +383,7 @@ export default function CarWashPricesPage() {
             {showNewVehicleType && (
               <div className="flex gap-2 mt-1">
                 <input value={newVehicleType} onChange={(e) => setNewVehicleType(e.target.value)} placeholder={t("carwash.addVehicleType")} className="border border-gray-300 rounded p-2 text-sm flex-1" autoFocus />
-                <button type="button" onClick={createVehicleTypeInline} className="bg-gray-800 text-white rounded px-3 text-sm">✓</button>
+                <button type="button" onClick={createVehicleTypeInline} disabled={creatingType === "vehicle"} className="bg-gray-800 text-white rounded px-3 text-sm inline-flex items-center justify-center disabled:opacity-60">{creatingType === "vehicle" ? <Loading size="sm" className="border-white/40 border-t-white" /> : "✓"}</button>
               </div>
             )}
           </div>
@@ -366,7 +399,7 @@ export default function CarWashPricesPage() {
             {showNewWashType && (
               <div className="flex gap-2 mt-1">
                 <input value={newWashType} onChange={(e) => setNewWashType(e.target.value)} placeholder={t("carwash.addWashType")} className="border border-gray-300 rounded p-2 text-sm flex-1" autoFocus />
-                <button type="button" onClick={createWashTypeInline} className="bg-gray-800 text-white rounded px-3 text-sm">✓</button>
+                <button type="button" onClick={createWashTypeInline} disabled={creatingType === "wash"} className="bg-gray-800 text-white rounded px-3 text-sm inline-flex items-center justify-center disabled:opacity-60">{creatingType === "wash" ? <Loading size="sm" className="border-white/40 border-t-white" /> : "✓"}</button>
               </div>
             )}
           </div>
@@ -375,7 +408,7 @@ export default function CarWashPricesPage() {
           </label>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={() => setOpen(false)} className="px-3 py-2 text-sm text-gray-600">{t("carwash.cancel")}</button>
-            <button type="submit" className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium">{t("carwash.saveSettings")}</button>
+            <Button type="submit" loading={saving} shape="rounded">{t("carwash.saveSettings")}</Button>
           </div>
         </form>
       </Modal>
@@ -387,7 +420,7 @@ export default function CarWashPricesPage() {
           </label>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={() => setWashTypeOpen(false)} className="px-3 py-2 text-sm text-gray-600">{t("carwash.cancel")}</button>
-            <button type="submit" className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium">{t("carwash.saveSettings")}</button>
+            <Button type="submit" loading={savingWashType} shape="rounded">{t("carwash.saveSettings")}</Button>
           </div>
         </form>
       </Modal>
@@ -399,7 +432,7 @@ export default function CarWashPricesPage() {
           </label>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={() => setVehicleTypeOpen(false)} className="px-3 py-2 text-sm text-gray-600">{t("carwash.cancel")}</button>
-            <button type="submit" className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium">{t("carwash.saveSettings")}</button>
+            <Button type="submit" loading={savingVehicleType} shape="rounded">{t("carwash.saveSettings")}</Button>
           </div>
         </form>
       </Modal>
