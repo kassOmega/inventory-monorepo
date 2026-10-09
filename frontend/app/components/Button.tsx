@@ -12,7 +12,7 @@
 // (e.g. `w-full`, `whitespace-nowrap`) exactly as today.
 import Loading from "./Loading";
 
-type Variant = "primary" | "secondary" | "danger" | "ghost";
+type Variant = "primary" | "secondary" | "danger" | "ghost" | "dark" | "emerald";
 type Size = "sm" | "md";
 type Shape = "rounded" | "rounded-lg";
 
@@ -33,6 +33,8 @@ const VARIANT: Record<Variant, string> = {
   secondary: "bg-gray-200 text-gray-700 hover:bg-gray-300",
   danger: "bg-red-600 text-white hover:bg-red-700",
   ghost: "text-gray-600 hover:bg-gray-100",
+  dark: "bg-gray-800 text-white hover:bg-gray-900",
+  emerald: "bg-emerald-600 text-white hover:bg-emerald-700",
 };
 
 const SIZE: Record<Size, string> = {
@@ -45,6 +47,8 @@ const SPINNER: Record<Variant, string> = {
   secondary: "border-gray-400/40 border-t-gray-600",
   danger: "border-white/40 border-t-white",
   ghost: "border-gray-300 border-t-gray-600",
+  dark: "border-white/40 border-t-white",
+  emerald: "border-white/40 border-t-white",
 };
 
 export default function Button({

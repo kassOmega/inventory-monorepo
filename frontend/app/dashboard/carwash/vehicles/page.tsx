@@ -1,6 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
+import Button from "@/app/components/Button";
 import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
 import Modal from "@/app/components/Modal";
 import SearchableSelect from "@/app/components/SearchableSelect";
@@ -19,6 +20,8 @@ export default function CarWashVehiclesPage() {
   const [search, setSearch] = useState("");
   const [customerFilter, setCustomerFilter] = useState("");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [busyId, setBusyId] = useState<number | null>(null);
 
   const canCreate = hasPermission("carwash.vehicles.create");
   const canEdit = hasPermission("carwash.vehicles.edit");
@@ -47,6 +50,7 @@ export default function CarWashVehiclesPage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSaving(true);
     const payload: any = {
       customerId: form.customerId ? Number(form.customerId) : null,
       plateNumber: form.plateNumber.trim(),
@@ -59,17 +63,22 @@ export default function CarWashVehiclesPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setSaving(false);
     }
   };
 
   const remove = async (id: number) => {
     if (!confirm(t("carwash.deleteConfirm"))) return;
     setError("");
+    setBusyId(id);
     try {
       await api.delete(`/carwash/vehicles/${id}`);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedDelete"));
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -128,7 +137,7 @@ export default function CarWashVehiclesPage() {
                 <td className="px-4 py-2 text-gray-500 whitespace-nowrap">{v.customer?.name ?? "—"}</td>
                 <td className="px-4 py-2 text-right whitespace-nowrap">
                   {canEdit && <button onClick={() => openEdit(v)} className="text-xs text-blue-600 hover:underline mr-2">{t("carwash.edit")}</button>}
-                  {canDelete && <button onClick={() => remove(v.id)} className="text-xs text-red-600 hover:underline">{t("carwash.delete")}</button>}
+                  {canDelete && <Button variant="ghost" size="sm" loading={busyId === v.id} onClick={() => remove(v.id)} className="!px-0 text-xs text-red-600 hover:underline">{t("carwash.delete")}</Button>}
                 </td>
               </tr>
             ))}
@@ -150,7 +159,7 @@ export default function CarWashVehiclesPage() {
           </label>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={() => setOpen(false)} className="px-3 py-2 text-sm text-gray-600">{t("carwash.cancel")}</button>
-            <button type="submit" className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium">{editing ? t("carwash.edit") : t("carwash.addVehicle")}</button>
+            <Button type="submit" loading={saving} shape="rounded">{editing ? t("carwash.edit") : t("carwash.addVehicle")}</Button>
           </div>
         </form>
       </Modal>

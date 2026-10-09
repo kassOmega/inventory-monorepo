@@ -1,6 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
+import Button from "@/app/components/Button";
 import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
 import { getDateRange, type DatePreset } from "@/app/components/DateFilter";
 import Modal from "@/app/components/Modal";
@@ -40,6 +41,11 @@ export default function CarWashWashesPage() {
   const [newMethodName, setNewMethodName] = useState("");
   const [showNewMethod, setShowNewMethod] = useState(false);
   const [payBusy, setPayBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [addingMethod, setAddingMethod] = useState(false);
+  // Id of the wash whose row action (status change / delete / settle-open) is
+  // running, so only that row's control shows a spinner.
+  const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState("");
 
   const canCreate = hasPermission("carwash.washes.create");
@@ -140,6 +146,7 @@ export default function CarWashWashesPage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSaving(true);
     try {
       await api.post("/carwash/washes", {
         customerId: form.customerId ? Number(form.customerId) : null,
@@ -157,6 +164,8 @@ export default function CarWashWashesPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -166,12 +175,15 @@ export default function CarWashWashesPage() {
   // "Paid" action opens the settlement modal; after Complete no action remains.
   const runAction = async (w: any, action: string, next: string) => {
     setError("");
+    setBusyId(w.id);
     try {
       await api.patch(`/carwash/washes/${w.id}/${action}`);
       await load();
       setDetail((d: any) => (d && d.id === w.id ? { ...d, status: next } : d));
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -197,6 +209,7 @@ export default function CarWashWashesPage() {
   const addPaymentMethod = async () => {
     const name = newMethodName.trim();
     if (!name) return;
+    setAddingMethod(true);
     try {
       const r = await api.post("/payment-methods", { name });
       setPaymentMethods((prev) => [...prev, r.data]);
@@ -205,6 +218,8 @@ export default function CarWashWashesPage() {
       setShowNewMethod(false);
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setAddingMethod(false);
     }
   };
 
@@ -251,11 +266,14 @@ export default function CarWashWashesPage() {
   const remove = async (id: number) => {
     if (!confirm(t("carwash.deleteConfirm"))) return;
     setError("");
+    setBusyId(id);
     try {
       await api.delete(`/carwash/washes/${id}`);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedDelete"));
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -389,14 +407,17 @@ export default function CarWashWashesPage() {
                     </span>
                     <span onClick={(e) => e.stopPropagation()} className="flex gap-2">
                       {statusActions(w).map((a) => (
-                        <button
+                        <Button
                           key={a.label}
                           type="button"
+                          variant="ghost"
+                          size="sm"
+                          loading={busyId === w.id}
                           onClick={a.run}
-                          className="text-xs text-blue-600 hover:underline whitespace-nowrap"
+                          className="!px-0 text-xs text-blue-600 hover:underline whitespace-nowrap"
                         >
                           {a.label}
-                        </button>
+                        </Button>
                       ))}
                     </span>
                   </div>
@@ -423,14 +444,17 @@ export default function CarWashWashesPage() {
                   {statusLabel(detail.status)}
                 </span>
                 {statusActions(detail).map((a) => (
-                  <button
+                  <Button
                     key={a.label}
                     type="button"
+                    variant="ghost"
+                    size="sm"
+                    loading={busyId === detail.id}
                     onClick={a.run}
-                    className="text-xs text-blue-600 hover:underline whitespace-nowrap"
+                    className="!px-0 text-xs text-blue-600 hover:underline whitespace-nowrap"
                   >
                     {a.label}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
@@ -552,7 +576,7 @@ export default function CarWashWashesPage() {
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={() => setOpen(false)} className="px-3 py-2 text-sm text-gray-600">{t("carwash.cancel")}</button>
-            <button type="submit" className="bg-gray-800 text-white rounded px-4 py-2 text-sm font-medium">{t("carwash.recordWash")}</button>
+            <Button type="submit" loading={saving} variant="dark" shape="rounded">{t("carwash.recordWash")}</Button>
           </div>
         </form>
       </Modal>
@@ -586,9 +610,9 @@ export default function CarWashWashesPage() {
                 placeholder={t("carwash.paymentMethod")}
                 className="border border-gray-300 rounded p-2 text-sm flex-1"
               />
-              <button type="button" onClick={addPaymentMethod} className="text-sm px-3 py-2 rounded bg-blue-600 text-white">
+              <Button type="button" loading={addingMethod} shape="rounded" size="md" onClick={addPaymentMethod} className="!px-3 !text-sm">
                 {t("common.save")}
-              </button>
+              </Button>
             </div>
           ) : (
             <button
@@ -604,14 +628,15 @@ export default function CarWashWashesPage() {
             <button type="button" onClick={() => setPayTarget(null)} className="px-3 py-2 text-sm text-gray-600">
               {t("carwash.cancel")}
             </button>
-            <button
+            <Button
               type="button"
+              variant="emerald"
+              loading={payBusy}
               onClick={confirmPayment}
-              disabled={payBusy}
-              className="bg-emerald-600 text-white rounded px-4 py-2 text-sm font-medium disabled:opacity-60"
+              className="!px-4 !text-sm font-medium"
             >
               {t("carwash.actionPaid")}
-            </button>
+            </Button>
           </div>
         </div>
       </Modal>

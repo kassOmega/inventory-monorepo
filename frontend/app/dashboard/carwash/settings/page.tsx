@@ -1,6 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
+import Button from "@/app/components/Button";
 import { useAuth } from "@/context/AuthContext";
 import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
@@ -11,6 +12,7 @@ export default function CarWashSettingsPage() {
   const [slotMinutes, setSlotMinutes] = useState("30");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
   const canEdit = hasPermission("carwash.settings.edit");
 
   useEffect(() => {
@@ -21,11 +23,14 @@ export default function CarWashSettingsPage() {
     e.preventDefault();
     setError("");
     setSaved(false);
+    setSaving(true);
     try {
       await api.patch("/carwash/settings", { slotMinutes: Number(slotMinutes) || 30 });
       setSaved(true);
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -40,7 +45,7 @@ export default function CarWashSettingsPage() {
           {t("carwash.bookingSlot")}
           <input value={slotMinutes} onChange={(e) => setSlotMinutes(e.target.value)} type="number" min="5" disabled={!canEdit} className="border border-gray-300 rounded p-2 text-sm w-full mt-1" />
         </label>
-        {canEdit && <button type="submit" className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium self-end">{t("carwash.saveSettings")}</button>}
+        {canEdit && <Button type="submit" loading={saving} shape="rounded" className="self-end">{t("carwash.saveSettings")}</Button>}
       </form>
     </div>
   );

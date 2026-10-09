@@ -1,6 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
+import Button from "@/app/components/Button";
 import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
 import Modal from "@/app/components/Modal";
 import SearchableSelect from "@/app/components/SearchableSelect";
@@ -18,6 +19,8 @@ export default function CarWashEquipmentPage() {
   const [open, setOpen] = useState(false);
   const [paidFilter, setPaidFilter] = useState("");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const canIssue = hasPermission("carwash.equipment.issue");
   const canEdit = hasPermission("carwash.equipment.edit");
@@ -46,6 +49,7 @@ export default function CarWashEquipmentPage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSaving(true);
     try {
       await api.post("/carwash/equipment-issues", {
         washerId: form.washerId ? Number(form.washerId) : null,
@@ -58,27 +62,35 @@ export default function CarWashEquipmentPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setSaving(false);
     }
   };
 
   const markPaid = async (id: number, isPaid: boolean) => {
     setError("");
+    setBusyKey(`pay-${id}`);
     try {
       await api.patch(`/carwash/equipment-issues/${id}/pay`, { isPaid });
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
   const remove = async (id: number) => {
     if (!confirm(t("carwash.deleteConfirm"))) return;
     setError("");
+    setBusyKey(`del-${id}`);
     try {
       await api.delete(`/carwash/equipment-issues/${id}`);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedDelete"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -136,8 +148,8 @@ export default function CarWashEquipmentPage() {
                 <td className="px-4 py-2 whitespace-nowrap">{i.totalAmount}</td>
                 <td className="px-4 py-2 whitespace-nowrap"><span className={`text-xs px-2 py-0.5 rounded-full ${i.isPaid ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>{i.isPaid ? t("carwash.paid") : t("carwash.unpaid")}</span></td>
                 <td className="px-4 py-2 text-right whitespace-nowrap">
-                  {canEdit && !i.isPaid && <button onClick={() => markPaid(i.id, true)} className="text-xs text-green-600 hover:underline mr-2">{t("carwash.markPaid")}</button>}
-                  {canDelete && <button onClick={() => remove(i.id)} className="text-xs text-red-600 hover:underline">{t("carwash.delete")}</button>}
+                  {canEdit && !i.isPaid && <Button variant="ghost" size="sm" loading={busyKey === `pay-${i.id}`} onClick={() => markPaid(i.id, true)} className="!px-0 text-xs text-green-600 hover:underline mr-2">{t("carwash.markPaid")}</Button>}
+                  {canDelete && <Button variant="ghost" size="sm" loading={busyKey === `del-${i.id}`} onClick={() => remove(i.id)} className="!px-0 text-xs text-red-600 hover:underline">{t("carwash.delete")}</Button>}
                 </td>
               </tr>
             ))}
@@ -162,7 +174,7 @@ export default function CarWashEquipmentPage() {
           </label>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={() => setOpen(false)} className="px-3 py-2 text-sm text-gray-600">{t("carwash.cancel")}</button>
-            <button type="submit" className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium">{t("carwash.issueItem")}</button>
+            <Button type="submit" loading={saving} shape="rounded">{t("carwash.issueItem")}</Button>
           </div>
         </form>
       </Modal>

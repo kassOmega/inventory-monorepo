@@ -1,6 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
+import Button from "@/app/components/Button";
 import { useAuth } from "@/context/AuthContext";
 import { getDateRange, type DatePreset } from "@/app/components/DateFilter";
 import FilterPanel from "@/app/components/FilterPanel";
@@ -16,6 +17,7 @@ export default function CarWashCollectionPage() {
   const [collections, setCollections] = useState<any[]>([]);
   const [todayCollections, setTodayCollections] = useState<any[]>([]);
   const [error, setError] = useState("");
+  const [recording, setRecording] = useState(false);
   const canRecord = hasPermission("carwash.collections.create");
 
   const init = getDateRange("month");
@@ -58,11 +60,14 @@ export default function CarWashCollectionPage() {
 
   const recordCollection = async () => {
     setError("");
+    setRecording(true);
     try {
       await api.post("/carwash/collections", {});
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setRecording(false);
     }
   };
 
@@ -92,14 +97,16 @@ export default function CarWashCollectionPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-800">{t("carwash.collection")}</h1>
         {canRecord && (
-          <button
+          <Button
             onClick={recordCollection}
+            loading={recording}
             disabled={!canCollect}
+            shape="rounded"
             title={!canCollect ? t("carwash.noGap") : undefined}
             className={
               !canCollect
-                ? "bg-gray-300 text-gray-600 rounded px-4 py-2 text-sm font-medium cursor-not-allowed"
-                : "bg-gray-800 text-white rounded px-4 py-2 text-sm font-medium"
+                ? "!bg-gray-300 !text-gray-600 cursor-not-allowed"
+                : "!bg-gray-800 !text-white"
             }
           >
             {settledToday
@@ -107,7 +114,7 @@ export default function CarWashCollectionPage() {
               : gap > 0.0001
                 ? `${t("carwash.recordCollection")} (${t("carwash.gap")}: ${gap.toLocaleString()})`
                 : t("carwash.noGap")}
-          </button>
+          </Button>
         )}
       </div>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}

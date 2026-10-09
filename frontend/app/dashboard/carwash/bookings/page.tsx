@@ -1,6 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
+import Button from "@/app/components/Button";
 import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
 import { getDateRange, type DatePreset } from "@/app/components/DateFilter";
 import Modal from "@/app/components/Modal";
@@ -37,6 +38,8 @@ export default function CarWashBookingsPage() {
   const [open, setOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const init = getDateRange("today");
   const [datePreset, setDatePreset] = useState<DatePreset>("today");
@@ -162,6 +165,7 @@ export default function CarWashBookingsPage() {
       setError(t("carwash.needVehicle"));
       return;
     }
+    setSaving(true);
     try {
       await api.post("/carwash/bookings", {
         customerId: form.customerId ? Number(form.customerId) : null,
@@ -182,27 +186,35 @@ export default function CarWashBookingsPage() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setSaving(false);
     }
   };
 
   const setStatus = async (id: number, status: string) => {
     setError("");
+    setBusyKey(`status-${id}`);
     try {
       await api.patch(`/carwash/bookings/${id}/status`, { status });
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
   const remove = async (id: number) => {
     if (!confirm(t("carwash.deleteConfirm"))) return;
     setError("");
+    setBusyKey(`del-${id}`);
     try {
       await api.delete(`/carwash/bookings/${id}`);
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedDelete"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -296,10 +308,10 @@ export default function CarWashBookingsPage() {
                   <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{b.status}</span>
                 </td>
                 <td className="px-4 py-2 text-right whitespace-nowrap">
-                  {canEdit && b.status === "PENDING" && <button onClick={() => setStatus(b.id, "SERVING")} className="text-xs text-blue-600 hover:underline mr-2">{t("carwash.start")}</button>}
-                  {canEdit && b.status === "SERVING" && <button onClick={() => setStatus(b.id, "COMPLETED")} className="text-xs text-green-600 hover:underline mr-2">{t("carwash.complete")}</button>}
-                  {canEdit && (b.status === "PENDING" || b.status === "SERVING") && <button onClick={() => setStatus(b.id, "CANCELLED")} className="text-xs text-red-600 hover:underline mr-2">{t("carwash.cancel")}</button>}
-                  {canDelete && <button onClick={() => remove(b.id)} className="text-xs text-red-600 hover:underline">{t("carwash.delete")}</button>}
+                  {canEdit && b.status === "PENDING" && <Button variant="ghost" size="sm" loading={busyKey === `status-${b.id}`} onClick={() => setStatus(b.id, "SERVING")} className="!px-0 text-xs text-blue-600 hover:underline mr-2">{t("carwash.start")}</Button>}
+                  {canEdit && b.status === "SERVING" && <Button variant="ghost" size="sm" loading={busyKey === `status-${b.id}`} onClick={() => setStatus(b.id, "COMPLETED")} className="!px-0 text-xs text-green-600 hover:underline mr-2">{t("carwash.complete")}</Button>}
+                  {canEdit && (b.status === "PENDING" || b.status === "SERVING") && <Button variant="ghost" size="sm" loading={busyKey === `status-${b.id}`} onClick={() => setStatus(b.id, "CANCELLED")} className="!px-0 text-xs text-red-600 hover:underline mr-2">{t("carwash.cancel")}</Button>}
+                  {canDelete && <Button variant="ghost" size="sm" loading={busyKey === `del-${b.id}`} onClick={() => remove(b.id)} className="!px-0 text-xs text-red-600 hover:underline">{t("carwash.delete")}</Button>}
                 </td>
               </tr>
             ))}
@@ -391,7 +403,7 @@ export default function CarWashBookingsPage() {
           </label>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={() => setOpen(false)} className="px-3 py-2 text-sm text-gray-600">{t("carwash.cancel")}</button>
-            <button type="submit" className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium">{t("carwash.newBooking")}</button>
+            <Button type="submit" loading={saving} shape="rounded">{t("carwash.newBooking")}</Button>
           </div>
         </form>
       </Modal>
