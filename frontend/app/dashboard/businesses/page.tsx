@@ -7,6 +7,7 @@ import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
+import Button from "@/app/components/Button";
 
 export default function BusinessesPage() {
   const { user, activeOrganizationId, switchOrganization, refreshUser } = useAuth();
@@ -33,6 +34,9 @@ export default function BusinessesPage() {
   const [upgradeFor, setUpgradeFor] = useState<any>(null);
   const [upgradeName, setUpgradeName] = useState("");
   const [upgrading, setUpgrading] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const memberships = user?.memberships ?? [];
 
@@ -84,6 +88,7 @@ export default function BusinessesPage() {
   const saveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSavingEdit(true);
     try {
       await api.patch(`/tenants/${editing.organizationId}`, {
         name: editForm.name,
@@ -93,6 +98,8 @@ export default function BusinessesPage() {
       await refreshUser();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("biz.updateFail"));
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -113,17 +120,21 @@ export default function BusinessesPage() {
   const saveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSavingSettings(true);
     try {
       await api.patch(`/tenants/${settingsFor.organizationId}/settings`, { settings: settingsForm });
       setSettingsFor(null);
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("biz.saveSettingsFail"));
+    } finally {
+      setSavingSettings(false);
     }
   };
 
   const deleteBusiness = async (m: any) => {
     if (!(await confirm(t("biz.confirmDelete", { name: m.organizationName })))) return;
     setError("");
+    setBusyKey(`del-${m.organizationId}`);
     try {
       await api.delete(`/tenants/${m.organizationId}`);
       if (activeOrganizationId === m.organizationId) localStorage.removeItem("activeOrganizationId");
@@ -131,6 +142,8 @@ export default function BusinessesPage() {
       if (activeOrganizationId === m.organizationId) window.location.href = "/dashboard";
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("biz.deleteFail"));
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -279,9 +292,9 @@ export default function BusinessesPage() {
             />
           </div>
           <div className="md:col-span-2 flex justify-end">
-            <button type="submit" disabled={submitting} className="bg-blue-600 text-white rounded p-2 text-sm font-medium disabled:opacity-60">
+            <Button type="submit" loading={submitting} className="!p-2 !text-sm">
               {submitting ? t("biz.creating") : t("biz.createBusiness")}
-            </button>
+            </Button>
           </div>
         </form>
         </div>
@@ -340,7 +353,7 @@ export default function BusinessesPage() {
                           {t("biz.services")}
                         </button>
                       )}
-                      <button onClick={() => deleteBusiness(m)} className="text-xs text-red-600 hover:underline">{t("roles.delete")}</button>
+                      <Button variant="ghost" size="sm" loading={busyKey === `del-${m.organizationId}`} onClick={() => deleteBusiness(m)} className="!px-0 text-xs text-red-600 hover:underline">{t("roles.delete")}</Button>
                     </>
                   )}
                 </div>
@@ -363,7 +376,7 @@ export default function BusinessesPage() {
               </select>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setEditing(null)} className="px-3 py-2 text-sm text-gray-600">{t("common.cancel")}</button>
-                <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">{t("biz.saveBtn")}</button>
+                <Button type="submit" loading={savingEdit} variant="dark" className="!px-3 !text-sm">{t("biz.saveBtn")}</Button>
               </div>
             </form>
           </div>
@@ -385,7 +398,7 @@ export default function BusinessesPage() {
               </label>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setSettingsFor(null)} className="px-3 py-2 text-sm text-gray-600">{t("common.cancel")}</button>
-                <button type="submit" className="bg-gray-800 text-white rounded px-3 py-2 text-sm font-medium">{t("biz.saveBtn")}</button>
+                <Button type="submit" loading={savingSettings} variant="dark" className="!px-3 !text-sm">{t("biz.saveBtn")}</Button>
               </div>
             </form>
           </div>
@@ -417,9 +430,9 @@ export default function BusinessesPage() {
                 <button type="button" onClick={() => setUpgradeFor(null)} className="px-3 py-2 text-sm text-gray-600">
                   {t("common.cancel")}
                 </button>
-                <button type="submit" disabled={upgrading} className="bg-emerald-600 text-white rounded px-3 py-2 text-sm font-medium disabled:opacity-60">
+                <Button type="submit" loading={upgrading} variant="emerald" className="!px-3 !text-sm">
                   {upgrading ? t("biz.upgrading") : t("biz.upgrade")}
-                </button>
+                </Button>
               </div>
             </form>
           </div>
