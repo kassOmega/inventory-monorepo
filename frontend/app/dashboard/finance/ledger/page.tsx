@@ -16,6 +16,7 @@ import {
 import { downloadApiFile } from "@/lib/downloadFile";
 import i18n from "@/lib/i18n";
 import { Fragment, useCallback, useEffect, useState } from "react";
+import useDebouncedValue from "@/lib/useDebouncedValue";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
@@ -260,6 +261,7 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
   const [showModal, setShowModal] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
   const [exporting, setExporting] = useState<"" | "csv" | "pdf">("");
+  const debouncedSearch = useDebouncedValue(filters.search, 300);
   const extraQs = `${
     filters.locationId ? `&locationId=${encodeURIComponent(filters.locationId)}` : ""
   }${
@@ -267,7 +269,7 @@ function JournalTab({ startDate, endDate, accounts, canManage, locations, filter
   }${
     filters.status !== "ALL" ? `&status=${encodeURIComponent(filters.status)}` : ""
   }${
-    filters.search ? `&search=${encodeURIComponent(filters.search)}` : ""
+    filters.search ? `&search=${encodeURIComponent(debouncedSearch)}` : ""
   }`;
   const load = useCallback(async () => {
     try {
@@ -504,6 +506,7 @@ function TrialTab({ startDate, endDate, locations, filters }: any) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [printDoc, setPrintDoc] = useState<any>(null);
+  const debouncedSearch = useDebouncedValue(filters.search, 300);
   const extraQs = `${
     filters.locationId ? `&locationId=${encodeURIComponent(filters.locationId)}` : ""
   }${
@@ -511,7 +514,7 @@ function TrialTab({ startDate, endDate, locations, filters }: any) {
   }${
     filters.status !== "ALL" ? `&status=${encodeURIComponent(filters.status)}` : ""
   }${
-    filters.search ? `&search=${encodeURIComponent(filters.search)}` : ""
+    filters.search ? `&search=${encodeURIComponent(debouncedSearch)}` : ""
   }`;
   const load = useCallback(async () => {
     setLoading(true);
@@ -619,6 +622,7 @@ function AccountTab({ startDate, endDate, accounts, locations, filters }: any) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [printDoc, setPrintDoc] = useState<any>(null);
+  const debouncedSearch = useDebouncedValue(filters.search, 300);
   const extraQs = `${
     filters.locationId ? `&locationId=${encodeURIComponent(filters.locationId)}` : ""
   }${
@@ -626,7 +630,7 @@ function AccountTab({ startDate, endDate, accounts, locations, filters }: any) {
   }${
     filters.status !== "ALL" ? `&status=${encodeURIComponent(filters.status)}` : ""
   }${
-    filters.search ? `&search=${encodeURIComponent(filters.search)}` : ""
+    filters.search ? `&search=${encodeURIComponent(debouncedSearch)}` : ""
   }`;
   const load = useCallback(async () => {
     if (!accountId) {

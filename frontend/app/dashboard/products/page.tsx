@@ -24,6 +24,7 @@ import {
 import { canShareFiles, shareFile } from "@/lib/shareFile";
 import { statusLabel } from "@/lib/statusLabel";
 import useServerPaging from "@/lib/useServerPaging";
+import useDebouncedValue from "@/lib/useDebouncedValue";
 import { variantLabel } from "@/lib/variantLabel";
 import { ChevronDown, ChevronRight, Share2 } from "lucide-react";
 import Link from "next/link";
@@ -40,7 +41,6 @@ export default function ProductsPage() {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const paged = useServerPaging({ pageSize: 20 });
 
@@ -120,10 +120,7 @@ export default function ProductsPage() {
 
   // Debounce the search input so we don't fire an API request on every
   // keystroke (and never unmount the page mid-typing).
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300);
-    return () => clearTimeout(t);
-  }, [search]);
+  const debouncedSearch = useDebouncedValue(search, 300);
 
   // Reset to page 1 when the search/category filters change, then refetch.
   const prodFilterSig = `${debouncedSearch}|${categoryFilter}`;

@@ -14,6 +14,7 @@ import { variantLabel } from "@/lib/variantLabel";
 import api from "@/lib/api";
 import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useMemo, useState } from "react";
+import useDebouncedValue from "@/lib/useDebouncedValue";
 import { useTranslation } from "react-i18next";
 import {
   Bar,
@@ -56,6 +57,8 @@ export default function DashboardPage() {
 
   // filters
   const [search, setSearch] = useState("");
+  // Debounce the term that drives the inventory fetch (the input stays instant).
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [categoryFilter, setCategoryFilter] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
   const [datePreset, setDatePreset] = useState<DatePreset>("today");
@@ -142,7 +145,7 @@ export default function DashboardPage() {
     } else {
       api
         .get(
-          `/products/my-inventory?categoryId=${categoryFilter}&search=${search}`,
+          `/products/my-inventory?categoryId=${categoryFilter}&search=${debouncedSearch}`,
         )
         .then((r) => {
           setInventory(r.data || []);
@@ -153,7 +156,7 @@ export default function DashboardPage() {
   }, [
     user,
     categoryFilter,
-    search,
+    debouncedSearch,
     isOwner,
     isHospitality,
     isManufacturing,

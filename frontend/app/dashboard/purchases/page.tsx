@@ -11,6 +11,7 @@ import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
 import { FilterSelect } from "@/app/components/FilterPanel";
 import { FilterField, FILTER_CONTROL_CLASS } from "@/app/components/FilterField";
 import { useSingleLocationAutofill } from "@/lib/singleLocation";
+import useDebouncedValue from "@/lib/useDebouncedValue";
 import Loading from "@/app/components/Loading";
 import PurchaseForm, { PurchaseMode } from "@/app/components/PurchaseForm";
 import PurchasesTable, { recordedMargin } from "@/app/components/PurchasesTable";
@@ -102,6 +103,8 @@ export default function PurchasesPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("");
   const [search, setSearch] = useState("");
+  // Debounce the term that drives the request (the input stays instant).
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [datePreset, setDatePreset] = useState<DatePreset>("month");
   const [startDate, setStartDate] = useState(() => getDateRange("month").start);
   const [endDate, setEndDate] = useState(() => getDateRange("month").end);
@@ -144,7 +147,7 @@ export default function PurchasesPage() {
       // The settlement status only means anything on a credit row.
       if (tab !== "PAID" && paymentStatusFilter)
         params.set("paymentStatus", paymentStatusFilter);
-      if (search) params.set("search", search);
+      if (debouncedSearch) params.set("search", debouncedSearch);
       if (startDate) params.set("startDate", startDate);
       if (endDate) params.set("endDate", endDate);
       if (shopFilter) params.set("shopId", shopFilter);
@@ -176,7 +179,7 @@ export default function PurchasesPage() {
     tab,
     statusFilter,
     paymentStatusFilter,
-    search,
+    debouncedSearch,
     startDate,
     endDate,
     shopFilter,

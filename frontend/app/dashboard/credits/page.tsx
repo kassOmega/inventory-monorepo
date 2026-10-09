@@ -17,6 +17,7 @@ import { fmtCurrency } from "@/lib/currency";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import useDebouncedValue from "@/lib/useDebouncedValue";
 import { useTranslation } from "react-i18next";
 import useServerPaging from "@/lib/useServerPaging";
 import Pagination from "@/app/components/Pagination";
@@ -35,6 +36,9 @@ export default function CreditsPage() {
   const [loading, setLoading] = useState(true);
   const [locations, setLocations] = useState<any[]>([]);
   const [search, setSearch] = useState("");
+  // Debounce the term that drives the request so typing doesn't refetch on every
+  // keystroke (the input itself stays instant).
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [locationFilter, setLocationFilter] = useState(
     isOwner ? "" : String(user?.locationId || ""),
   );
@@ -65,7 +69,7 @@ export default function CreditsPage() {
       const shopId = locationFilter || (isOwner ? "" : user?.locationId);
       const params = new URLSearchParams();
       if (shopId) params.set("shopId", String(shopId));
-      if (search.trim()) params.set("search", search.trim());
+      if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
       if (statusFilter === "debt") params.set("onlyDebt", "true");
       if (statusFilter === "eligible") params.set("canTakeCredit", "true");
       if (statusFilter === "blocked") params.set("canTakeCredit", "false");
@@ -85,7 +89,7 @@ export default function CreditsPage() {
   };
 
   // Reset to page 1 whenever the filters change, then fetch the new page.
-  const filterSig = `${locationFilter}|${search}|${statusFilter}`;
+  const filterSig = `${locationFilter}|${debouncedSearch}|${statusFilter}`;
   const lastFilterRef = useRef(filterSig);
 
   useEffect(() => {

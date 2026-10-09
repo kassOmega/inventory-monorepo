@@ -3,19 +3,21 @@
 import api from "@/lib/api";
 import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
 import { useEffect, useState } from "react";
+import useDebouncedValue from "@/lib/useDebouncedValue";
 import { useTranslation } from "react-i18next";
 
 export default function ServiceClientsPage() {
   const { t } = useTranslation();
   const [clients, setClients] = useState<any[]>([]);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 300);
 
   useEffect(() => {
     api
-      .get(`/service/clients${search ? `?search=${encodeURIComponent(search)}` : ""}`)
+      .get(`/service/clients${debouncedSearch ? `?search=${encodeURIComponent(debouncedSearch)}` : ""}`)
       .then((r) => setClients(r.data))
       .catch(() => {});
-  }, [search]);
+  }, [debouncedSearch]);
 
   return (
     <div className="space-y-6">

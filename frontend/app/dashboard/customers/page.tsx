@@ -16,6 +16,7 @@ import { formatBusinessNumber } from "@/lib/bizNumber";
 import { fmtCurrency } from "@/lib/currency";
 import { formatDate } from "@/lib/datetime";
 import useServerPaging from "@/lib/useServerPaging";
+import useDebouncedValue from "@/lib/useDebouncedValue";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -35,6 +36,8 @@ export default function CustomersPage() {
   const [overview, setOverview] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  // Debounce the term that drives the request (the input stays instant).
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [filter, setFilter] = useState<FilterKind>("all");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<any>(null);
@@ -51,7 +54,7 @@ export default function CustomersPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (search.trim()) params.set("search", search.trim());
+      if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
       if (filter === "debt") params.set("onlyDebt", "true");
       // `canTakeCredit=false` asks for the blocked customers; `true` would ask
       // for the eligible ones (what the credit-sale picker does).
@@ -76,7 +79,7 @@ export default function CustomersPage() {
   }, [search, filter, paged.page, paged.pageSize]);
 
   // Back to page 1 whenever the filters change, then fetch.
-  const filterSig = `${search}|${filter}`;
+  const filterSig = `${debouncedSearch}|${filter}`;
   const lastFilterRef = useRef(filterSig);
   useEffect(() => {
     if (lastFilterRef.current !== filterSig) {

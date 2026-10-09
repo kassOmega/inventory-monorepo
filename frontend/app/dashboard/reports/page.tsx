@@ -17,6 +17,7 @@ import { useAuth } from "@/context/AuthContext";
 import { variantLabel } from "@/lib/variantLabel";
 import { getVerticalFeatures } from "@/lib/verticals";
 import { useSingleLocationAutofill } from "@/lib/singleLocation";
+import useDebouncedValue from "@/lib/useDebouncedValue";
 import api from "@/lib/api";
 import Button from "@/app/components/Button";
 import { useTranslation } from "react-i18next";
@@ -102,6 +103,8 @@ export default function ReportsPage() {
 
   // shared filters
   const [search, setSearch] = useState("");
+  // Debounce the term that drives the report queries (the input stays instant).
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [category, setCategory] = useState("");
   const [location, setLocation] = useState("");
   const [categories, setCategories] = useState<any[]>([]);
@@ -158,7 +161,7 @@ export default function ReportsPage() {
   }, [user, isOwner, isHospitality, isCarWash]);
 
   useEffect(() => {
-    const query = `search=${search}&categoryId=${category}&locationId=${location}&startDate=${startDate}&endDate=${endDate}`;
+    const query = `search=${debouncedSearch}&categoryId=${category}&locationId=${location}&startDate=${startDate}&endDate=${endDate}`;
 
     // Audit trail is available to every business type (CAR_WASH included), so it
     // is handled before the retail-only branches below.
@@ -166,7 +169,7 @@ export default function ReportsPage() {
       const aq = new URLSearchParams({
         ...(startDate ? { startDate } : {}),
         ...(endDate ? { endDate } : {}),
-        ...(search ? { search } : {}),
+        ...(debouncedSearch ? { search: debouncedSearch } : {}),
       });
       api.get(`/reports/audit-trail?${aq.toString()}`).then((r) => setAuditTrail(r.data));
       return;
@@ -187,7 +190,7 @@ export default function ReportsPage() {
     } else if (tab === "dead-stock") {
       api.get(`/reports/dead-stock?${query}`).then((r) => setDeadStock(r.data));
     }
-  }, [tab, search, category, location, startDate, endDate, canViewFull, isCarWash]);
+  }, [tab, debouncedSearch, category, location, startDate, endDate, canViewFull, isCarWash]);
 
   const handleQuickRequest = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -24,6 +24,7 @@ import { batchLabel, variantLabel } from "@/lib/variantLabel";
 import SaleForm, { SaleType } from "@/app/components/SaleForm";
 import { useRouter } from "next/navigation";
 import useServerPaging from "@/lib/useServerPaging";
+import useDebouncedValue from "@/lib/useDebouncedValue";
 import Pagination from "@/app/components/Pagination";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -59,6 +60,8 @@ export default function SalesPage() {
 
   // List filters (what the sales table shows).
   const [search, setSearch] = useState("");
+  // Debounce the term that drives the request (the input stays instant).
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [categoryFilter, setCategoryFilter] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
   const [datePreset, setDatePreset] = useState<DatePreset>("month");
@@ -111,7 +114,7 @@ export default function SalesPage() {
       const params = new URLSearchParams();
       if (locationFilter) params.set("locationId", locationFilter);
       if (categoryFilter) params.set("categoryId", categoryFilter);
-      if (search.trim()) params.set("search", search.trim());
+      if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
       if (saleTypeFilter) params.set("saleType", saleTypeFilter);
       if (paymentFilter) params.set("paymentMethodId", paymentFilter);
       if (startDate) params.set("dateFrom", startDate);
@@ -207,7 +210,7 @@ export default function SalesPage() {
 
   // Refetch the current sales page whenever filters/page/size change (filters
   // reset to page 1 first via the signature guard).
-  const salesFilterSig = `${locationFilter}|${categoryFilter}|${search}|${saleTypeFilter}|${paymentFilter}|${startDate}|${endDate}`;
+  const salesFilterSig = `${locationFilter}|${categoryFilter}|${debouncedSearch}|${saleTypeFilter}|${paymentFilter}|${startDate}|${endDate}`;
   const salesFilterRef = useRef(salesFilterSig);
   useEffect(() => {
     if (salesFilterRef.current !== salesFilterSig) {
@@ -248,12 +251,12 @@ export default function SalesPage() {
     if (endDate) params.set("endDate", endDate);
     if (locationFilter) params.set("locationId", locationFilter);
     if (categoryFilter) params.set("categoryId", categoryFilter);
-    if (search) params.set("search", search);
+    if (debouncedSearch) params.set("search", debouncedSearch);
     api
       .get(`/reports/unified-stats?${params}`)
       .then((r) => setPurchaseStats(r.data))
       .catch((err) => console.error("Stats failed:", err));
-  }, [startDate, endDate, locationFilter, categoryFilter, search, canViewProfit]);
+  }, [startDate, endDate, locationFilter, categoryFilter, debouncedSearch, canViewProfit]);
 
 
   // The server returns the filtered page rows plus a summary computed over the
