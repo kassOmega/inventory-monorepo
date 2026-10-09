@@ -26,6 +26,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { seedAccountMappings } from '../finance/account-mapping.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { VerticalProfilesService } from '../vertical-profiles/vertical-profiles.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { getVerticalLabel } from '../common/verticals';
 import { tr } from '../i18n/i18n.service';
 import {
@@ -39,6 +40,7 @@ export class TenantsService {
     private prisma: PrismaService,
     private notifications: NotificationsService,
     private profiles: VerticalProfilesService,
+    private subscriptions: SubscriptionsService,
   ) {}
 
   async myOrganizations(userId: number) {
@@ -400,6 +402,24 @@ export class TenantsService {
           },
         });
       }
+
+      // Start the free-trial subscription for the new business. The trial's
+      // length is platform-admin managed (SubscriptionSetting.trialDays); a
+      // value of 0 disables the trial and makes the business immediately
+      // billable.
+      const trialDays = await this.subscriptions.getTrialDays();
+      await tx.tenantSubscription.create({
+        data: {
+          organizationId: org.id,
+          status: 'ACTIVE',
+          isTrial: trialDays > 0,
+          startedAt: new Date(),
+          expiresAt:
+            trialDays > 0
+              ? new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000)
+              : null,
+        },
+      });
 
       return org;
     });

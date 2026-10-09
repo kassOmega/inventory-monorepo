@@ -303,6 +303,9 @@ model Organization {
   agentConfig            OrganizationAgentConfig?
   agentActions           AgentActionLog[]
   verificationDocs       VerificationDocument[]   @relation("OrgVerificationDocs")
+  subscription           TenantSubscription?
+  subscriptionPayments   SubscriptionPayment[]
+  employeeDeductions     EmployeeDeduction[]
   taxRates               TaxRate[]
   fiscalConfig           TenantFiscalConfig?
 
@@ -418,6 +421,152 @@ model VerificationDocument {
   @@index([organizationId])
 }
 
+// --- Tenant subscriptions ----------------------------------------------------
+//
+// The platform charges each tenant a subscription fee. Prices default per
+// business type and can be overridden per tenant; receipts submitted by the
+// tenant are reviewed by AI (name / account / amount) and either auto-extend the
+// subscription or are flagged for a platform admin to decide. A tenant may also
+// be granted FREE (permanent, unbilled) or LIFETIME (admin-granted, never
+// expires) access.
+
+/// Billing term of a subscription. Durations are fixed days (not calendar
+/// months) so an expiry is exact and timezone-independent.
+enum SubscriptionTerm {
+  MONTHLY // 30 days
+  QUARTERLY // 90 days
+  SEMIANNUAL // 180 days
+  YEARLY // 365 days
+}
+
+/// Effective lifecycle state of a tenant's subscription.
+/// - FREE: granted by an admin, permanent, never billed.
+/// - LIFETIME: granted by an admin, never expires, never billed.
+/// - ACTIVE: paid and within its period.
+/// - GRACE: within 2 days after expiry — still fully usable.
+/// - EXPIRED: more than 2 days past expiry — read-only + renewal only.
+enum SubscriptionStatus {
+  FREE
+  LIFETIME
+  ACTIVE
+  GRACE
+  EXPIRED
+}
+
+/// Receipt review outcome from the AI agent (or an admin override).
+enum SubscriptionPaymentStatus {
+  PENDING // submitted, awaiting AI / admin review
+  APPROVED // verified — subscription extended
+  FLAGGED // AI uncertain / mismatch — needs an admin
+  REJECTED // admin rejected
+}
+
+/// Platform-wide subscription settings (single row, id = 1).
+model SubscriptionSetting {
+  id        Int      @id @default(1)
+  /// Days of free trial granted to every NEW business when it is created.
+  trialDays Int      @default(14)
+  updatedAt DateTime @updatedAt
+}
+
+/// Default price for a business type at a given term. A row with a null
+/// businessType is the global fallback when a type has no specific row.
+model SubscriptionPlan {
+  id           Int          @id @default(autoincrement())
+  businessType BusinessType? // null = global fallback
+  term         SubscriptionTerm
+  price        Float        @default(0)
+  currency     String       @default("ETB")
+  active       Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([businessType, term])
+}
+
+/// The live subscription state of one tenant (1:1 with Organization).
+model TenantSubscription {
+  id             Int                @id @default(autoincrement())
+  organizationId Int                @unique
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  status         SubscriptionStatus @default(ACTIVE)
+  term           SubscriptionTerm?
+  /// Per-tenant price for the selected term; null = use the plan default.
+  priceOverride  Float?
+  startedAt      DateTime?
+  expiresAt      DateTime? // null for FREE / LIFETIME
+  autoRenew      Boolean            @default(true)
+  /// True while the current period is the admin-granted free trial.
+  isTrial        Boolean            @default(false)
+  /// Short admin note shown to the tenant (e.g. why it was flagged).
+  note           String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([status])
+  @@index([expiresAt])
+}
+
+/// A bank account the platform accepts subscription payments into. Clients are
+/// shown the active accounts on the renewal page.
+model BankAccount {
+  id            Int       @id @default(autoincrement())
+  bankName      String
+  accountName   String
+  accountNumber String
+  branch        String?
+  /// When set, the account is only offered to tenants of this business type.
+  businessType  BusinessType?
+  active        Boolean   @default(true)
+  sortOrder     Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  payments SubscriptionPayment[]
+
+  @@index([active, sortOrder])
+}
+
+/// A receipt a tenant submitted for a subscription period, plus the AI review.
+model SubscriptionPayment {
+  id             Int                          @id @default(autoincrement())
+  organizationId Int
+  organization   Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// The user who submitted it (owner / manager).
+  submittedById  Int
+  submittedBy    User                         @relation("SubscriptionPaymentSubmitter", fields: [submittedById], references: [id], onDelete: Cascade)
+  term           SubscriptionTerm
+  amount         Float                        @default(0)
+  currency       String                       @default("ETB")
+  bankAccountId  Int?
+  bankAccount    BankAccount?                 @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  /// Payer name the client typed (compared with the receipt + business name).
+  payerName      String?
+  /// Bank transaction / FT reference number from the receipt. Unique per tenant
+  /// so the same receipt cannot be submitted twice.
+  transactionRef String?
+  fileName       String
+  mimeType       String
+  size           Int
+  filePath       String
+  status         SubscriptionPaymentStatus   @default(PENDING)
+  aiResult       Json? // full AI output (extracted fields, confidence, reasons)
+  aiDecision     String? // APPROVE | FLAG | REJECT (as returned by the AI)
+  reviewedById   Int?
+  reviewedBy     User?                        @relation("SubscriptionPaymentReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt     DateTime?
+  adminNote      String?
+  /// The period the payment covers once approved (set on approval).
+  periodStart    DateTime?
+  periodEnd      DateTime?
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+
+  @@index([organizationId, createdAt])
+  @@index([status, createdAt])
+  @@unique([organizationId, transactionRef])
+}
+
 model Membership {
   id             Int        @id @default(autoincrement())
   /// Non-guessable public identifier (DB-generated UUID).
@@ -526,6 +675,8 @@ model User {
   dailyAiUsage           UserDailyAiUsage[]
   sales                  Sale[]
   verificationDocs       VerificationDocument[] @relation("UserVerificationDocs")
+  subscriptionPaymentsSubmitted SubscriptionPayment[] @relation("SubscriptionPaymentSubmitter")
+  subscriptionPaymentsReviewed  SubscriptionPayment[] @relation("SubscriptionPaymentReviewer")
   servicePayments        ServicePayment[]
   // Hotel PMS: billing creators + front-desk check-ins.
   foliosCreated          Folio[]                @relation("FolioCreatedBy")
@@ -540,6 +691,11 @@ model User {
   carWashesRecorded      CarWash[]              @relation("CarWashRecordedBy")
   carWashCollections     CarWashCollection[]    @relation("CarWashCollectedBy")
   carWashWasher          CarWashWasher?         @relation("CarWashWasherUser")
+  // Compensation (payroll): base salary + how often it is paid.
+  salaryAmount           Float?
+  salaryPeriod           SalaryPeriod?
+  // Employee loans / penalties deducted from salary or commission.
+  employeeDeductions     EmployeeDeduction[]    @relation("EmployeeDeductionUser")
 }
 
 model LocationCategory {
@@ -1332,11 +1488,20 @@ model Notification {
   targetLocationId Int?
   targetUserId     Int?
   isRead           Boolean   @default(false)
+  /// Stable key of the underlying business event, so the SAME event never
+  /// regenerates a notification (read-once). Recurring reminders include their
+  /// period in the key so a new period still notifies.
+  dedupeKey        String?
+  /// Set when the underlying condition cleared (e.g. stock back above its
+  /// level); a resolved alert may be raised again if the condition returns.
+  resolvedAt       DateTime?
   createdAt        DateTime  @default(now())
 
   @@index([tenantId])
   // The low-stock dedup/auto-resolve lookup runs on every stock movement.
   @@index([type, productId, variantId, locationId])
+  // Read-once lookup: find an existing row for this event + recipient.
+  @@index([tenantId, dedupeKey, targetUserId])
 }
 
 // --- Finance: Chart of Accounts & Journal ---
@@ -3514,8 +3679,99 @@ model CarWashWasher {
   helpedWashes    CarWash[]               @relation("CarWashParticipantWashers")
   bookings        CarWashBooking[]        @relation("CarWashBookingWasher")
   equipmentIssues CarWashEquipmentIssue[]
+  // Optional salary (washers are usually commission-based).
+  salaryAmount    Float?
+  salaryPeriod    SalaryPeriod?
+  deductions      EmployeeDeduction[]     @relation("EmployeeDeductionWasher")
 
   @@index([tenantId, isActive])
+}
+
+// --- Employee loans & penalties (deducted from salary / commission) ---------
+//
+// A business can issue an employee a LOAN (an advance) or a PENALTY (a fine for
+// damage, lateness, breach). The amount is recovered (deducted) from the
+// employee's salary or commission over time, capped at a configurable % of the
+// period pay for each payout run. Everything is posted to the GL.
+
+/// How often an employee is paid.
+enum SalaryPeriod {
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+
+/// What the deduction is.
+enum EmployeeDeductionKind {
+  LOAN
+  PENALTY
+}
+
+/// Where it is recovered from.
+enum EmployeeDeductionSource {
+  SALARY
+  COMMISSION
+}
+
+/// OPEN = nothing recovered yet; PARTIAL = some recovered; PAID = fully
+/// recovered; CANCELLED = voided (accidental posting or managerial forgiveness).
+enum EmployeeDeductionStatus {
+  OPEN
+  PARTIAL
+  PAID
+  CANCELLED
+}
+
+/// A loan or penalty issued to an employee (staff user and/or car-wash washer).
+model EmployeeDeduction {
+  id              Int                     @id @default(autoincrement())
+  tenantId        Int
+  organization    Organization            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// The staff member (nullable — a washer may have no login account yet).
+  userId          Int?
+  user            User?                   @relation("EmployeeDeductionUser", fields: [userId], references: [id], onDelete: SetNull)
+  /// The car-wash washer link (when recovered from commission).
+  washerId        Int?
+  washer          CarWashWasher?          @relation("EmployeeDeductionWasher", fields: [washerId], references: [id], onDelete: SetNull)
+  kind            EmployeeDeductionKind
+  source          EmployeeDeductionSource @default(SALARY)
+  reason          String
+  /// Total amount to recover.
+  amount          Float
+  /// Amount already recovered (kept in sync with the recoveries).
+  recoveredAmount Float                   @default(0)
+  status          EmployeeDeductionStatus @default(OPEN)
+  issuedAt        DateTime                @default(now())
+  /// When the remainder becomes due (used for the due-soon reminder).
+  dueAt           DateTime?
+  notes           String?
+  createdById     Int?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  recoveries      EmployeeDeductionRecovery[]
+
+  @@index([tenantId, userId])
+  @@index([tenantId, washerId])
+  @@index([tenantId, status])
+  @@index([tenantId, dueAt])
+}
+
+/// One recovery event (a payroll or commission payout that withheld part of a
+/// deduction). Append-only so the running balance is fully auditable.
+model EmployeeDeductionRecovery {
+  id          Int               @id @default(autoincrement())
+  deductionId Int
+  deduction   EmployeeDeduction  @relation(fields: [deductionId], references: [id], onDelete: Cascade)
+  tenantId    Int
+  amount      Float
+  recoveredAt DateTime          @default(now())
+  /// Optional context (e.g. the payout period it was taken from).
+  note        String?
+  createdById Int?
+  createdAt   DateTime          @default(now())
+
+  @@index([tenantId, deductionId])
 }
 
 model CarWashWashType {

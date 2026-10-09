@@ -167,6 +167,7 @@ export class AdminService {
           where: { role: { isSystem: true } },
           include: { user: { select: { id: true, name: true, email: true } } },
         },
+        subscription: true,
       },
       orderBy: { id: 'desc' },
     });

@@ -14,6 +14,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions/permissions.guard';
 import { TenantGuard } from './common/guards/tenant/tenant.guard';
 import { VerificationGuard } from './common/guards/verification/verification.guard';
+import { SubscriptionGuard } from './common/guards/subscription/subscription.guard';
 import { VerticalGuard } from './common/guards/vertical/vertical.guard';
 import { TenantContextInterceptor } from './common/interceptors/tenant-context.interceptor';
 import { LocalizedResponseInterceptor } from './common/interceptors/localized-response.interceptor';
@@ -45,6 +46,8 @@ import { RestockModule } from './restock/restock.module';
 import { RolesModule } from './roles/roles.module';
 import { SalesModule } from './sales/sales.module';
 import { ServiceModule } from './service/service.module';
+import { SubscriptionsModule } from './subscriptions/subscriptions.module';
+import { EmployeeDeductionsModule } from './employee-deductions/employee-deductions.module';
 import { CarWashModule } from './carwash/carwash.module';
 import { UnitsModule } from './units/units.module';
 import { UsersModule } from './users/users.module';
@@ -95,6 +98,8 @@ import { FiscalModule } from './fiscal/fiscal.module';
     VerificationModule,
     VerticalProfilesModule,
     ServiceModule,
+    SubscriptionsModule,
+    EmployeeDeductionsModule,
     CarWashModule,
     ManufacturingModule,
     TaxesModule,
@@ -105,6 +110,7 @@ import { FiscalModule } from './fiscal/fiscal.module';
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: TenantGuard },
     { provide: APP_GUARD, useClass: VerificationGuard },
+    { provide: APP_GUARD, useClass: SubscriptionGuard },
     { provide: APP_GUARD, useClass: VerticalGuard },
     { provide: APP_GUARD, useClass: CsrfGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },

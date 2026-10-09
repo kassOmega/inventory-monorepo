@@ -49,6 +49,8 @@ export class UsersService {
           name: true,
           status: true,
           locationId: true,
+          salaryAmount: true,
+          salaryPeriod: true,
         },
       },
       role: { select: { id: true, name: true, isSystem: true } },
@@ -62,6 +64,8 @@ export class UsersService {
       name: m.user.name,
       status: m.user.status,
       locationId: m.user.locationId,
+      salaryAmount: m.user.salaryAmount,
+      salaryPeriod: m.user.salaryPeriod,
       /** Per-business membership number (USR-001...) + its UUID. */
       number: m.number,
       numberLabel: formatBusinessNumber('USR', m.number),

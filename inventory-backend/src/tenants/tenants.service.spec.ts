@@ -64,6 +64,7 @@ describe('TenantsService hospitality service onboarding', () => {
       },
       membership: { create: jest.fn(() => Promise.resolve({ id: 1 })) },
       location: { create: jest.fn(() => Promise.resolve({ id: 1 })) },
+      tenantSubscription: { create: jest.fn(() => Promise.resolve({ id: 1 })) },
     };
 
     const prisma: any = {
@@ -74,7 +75,8 @@ describe('TenantsService hospitality service onboarding', () => {
     };
     const notifications: any = { notifyAdmins: jest.fn(() => Promise.resolve()) };
     const profiles: any = {};
-    const service = new TenantsService(prisma, notifications, profiles);
+    const subscriptions: any = { getTrialDays: jest.fn(() => Promise.resolve(14)) };
+    const service = new TenantsService(prisma, notifications, profiles, subscriptions);
     return { service, tx };
   }
 
