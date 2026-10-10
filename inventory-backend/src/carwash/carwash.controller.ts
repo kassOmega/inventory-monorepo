@@ -26,6 +26,7 @@ import {
   CreateWasherDto,
   CreateWashTypeDto,
   CreateVehicleTypeDto,
+  UpdateWashDto,
   IssueEquipmentDto,
   PayEquipmentIssueDto,
   UpdateBookingStatusDto,
@@ -297,6 +298,16 @@ export class CarWashController {
   @Permissions('carwash.washes.create')
   createWash(@Body() dto: CreateWashDto, @Req() req: RequestWithUser) {
     return this.carwash.createWash(dto, req.user.sub);
+  }
+
+  @Patch('washes/:id')
+  @Permissions('carwash.washes.edit')
+  updateWash(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateWashDto,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.carwash.updateWash(id, dto, req.user.sub);
   }
 
   @Patch('washes/:id/start')

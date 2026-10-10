@@ -280,6 +280,57 @@ export class CreateWashDto {
   makeModel?: string;
 }
 
+export class UpdateWashDto {
+  @IsOptional()
+  @IsInt()
+  customerId?: number | null;
+
+  @IsOptional()
+  @IsInt()
+  vehicleId?: number | null;
+
+  @IsOptional()
+  @IsInt()
+  washerId?: number | null;
+
+  @IsArray()
+  @IsInt({ each: true })
+  @IsOptional()
+  participantWasherIds?: number[];
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  vehicleType?: string;
+
+  @IsOptional()
+  @IsInt()
+  washTypeId?: number | null;
+
+  @IsOptional()
+  @Min(0)
+  amount?: number;
+
+  @IsOptional()
+  @IsDateString()
+  date?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  notes?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  plateNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  makeModel?: string;
+}
+
 export class IssueEquipmentDto {
   @IsOptional()
   @IsInt()

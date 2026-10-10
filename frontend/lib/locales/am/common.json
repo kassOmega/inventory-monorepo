@@ -1308,7 +1308,8 @@
     "actionWashedAndPaid": "ታጥቦ ተከፍሏል",
     "paymentMethod": "የክፍያ ዘዴ",
     "addPaymentMethod": "የክፍያ ዘዴ ጨምር",
-    "noData": "መረጃ የለም"
+    "noData": "መረጃ የለም",
+    "editWash": "ማጠቢያ አስተካክል"
   },
   "verticals": {
     "retail": "ችርቻሮ እና ስርጭት",

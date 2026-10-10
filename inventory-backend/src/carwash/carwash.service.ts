@@ -36,6 +36,7 @@ import {
   CreateWasherDto,
   CreateWashTypeDto,
   CreateVehicleTypeDto,
+  UpdateWashDto,
   IssueEquipmentDto,
   UpdateCarWashExpenseDto,
   UpdateStoreItemDto,
@@ -933,15 +934,72 @@ export class CarWashService {
   }
 
   /** QUEUED → IN_PROGRESS. Stamps the start time. */
-  async startWash(id: number, userId?: number) {
+  /**
+   * Edit a wash in place (amount, vehicle, washers, type, date, notes, plate).
+   * Does not touch status — status changes go through start/complete/settle. Only
+   * a not-yet-settled wash may be edited (settled washes are posted to the GL).
+   */
+  async updateWash(id: number, dto: UpdateWashDto, actorId?: number) {
     const wash = await this.prisma.carWash.findUnique({ where: { id } });
     if (!wash) throw new NotFoundException('Wash not found');
+    if (wash.status === CarWashStatus.SETTLED) {
+      throw new BadRequestException('A settled wash cannot be edited');
+    }
+
+    const participantIds = dto.participantWasherIds;
     const updated = await this.prisma.carWash.update({
       where: { id },
       data: {
-        status: CarWashStatus.IN_PROGRESS,
-        startedAt: wash.startedAt ?? new Date(),
+        ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
+        ...(dto.vehicleId !== undefined ? { vehicleId: dto.vehicleId } : {}),
+        ...(dto.washerId !== undefined ? { washerId: dto.washerId } : {}),
+        ...(participantIds !== undefined
+          ? { participantWashers: { set: participantIds.map((pid) => ({ id: pid })) } }
+          : {}),
+        ...(dto.vehicleType !== undefined ? { vehicleType: dto.vehicleType } : {}),
+        ...(dto.washTypeId !== undefined ? { washTypeId: dto.washTypeId } : {}),
+        ...(dto.amount !== undefined ? { amount: dto.amount } : {}),
+        ...(dto.date !== undefined ? { date: new Date(dto.date) } : {}),
+        ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
+        ...(dto.plateNumber !== undefined ? { plateNumber: dto.plateNumber } : {}),
+        ...(dto.makeModel !== undefined ? { makeModel: dto.makeModel } : {}),
       },
+      include: {
+        washer: true,
+        participantWashers: true,
+        vehicle: true,
+        customer: true,
+        washType: true,
+        paymentMethod: true,
+      },
+    });
+    if (actorId != null) {
+      await auditBestEffort(this.prisma, {
+        userId: actorId,
+        action: 'CARWASH_WASH_UPDATED',
+        details: `Wash #${id} updated — ${updated.amount}`,
+      });
+    }
+    return updated;
+  }
+
+  async startWash(id: number, userId?: number) {
+    const wash = await this.prisma.carWash.findUnique({ where: { id } });
+    if (!wash) throw new NotFoundException('Wash not found');
+    // Starting washing removes the vehicle from the waiting queue, then the
+    // remaining queued vehicles are renumbered so the queue stays compact (1..N).
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.carWash.update({
+        where: { id },
+        data: {
+          status: CarWashStatus.IN_PROGRESS,
+          startedAt: wash.startedAt ?? new Date(),
+          queueNumber: null,
+          queuedAt: null,
+        },
+      });
+      await this.renumberQueue(tx, wash.tenantId, wash.date);
+      return result;
     });
     if (userId != null) {
       await auditBestEffort(this.prisma, {
@@ -1311,8 +1369,15 @@ export class CarWashService {
   }
 
   async deleteWash(id: number, userId?: number) {
-    await this.assertWash(id);
-    await this.prisma.carWash.delete({ where: { id } });
+    const wash = await this.prisma.carWash.findUnique({ where: { id } });
+    if (!wash) throw new NotFoundException('Wash not found');
+    // Deleting a queued vehicle renumbers the remaining waiting queue.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.carWash.delete({ where: { id } });
+      if (wash.status === CarWashStatus.QUEUED) {
+        await this.renumberQueue(tx, wash.tenantId, wash.date);
+      }
+    });
     if (userId != null) {
       await auditBestEffort(this.prisma, {
         userId,
@@ -1321,6 +1386,40 @@ export class CarWashService {
       });
     }
     return { id };
+  }
+
+  /**
+   * Compact the waiting queue for a day: the day's QUEUED washes (FIFO by
+   * queuedAt) are renumbered 1..N so starting or deleting a vehicle never leaves
+   * gaps. Day-scoped and idempotent; only QUEUED rows are touched (started/
+   * completed/settled washes keep their history).
+   */
+  private async renumberQueue(
+    tx: Prisma.TransactionClient,
+    tenantId: number,
+    date: Date,
+  ) {
+    const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    const queued = await tx.carWash.findMany({
+      where: {
+        tenantId,
+        status: CarWashStatus.QUEUED,
+        date: { gte: dayStart, lt: dayEnd },
+      },
+      orderBy: [{ queuedAt: 'asc' }, { id: 'asc' }],
+      select: { id: true, queueNumber: true },
+    });
+    let n = 1;
+    for (const w of queued) {
+      if (w.queueNumber !== n) {
+        await tx.carWash.update({
+          where: { id: w.id },
+          data: { queueNumber: n },
+        });
+      }
+      n += 1;
+    }
   }
 
   async deleteEquipmentIssue(id: number, actorId?: number) {

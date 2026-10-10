@@ -1308,7 +1308,8 @@
     "actionWashedAndPaid": "Washed & paid",
     "paymentMethod": "Payment method",
     "addPaymentMethod": "Add payment method",
-    "noData": "No data"
+    "noData": "No data",
+    "editWash": "Edit wash"
   },
   "verticals": {
     "retail": "Retail & Distribution",

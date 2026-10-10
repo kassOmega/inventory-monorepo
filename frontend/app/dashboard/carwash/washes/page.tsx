@@ -2,7 +2,9 @@
 
 import api from "@/lib/api";
 import Button from "@/app/components/Button";
-import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
+import RowActionsMenu from "@/app/components/RowActionsMenu";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
+import { FilterSelect } from "@/app/components/FilterPanel";
 import { getDateRange, type DatePreset } from "@/app/components/DateFilter";
 import Modal from "@/app/components/Modal";
 import SearchableSelect from "@/app/components/SearchableSelect";
@@ -22,18 +24,22 @@ export default function CarWashWashesPage() {
   const [prices, setPrices] = useState<any[]>([]);
   const [form, setForm] = useState({ washerId: "", participantIds: [] as number[], customerId: "", vehicleType: "", washTypeId: "", amount: "", notes: "", plateNumber: "", makeModel: "" });
   const [open, setOpen] = useState(false);
+  // The wash being edited (null = the form creates a new wash).
+  const [editing, setEditing] = useState<any | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [washerId, setWasherId] = useState("");
   const [washTypeId, setWashTypeId] = useState("");
-  const wsInit = getDateRange("month");
-  const [datePreset, setDatePreset] = useState<DatePreset>("month");
+  const wsInit = getDateRange("today");
+  const [datePreset, setDatePreset] = useState<DatePreset>("today");
   const [startDate, setStartDate] = useState(wsInit.start);
   const [endDate, setEndDate] = useState(wsInit.end);
   const [aiDetected, setAiDetected] = useState<string | null>(null);
   const [customers, setCustomers] = useState<any[]>([]);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [detail, setDetail] = useState<any | null>(null);
+  // Status stat-card drill-down: which status's vehicle list is open.
+  const [statusModal, setStatusModal] = useState<string | null>(null);
   // Settlement modal (choose the payment method the money was received in).
   const [payTarget, setPayTarget] = useState<any | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
@@ -143,12 +149,36 @@ export default function CarWashWashesPage() {
     setAiDetected([d?.vehicleType, d?.plateNumber, d?.makeModel].filter(Boolean).join(" · "));
   };
 
+  const openNew = () => {
+    setEditing(null);
+    setForm(initialForm());
+    setAiDetected(null);
+    setOpen(true);
+  };
+
+  const openEdit = (w: any) => {
+    setEditing(w);
+    setAiDetected(null);
+    setForm({
+      washerId: w.washerId ? String(w.washerId) : "",
+      participantIds: (w.participantWashers ?? []).map((p: any) => p.id),
+      customerId: w.customerId ? String(w.customerId) : "",
+      vehicleType: w.vehicleType ?? "",
+      washTypeId: w.washTypeId ? String(w.washTypeId) : "",
+      amount: String(w.amount ?? ""),
+      notes: w.notes ?? "",
+      plateNumber: w.plateNumber ?? "",
+      makeModel: w.makeModel ?? "",
+    });
+    setOpen(true);
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setSaving(true);
     try {
-      await api.post("/carwash/washes", {
+      const payload = {
         customerId: form.customerId ? Number(form.customerId) : null,
         washerId: form.washerId ? Number(form.washerId) : null,
         participantWasherIds: form.participantIds,
@@ -158,8 +188,11 @@ export default function CarWashWashesPage() {
         notes: form.notes.trim() || undefined,
         plateNumber: form.plateNumber.trim() || undefined,
         makeModel: form.makeModel.trim() || undefined,
-      });
+      };
+      if (editing) await api.patch(`/carwash/washes/${editing.id}`, payload);
+      else await api.post("/carwash/washes", payload);
       setOpen(false);
+      setEditing(null);
       setForm(initialForm());
       await load();
     } catch (err: any) {
@@ -306,31 +339,41 @@ export default function CarWashWashesPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-800">{t("carwash.washes")}</h1>
         {canCreate && (
-          <button onClick={() => { setForm(initialForm()); setOpen(true); }} className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium">
+          <button onClick={openNew} className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium">
             + {t("carwash.recordWash")}
           </button>
         )}
       </div>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
 
-      {/* Status totals — one row (2×2 on small screens), compact font */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+      {/* Status totals — single row on every viewport; tap a card to list the
+          vehicles in that status. */}
+      <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
         {([
           ["QUEUED", "bg-amber-100 text-amber-700"],
           ["IN_PROGRESS", "bg-blue-100 text-blue-700"],
           ["COMPLETED", "bg-green-100 text-green-700"],
           ["SETTLED", "bg-emerald-100 text-emerald-700"],
         ] as const).map(([key, cls]) => (
-          <div key={key} className="bg-white px-3 py-2 rounded-lg border border-gray-200">
-            <p className="text-[11px] text-gray-500">{t(`carwash.status_${key}`)}</p>
-            <p className="mt-0.5">
-              <span className={`text-base font-semibold px-1.5 py-0.5 rounded ${cls}`}>{counts[key]}</span>
+          <button
+            key={key}
+            type="button"
+            onClick={() => setStatusModal(key)}
+            className="bg-white px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg border border-gray-200 text-left hover:border-blue-300 hover:shadow-sm transition"
+          >
+            <p className="text-[10px] sm:text-[11px] text-gray-500 truncate">
+              {t(`carwash.status_${key}`)}
             </p>
-          </div>
+            <p className="mt-0.5">
+              <span className={`text-sm sm:text-base font-semibold px-1.5 py-0.5 rounded ${cls}`}>
+                {counts[key]}
+              </span>
+            </p>
+          </button>
         ))}
       </div>
 
-      <FilterPanel
+      <CollapsibleFilterPanel
         showDateFilter
         datePreset={datePreset}
         onDatePresetChange={setDatePreset}
@@ -382,6 +425,7 @@ export default function CarWashWashesPage() {
               <th className="px-4 py-2 whitespace-nowrap">{t("carwash.washersLabel")}</th>
               <th className="px-4 py-2 whitespace-nowrap">{t("carwash.amount")}</th>
               <th className="px-4 py-2 whitespace-nowrap">{t("carwash.status")}</th>
+              <th className="px-4 py-2 whitespace-nowrap text-right">{t("common.actions")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -422,9 +466,40 @@ export default function CarWashWashesPage() {
                     </span>
                   </div>
                 </td>
+                <td className="px-4 py-2 text-right whitespace-nowrap">
+                  <div className="inline-flex justify-end">
+                    <span onClick={(e) => e.stopPropagation()}>
+                      <RowActionsMenu
+                        items={[
+                          {
+                            label: t("common.view"),
+                            onClick: () => setDetail(w),
+                          },
+                          ...(canEdit && w.status !== "SETTLED"
+                            ? [
+                                {
+                                  label: t("common.edit"),
+                                  onClick: () => openEdit(w),
+                                },
+                              ]
+                            : []),
+                          ...(canDelete
+                            ? [
+                                {
+                                  label: t("common.delete"),
+                                  color: "text-red-600",
+                                  onClick: () => remove(w.id),
+                                },
+                              ]
+                            : []),
+                        ]}
+                      />
+                    </span>
+                  </div>
+                </td>
               </tr>
             ))}
-            {filtered.length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-400">{t("carwash.noWashes")}</td></tr>}
+            {filtered.length === 0 && <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-400">{t("carwash.noWashes")}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -513,7 +588,57 @@ export default function CarWashWashesPage() {
         )}
       </Modal>
 
-      <Modal isOpen={open} onClose={() => setOpen(false)} title={t("carwash.recordWash")}>
+      {/* Status drill-down: the vehicles currently in the tapped status. */}
+      <Modal
+        isOpen={!!statusModal}
+        onClose={() => setStatusModal(null)}
+        title={statusModal ? t(`carwash.status_${statusModal}`) : ""}
+      >
+        {(() => {
+          const list = statusModal
+            ? filtered
+                .filter((w) => w.status === statusModal)
+                .sort((a, b) => (a.queueNumber ?? 0) - (b.queueNumber ?? 0))
+            : [];
+          if (list.length === 0) {
+            return <p className="text-sm text-gray-400">{t("carwash.noWashes")}</p>;
+          }
+          return (
+            <ul className="divide-y divide-gray-100">
+              {list.map((w) => (
+                <li
+                  key={w.id}
+                  className="flex items-center justify-between gap-3 py-2 cursor-pointer hover:bg-gray-50"
+                  onClick={() => {
+                    setDetail(w);
+                    setStatusModal(null);
+                  }}
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">
+                      {w.queueNumber != null && (
+                        <span className="mr-1.5 text-[11px] text-gray-400">
+                          #{w.queueNumber}
+                        </span>
+                      )}
+                      {w.plateNumber ?? w.vehicleType ?? "—"}
+                    </p>
+                    <p className="text-[11px] text-gray-400 truncate">
+                      {w.washer?.name ?? t("carwash.washer")}
+                      {w.washType?.name ? ` · ${w.washType.name}` : ""}
+                    </p>
+                  </div>
+                  <span className="text-xs text-gray-500 whitespace-nowrap">
+                    {w.amount}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          );
+        })()}
+      </Modal>
+
+      <Modal isOpen={open} onClose={() => { setOpen(false); setEditing(null); }} title={editing ? t("carwash.editWash") : t("carwash.recordWash")}>
         <form onSubmit={submit} className="space-y-3">
           <AiAutofillCapture
             enabled={canCreate}
