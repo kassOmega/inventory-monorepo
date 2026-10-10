@@ -40,6 +40,11 @@ export default function CarWashWashesPage() {
   const [detail, setDetail] = useState<any | null>(null);
   // Status stat-card drill-down: which status's vehicle list is open.
   const [statusModal, setStatusModal] = useState<string | null>(null);
+  // Start-washing assignment: the QUEUED wash awaiting a washer assignment.
+  const [startTarget, setStartTarget] = useState<any | null>(null);
+  const [startWasherId, setStartWasherId] = useState("");
+  const [startParticipantIds, setStartParticipantIds] = useState<number[]>([]);
+  const [startBusy, setStartBusy] = useState(false);
   // Settlement modal (choose the payment method the money was received in).
   const [payTarget, setPayTarget] = useState<any | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
@@ -207,6 +212,14 @@ export default function CarWashWashesPage() {
   // Status flow: QUEUED → Washing → Washed → Complete. From "Washed" a single
   // "Paid" action opens the settlement modal; after Complete no action remains.
   const runAction = async (w: any, action: string, next: string) => {
+    // Starting a wash that has no washer yet opens the assignment modal (a
+    // vehicle may wait in the queue unassigned until it is its turn).
+    if (action === "start" && !w.washerId) {
+      setStartTarget(w);
+      setStartWasherId("");
+      setStartParticipantIds([]);
+      return;
+    }
     setError("");
     setBusyId(w.id);
     try {
@@ -217,6 +230,32 @@ export default function CarWashWashesPage() {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
     } finally {
       setBusyId(null);
+    }
+  };
+
+  // Confirm the start-assignment: assign the chosen washer(s) and start washing.
+  const confirmStart = async () => {
+    if (!startTarget || !startWasherId) return;
+    setStartBusy(true);
+    setError("");
+    try {
+      await api.patch(`/carwash/washes/${startTarget.id}/start`, {
+        washerId: Number(startWasherId),
+        participantWasherIds: startParticipantIds.filter(
+          (pid) => pid !== Number(startWasherId),
+        ),
+      });
+      await load();
+      setDetail((d: any) =>
+        d && d.id === startTarget.id
+          ? { ...d, status: "IN_PROGRESS", washerId: Number(startWasherId) }
+          : d,
+      );
+      setStartTarget(null);
+    } catch (err: any) {
+      setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setStartBusy(false);
     }
   };
 
@@ -638,6 +677,78 @@ export default function CarWashWashesPage() {
         })()}
       </Modal>
 
+      {/* Start-washing assignment: a queued wash with no washer asks for one
+          (primary + optional participants) before it starts. */}
+      <Modal
+        isOpen={!!startTarget}
+        onClose={() => setStartTarget(null)}
+        title={t("carwash.assignWasherTitle")}
+      >
+        {startTarget && (
+          <div className="space-y-3 text-sm">
+            <p className="text-xs text-gray-500">{t("carwash.assignWasherHint")}</p>
+            <div className="rounded-lg bg-gray-50 p-2 text-xs text-gray-600">
+              {startTarget.plateNumber ?? startTarget.vehicleType}
+              {startTarget.queueNumber != null && ` · #${startTarget.queueNumber}`}
+            </div>
+            <label className="block text-gray-600">
+              {t("carwash.primaryWasher")}
+              <SearchableSelect
+                value={startWasherId}
+                onChange={setStartWasherId}
+                options={washers.map((w) => ({
+                  value: String(w.id),
+                  label: `${w.name} (${w.commissionRate}%)`,
+                }))}
+                placeholder={t("carwash.primaryWasher")}
+              />
+            </label>
+            <div>
+              <p className="text-xs text-gray-500 mb-2">{t("carwash.participants")}</p>
+              <div className="flex flex-wrap gap-2">
+                {washers
+                  .filter((w) => String(w.id) !== startWasherId)
+                  .map((w) => (
+                    <label
+                      key={w.id}
+                      className="flex items-center gap-1 text-sm text-gray-600 border border-gray-200 rounded px-2 py-1"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={startParticipantIds.includes(w.id)}
+                        onChange={() =>
+                          setStartParticipantIds((prev) =>
+                            prev.includes(w.id)
+                              ? prev.filter((p) => p !== w.id)
+                              : [...prev, w.id],
+                          )
+                        }
+                      />
+                      {w.name}
+                    </label>
+                  ))}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setStartTarget(null)}
+                className="px-3 py-2 text-sm text-gray-600"
+              >
+                {t("common.cancel")}
+              </button>
+              <Button
+                loading={startBusy}
+                disabled={!startWasherId}
+                onClick={confirmStart}
+              >
+                {t("carwash.actionStartWashing")}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       <Modal isOpen={open} onClose={() => { setOpen(false); setEditing(null); }} title={editing ? t("carwash.editWash") : t("carwash.recordWash")}>
         <form onSubmit={submit} className="space-y-3">
           <AiAutofillCapture
@@ -659,7 +770,7 @@ export default function CarWashWashesPage() {
           </div>
 
           <label className="block text-sm text-gray-600">{t("carwash.primaryWasher")}
-            <SearchableSelect value={form.washerId} onChange={(v) => setForm({ ...form, washerId: v })} options={washers.map((w) => ({ value: String(w.id), label: `${w.name} (${w.commissionRate}%)` }))} placeholder={t("carwash.primaryWasher")} />
+            <SearchableSelect value={form.washerId} onChange={(v) => setForm({ ...form, washerId: v })} options={washers.map((w) => ({ value: String(w.id), label: `${w.name} (${w.commissionRate}%)` }))} placeholder={t("carwash.washerOptional")} />
           </label>
 
           <label className="block text-sm text-gray-600">{t("carwash.vehicleType")}

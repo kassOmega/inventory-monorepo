@@ -1309,7 +1309,10 @@
     "paymentMethod": "Payment method",
     "addPaymentMethod": "Add payment method",
     "noData": "No data",
-    "editWash": "Edit wash"
+    "editWash": "Edit wash",
+    "washerOptional": "Optional — assign on start",
+    "assignWasherTitle": "Assign washer to start",
+    "assignWasherHint": "This vehicle is waiting with no washer. Choose who washes it to start."
   },
   "verticals": {
     "retail": "Retail & Distribution",

@@ -983,9 +983,30 @@ export class CarWashService {
     return updated;
   }
 
-  async startWash(id: number, userId?: number) {
+  async startWash(
+    id: number,
+    userId?: number,
+    opts?: { washerId?: number | null; participantWasherIds?: number[] },
+  ) {
     const wash = await this.prisma.carWash.findUnique({ where: { id } });
     if (!wash) throw new NotFoundException('Wash not found');
+
+    // A wash may wait in the queue unassigned; the washer is required the moment
+    // washing starts. Accept the assignment from the caller (the start modal),
+    // otherwise require that one was already assigned at registration/edit.
+    const assignWasherId =
+      opts?.washerId != null ? Number(opts.washerId) : wash.washerId ?? null;
+    if (assignWasherId == null) {
+      throw new BadRequestException('Assign a washer before starting');
+    }
+    if (opts?.washerId != null) {
+      const washer = await this.prisma.carWashWasher.findFirst({
+        where: { id: assignWasherId, tenantId: wash.tenantId },
+        select: { id: true },
+      });
+      if (!washer) throw new BadRequestException('Washer not found');
+    }
+
     // Starting washing removes the vehicle from the waiting queue, then the
     // remaining queued vehicles are renumbered so the queue stays compact (1..N).
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -996,6 +1017,14 @@ export class CarWashService {
           startedAt: wash.startedAt ?? new Date(),
           queueNumber: null,
           queuedAt: null,
+          washerId: assignWasherId,
+          ...(opts?.participantWasherIds !== undefined
+            ? {
+                participantWashers: {
+                  set: opts.participantWasherIds.map((pid) => ({ id: pid })),
+                },
+              }
+            : {}),
         },
       });
       await this.renumberQueue(tx, wash.tenantId, wash.date);

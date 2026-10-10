@@ -1309,7 +1309,10 @@
     "paymentMethod": "የክፍያ ዘዴ",
     "addPaymentMethod": "የክፍያ ዘዴ ጨምር",
     "noData": "መረጃ የለም",
-    "editWash": "ማጠቢያ አስተካክል"
+    "editWash": "ማጠቢያ አስተካክል",
+    "washerOptional": "አማራጭ — በሚጀመርበት ጊዜ ይመድቡ",
+    "assignWasherTitle": "ለመጀመር ሰራተኛ መድብ",
+    "assignWasherHint": "ይህ ተሽከርካሪ ሰራተኛ ሳይመደብ ይጠብቃል። ለመጀመር የሚያጥበውን ይምረጡ።"
   },
   "verticals": {
     "retail": "ችርቻሮ እና ስርጭት",

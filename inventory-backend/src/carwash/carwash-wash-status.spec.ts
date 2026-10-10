@@ -22,7 +22,7 @@ function setup(lastQueue: number | null = 4) {
         return Promise.resolve({ id: 1, ...data, washer: null, participantWashers: [] });
       }),
       findUnique: jest.fn(({ where }: any) =>
-        Promise.resolve({ id: where.id, tenantId: 1, amount: 100, status: 'QUEUED', date: new Date(), startedAt: null, settledAt: null, washer: null, participantWashers: [] }),
+        Promise.resolve({ id: where.id, tenantId: 1, amount: 100, status: 'QUEUED', date: new Date(), washerId: 3, startedAt: null, settledAt: null, washer: null, participantWashers: [] }),
       ),
       findMany: jest.fn(() => Promise.resolve([])),
       update: jest.fn(({ data }: any) => {

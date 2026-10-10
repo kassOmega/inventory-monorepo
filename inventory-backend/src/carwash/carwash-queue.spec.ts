@@ -38,6 +38,7 @@ function setup(startedId: number) {
           amount: 100,
           status: 'QUEUED',
           date: day,
+          washerId: 3,
           startedAt: null,
           settledAt: null,
           washer: null,

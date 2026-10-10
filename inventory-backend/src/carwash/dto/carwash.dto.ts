@@ -280,6 +280,19 @@ export class CreateWashDto {
   makeModel?: string;
 }
 
+export class StartWashDto {
+  /** Primary washer to assign when the wash has none yet (optional). */
+  @IsOptional()
+  @IsInt()
+  washerId?: number | null;
+
+  /** Participant washers to record on start (optional). */
+  @IsArray()
+  @IsInt({ each: true })
+  @IsOptional()
+  participantWasherIds?: number[];
+}
+
 export class UpdateWashDto {
   @IsOptional()
   @IsInt()

@@ -12,7 +12,7 @@ jest.mock('bcrypt', () => ({
 function setup() {
   const audits: any[] = [];
   const washFindUnique = jest.fn(() =>
-    Promise.resolve({ id: 1, tenantId: 1, amount: 100, status: 'QUEUED', date: new Date(), settledAt: null, washer: null, participantWashers: [] }),
+    Promise.resolve({ id: 1, tenantId: 1, amount: 100, status: 'QUEUED', date: new Date(), washerId: 3, settledAt: null, washer: null, participantWashers: [] }),
   );
   const prisma: any = {
     auditLog: { create: jest.fn(({ data }: any) => { audits.push(data); return Promise.resolve(data); }) },
