@@ -86,10 +86,26 @@ export default function PublicOrderPage() {
     }
   };
 
-  const itemsByRef = useMemo(
-    () => new Map((entry?.items ?? []).concat(entry?.services?.flatMap((s) => s.items) ?? []).map((i) => [i.ref, i])),
-    [entry],
-  );
+  const itemsByRef = useMemo(() => {
+    const all = (entry?.items ?? []).concat(entry?.services?.flatMap((s) => s.items) ?? []);
+    const map = new Map<string, PublicItem>();
+    for (const item of all) {
+      map.set(item.ref, item);
+      // Index every selectable variant ref too, mirroring the backend catalogMap,
+      // so adding a variant resolves to a cart line (and a valid submit ref).
+      for (const v of item.variants ?? []) {
+        map.set(v.ref, {
+          ...item,
+          ref: v.ref,
+          name: v.name,
+          price: v.price,
+          image: v.image,
+          variants: undefined,
+        });
+      }
+    }
+    return map;
+  }, [entry]);
   // Items to show: the active service tab when tabbed, else the flat catalog.
   const visibleItems = useMemo(() => {
     if (entry?.services?.length) {
@@ -310,13 +326,28 @@ export default function PublicOrderPage() {
 
       {cartLines.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-3">
-          <div className="mx-auto max-w-md flex items-center justify-between gap-3">
-            <span className="text-sm font-semibold text-gray-800">
-              {t("public.total")}: {total.toLocaleString()}
-            </span>
-            <Button loading={submitting} onClick={requestSubmit} className="!px-5">
-              {t("public.placeOrder")}
-            </Button>
+          <div className="mx-auto max-w-md space-y-2">
+            {/* Read-only summary so guests see each selected line (incl. variants). */}
+            <div className="max-h-40 overflow-y-auto space-y-1">
+              {cartLines.map((l) => (
+                <div key={l.item!.ref} className="flex items-center justify-between gap-3 text-sm text-gray-700">
+                  <span className="min-w-0 truncate">
+                    {l.item!.name} <span className="text-gray-400">× {l.qty}</span>
+                  </span>
+                  <span className="font-medium whitespace-nowrap">
+                    {(l.item!.price * l.qty).toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-semibold text-gray-800">
+                {t("public.total")}: {total.toLocaleString()}
+              </span>
+              <Button loading={submitting} onClick={requestSubmit} className="!px-5">
+                {t("public.placeOrder")}
+              </Button>
+            </div>
           </div>
         </div>
       )}
