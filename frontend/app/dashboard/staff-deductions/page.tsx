@@ -22,7 +22,7 @@ interface StaffOpt {
 export default function StaffDeductionsPage() {
   const { t } = useTranslation();
   const toast = useToast();
-  const { hasPermission } = useAuth();
+  const { hasPermission, activeMembership } = useAuth();
   const canView = hasPermission("deductions.view") || hasPermission("deductions.manage");
   const canManage = hasPermission("deductions.manage");
 
@@ -34,9 +34,12 @@ export default function StaffDeductionsPage() {
 
   const load = useCallback(async () => {
     try {
+      const isCarWash = activeMembership?.businessType === "CAR_WASH";
       const [usersRes, washersRes, capRes] = await Promise.all([
         api.get("/users").catch(() => ({ data: [] })),
-        api.get("/carwash/washers").catch(() => ({ data: [] })),
+        isCarWash
+          ? api.get("/carwash/washers").catch(() => ({ data: [] }))
+          : Promise.resolve({ data: [] }),
         api.get("/employee-deductions/cap").catch(() => ({ data: { deductionCapPercent: 30 } })),
       ]);
       const users = Array.isArray(usersRes.data) ? usersRes.data : (usersRes.data?.data ?? []);
@@ -61,7 +64,7 @@ export default function StaffDeductionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, activeMembership]);
 
   useEffect(() => {
     load();

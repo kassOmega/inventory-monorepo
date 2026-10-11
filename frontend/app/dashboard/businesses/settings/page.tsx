@@ -12,7 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 export default function BusinessSettingsPage() {
-  const { user, activeOrganizationId, switchOrganization } = useAuth();
+  const { user, activeMembership, activeOrganizationId, switchOrganization } = useAuth();
   const confirm = useConfirm();
   const { t } = useTranslation();
   const owned = (user?.memberships ?? []).filter((m: any) => m.isSystem);
@@ -36,6 +36,9 @@ export default function BusinessSettingsPage() {
   const [saving, setSaving] = useState<string | null>(null);
   const [customOpen, setCustomOpen] = useState(false);
   const [customForm, setCustomForm] = useState({ name: "", key: "" });
+  const [businessType, setBusinessType] = useState<string>(
+    activeMembership?.businessType ?? "RETAIL",
+  );
 
   const load = useCallback(async (id: number) => {
     setLoading(true);
@@ -60,6 +63,7 @@ export default function BusinessSettingsPage() {
             : "FLEXIBLE",
       });
       const businessType = o.data?.businessType ?? "RETAIL";
+      setBusinessType(businessType);
       setPublicConfig({
         showPublicPrices:
           settings.showPublicPrices ?? businessType !== "RETAIL",
@@ -339,6 +343,7 @@ export default function BusinessSettingsPage() {
       </div>
 
       {/* --- Hospitality Packages & Guest Folio Policy --- */}
+      {businessType === "HOSPITALITY" && (
       <div className="bg-white p-4 rounded-lg border border-gray-200">
         <div className="mb-4">
           <h2 className="font-semibold text-gray-800">{t("biz.set.policyTitle")}</h2>
@@ -440,6 +445,7 @@ export default function BusinessSettingsPage() {
         </div>
         {policySaving && <p className="text-xs text-gray-400 mt-2">{t("common.saving")}</p>}
       </div>
+      )}
 
       {customOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">

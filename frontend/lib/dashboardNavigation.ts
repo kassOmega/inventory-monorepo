@@ -254,6 +254,10 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
       label: t("nav.myBusinesses"),
     });
     overview.items.push({
+      href: "/dashboard/businesses/settings",
+      label: t("nav.businessSettings"),
+    });
+    overview.items.push({
       href: "/dashboard/verification",
       label: t("nav.verification"),
     });
