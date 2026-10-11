@@ -15,6 +15,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { GuestOrdersService } from '../guest-orders/guest-orders.service';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { variantAttributeLabel } from '../common/variant-label.util';
+import { catalogsForKind } from './public.constants';
 
 /** Public-safe catalog item. */
 interface PublicItem {
@@ -72,6 +73,9 @@ export class PublicService {
     });
 
     const state = this.effectiveState(entry);
+    // F&B on a table identifies the guest by the table number (typed on the
+    // page); every other entry needs a name/phone profile.
+    const requiresProfile = entry.kind !== 'TABLE';
     if (state !== 'LIVE') {
       // Still return the shell (so the page can render "temporarily unavailable"),
       // but no catalog.
@@ -80,8 +84,8 @@ export class PublicService {
         label: entry.label,
         businessName: business?.name ?? '',
         state,
-        tableName: null,
-        requiresProfile: false,
+        tableName: entry.table?.name ?? null,
+        requiresProfile,
         items: [],
         services: [],
       };
@@ -89,52 +93,43 @@ export class PublicService {
 
     const businessType = business?.businessType ?? 'RETAIL';
     const enabled = business?.enabledHospitalityServices ?? [];
-    // With a single QR per tenant, whether the guest must fill their profile
-    // depends on F&B-at-table handling done client-side (phone autofill / name
-    // prompt); the server always allows a profile to be supplied.
-    const requiresProfile = true;
+    const all = await this.catalog(entry);
     // Multi-service hospitality shows tabs; everyone else a flat catalog.
     const services =
       businessType === 'HOSPITALITY' && enabled.length > 1
-        ? await this.hospitalityServices(entry, enabled)
+        ? this.groupByService(all, enabled)
         : [];
-    const items =
-      businessType === 'HOSPITALITY'
-        ? await this.hotelCatalog(entry)
-        : await this.publishedCatalog(entry);
 
     return {
       kind: entry.kind,
       label: entry.label,
       businessName: business?.name ?? '',
       state,
-      tableName: null,
+      tableName: entry.table?.name ?? null,
       requiresProfile,
-      items,
+      items: services.length ? [] : all,
       services,
     };
   }
 
   /**
-   * Hospitality: the enabled service lines as tabs (F&B menu, available rooms,
-   * and each other service's published items). Only lines with content appear.
+   * Hospitality: group a resolved catalog into the enabled service lines as tabs
+   * (F&B menu, rooms, other services). Only lines with content appear.
    */
-  private async hospitalityServices(
-    entry: PublicEntry,
+  private groupByService(
+    items: PublicItem[],
     enabled: string[],
-  ): Promise<Array<{ key: string; label: string; items: PublicItem[] }>> {
+  ): Array<{ key: string; label: string; items: PublicItem[] }> {
     const groups: Array<{ key: string; label: string; items: PublicItem[] }> = [];
-    const published = await this.publishedCatalog(entry);
-
     if (enabled.includes('FOOD_AND_BEVERAGE')) {
-      const fb = published.filter((i) => i.kind === 'MENU_ITEM');
+      const fb = items.filter((i) => i.kind === 'MENU_ITEM');
       if (fb.length) groups.push({ key: 'FOOD_AND_BEVERAGE', label: 'Food & Beverage', items: fb });
     }
     if (enabled.includes('ACCOMMODATION')) {
-      const rooms = await this.hotelCatalog(entry);
+      const rooms = items.filter((i) => i.kind === 'ROOM_TYPE');
       if (rooms.length) groups.push({ key: 'ACCOMMODATION', label: 'Rooms', items: rooms });
     }
-    const svc = published.filter((i) => i.kind === 'SERVICE_ITEM');
+    const svc = items.filter((i) => i.kind === 'SERVICE_ITEM');
     if (svc.length) groups.push({ key: 'SERVICES', label: 'Services', items: svc });
     return groups;
   }
@@ -160,31 +155,46 @@ export class PublicService {
 
   // --- Catalog --------------------------------------------------------------
 
-  /** The entry's published catalog (each item flattened to a public DTO). */
-  private async publishedCatalog(entry: PublicEntry): Promise<PublicItem[]> {
+  /**
+   * The full catalog for an entry. When the entry has explicitly published items
+   * (curated), those are used; otherwise the catalog is auto-published from the
+   * tenant's own data (all active menu items / products / services, and available
+   * rooms) so a freshly created QR never shows an empty page.
+   */
+  private async catalog(entry: PublicEntry): Promise<PublicItem[]> {
     const rows = await this.prisma.publicEntryItem.findMany({
       where: { entryId: entry.id, active: true },
       orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
     });
-    const out: PublicItem[] = [];
-    for (const row of rows) {
-      const item = await this.resolveItem(entry.tenantId, row.itemKind, row.itemId, row.priceOverride);
-      if (item) out.push(item);
+    if (rows.length > 0) {
+      const out: PublicItem[] = [];
+      for (const row of rows) {
+        const item = await this.resolveItem(entry.tenantId, row.itemKind, row.itemId, row.priceOverride);
+        if (item) out.push(item);
+      }
+      return out;
     }
+    return this.autoCatalog(entry);
+  }
+
+  /** Auto-publish the tenant's catalog for the entry's kind. */
+  private async autoCatalog(entry: PublicEntry): Promise<PublicItem[]> {
+    const kinds = catalogsForKind(entry.kind);
+    const out: PublicItem[] = [];
+    if (kinds.includes('ROOM_TYPE')) out.push(...(await this.availableRooms(entry)));
+    if (kinds.includes('MENU_ITEM')) out.push(...(await this.autoMenuItems(entry.tenantId)));
+    if (kinds.includes('SERVICE_ITEM')) out.push(...(await this.autoServiceItems(entry.tenantId)));
+    if (kinds.includes('PRODUCT')) out.push(...(await this.autoProducts(entry.tenantId)));
     return out;
   }
 
-  /**
-   * Hotel: a room-TYPE catalog grouped from rooms that are FREE for the requested
-   * dates (taken room types are omitted), plus any published F&B / service items.
-   */
-  private async hotelCatalog(entry: PublicEntry): Promise<PublicItem[]> {
+  /** Room-TYPE catalog from rooms that are FREE for the requested window. */
+  private async availableRooms(entry: PublicEntry): Promise<PublicItem[]> {
     const tenantId = entry.tenantId;
     const now = new Date();
     const checkIn = entry.liveFrom ?? now;
     const checkOut = entry.liveUntil ?? new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-    // Rooms busy for the window (overlapping active reservations).
     const busy = await this.prisma.hotelReservation.findMany({
       where: {
         tenantId,
@@ -220,17 +230,78 @@ export class PublicService {
         meta: { nights, totalForStay: rt.basePrice * nights, availableCount: free.length },
       });
     }
-
-    // Any explicitly published items on the same entry (e.g. hotel services).
-    const published = await this.prisma.publicEntryItem.findMany({
-      where: { entryId: entry.id, active: true },
-    });
-    for (const row of published) {
-      if (row.itemKind === 'ROOM_TYPE') continue; // rooms come from availability
-      const item = await this.resolveItem(tenantId, row.itemKind, row.itemId, row.priceOverride);
-      if (item) out.push(item);
-    }
     return out;
+  }
+
+  /** All available menu items for a tenant, as public items. */
+  private async autoMenuItems(tenantId: number): Promise<PublicItem[]> {
+    const rows = await this.prisma.menuItem.findMany({
+      where: { tenantId, isAvailable: true },
+      orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+      select: { id: true, name: true, description: true, price: true, imageUrl: true },
+    });
+    return rows.map((it) => ({
+      ref: `MENU_ITEM:${it.id}`,
+      kind: 'MENU_ITEM',
+      name: it.name,
+      description: it.description ?? null,
+      price: it.price,
+      image: this.imageUrl(it.imageUrl),
+    }));
+  }
+
+  /** All active service items for a tenant, as public items. */
+  private async autoServiceItems(tenantId: number): Promise<PublicItem[]> {
+    const rows = await this.prisma.serviceItem.findMany({
+      where: { tenantId, active: true },
+      orderBy: [{ id: 'asc' }],
+      select: { id: true, name: true, description: true, price: true, imageUrl: true },
+    });
+    return rows.map((it) => ({
+      ref: `SERVICE_ITEM:${it.id}`,
+      kind: 'SERVICE_ITEM',
+      name: it.name,
+      description: it.description ?? null,
+      price: it.price,
+      image: this.imageUrl(it.imageUrl),
+    }));
+  }
+
+  /** All products (with variants) for a tenant, as public items. */
+  private async autoProducts(tenantId: number): Promise<PublicItem[]> {
+    const rows = await this.prisma.product.findMany({
+      where: { tenantId },
+      orderBy: [{ id: 'asc' }],
+      select: {
+        id: true,
+        brand: true,
+        baseName: true,
+        currentSellPrice: true,
+        imageUrl: true,
+        variants: { select: { id: true, attributes: true, sellPrice: true, imageUrl: true } },
+      },
+    });
+    return rows.map((it) => {
+      const productImage = this.imageUrl(it.imageUrl);
+      const variants = (it.variants ?? []).map((v) => ({
+        ref: `PRODUCT:${it.id}:VARIANT:${v.id}`,
+        name: variantAttributeLabel(v) || `#${v.id}`,
+        price: v.sellPrice ?? it.currentSellPrice ?? 0,
+        image: this.imageUrl(v.imageUrl) ?? productImage,
+      }));
+      const basePrice = variants.length
+        ? Math.min(...variants.map((v) => v.price))
+        : it.currentSellPrice ?? 0;
+      return {
+        ref: `PRODUCT:${it.id}`,
+        kind: 'PRODUCT',
+        name: `${it.brand} ${it.baseName}`.trim(),
+        description: null,
+        price: basePrice,
+        image: productImage,
+        ...(variants.length ? { variants } : {}),
+      };
+    });
   }
 
   /** Flatten a catalog row into a public DTO (display fields only). */
@@ -376,6 +447,15 @@ export class PublicService {
       if (blocked) throw new ForbiddenException('Ordering is unavailable for this number');
     }
 
+    // Non-table entries identify the guest by name/phone; require at least one.
+    if (entry.kind !== 'TABLE') {
+      const name = body.customerName?.trim();
+      const phone = body.customerPhone?.trim();
+      if (!name && !phone) {
+        throw new BadRequestException('Please provide your name or phone number');
+      }
+    }
+
     // Resolve each ref (kind:id) against the entry's own catalog/published items
     // so a guest can only order what that entry exposes.
     const catalog = await this.catalogMap(entry);
@@ -467,17 +547,14 @@ export class PublicService {
       select: { businessType: true, enabledHospitalityServices: true },
     });
     const businessType = org?.businessType ?? 'RETAIL';
+    const enabled = org?.enabledHospitalityServices ?? [];
+    const all = await this.catalog(entry);
     const groups =
-      businessType === 'HOSPITALITY' && (org?.enabledHospitalityServices ?? []).length > 1
-        ? await this.hospitalityServices(entry, org?.enabledHospitalityServices ?? [])
+      businessType === 'HOSPITALITY' && enabled.length > 1
+        ? this.groupByService(all, enabled)
         : [];
-    const flat =
-      businessType === 'HOSPITALITY'
-        ? await this.hotelCatalog(entry)
-        : await this.publishedCatalog(entry);
-    const all = [...flat, ...groups.flatMap((g) => g.items)];
     const map = new Map<string, PublicItem>();
-    for (const item of all) {
+    for (const item of [...all, ...groups.flatMap((g) => g.items)]) {
       map.set(item.ref, item);
       // Index variants as their own orderable refs (name/price from the variant).
       for (const v of item.variants ?? []) {

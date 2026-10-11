@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import api from "@/lib/api";
 import Loading from "@/app/components/Loading";
 import Button from "@/app/components/Button";
+import Modal from "@/app/components/Modal";
 
 interface PublicItem {
   ref: string;
@@ -49,6 +50,8 @@ export default function PublicOrderPage() {
   const [orderStatus, setOrderStatus] = useState<string>("");
   // Active service tab when the business offers multiple services.
   const [tab, setTab] = useState<string>("");
+  // Checkout step: collect name/phone AFTER the guest picks their items.
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -117,11 +120,23 @@ export default function PublicOrderPage() {
       });
       setOrderToken(r.data.token);
       setOrderStatus(r.data.status);
+      setProfileOpen(false);
     } catch (e: any) {
       setError(e?.response?.data?.message ?? "Could not submit");
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // "Place order" opens the profile step for entries that need a name/phone;
+  // F&B-on-a-table goes straight through (the table number is the identity).
+  const requestSubmit = () => {
+    if (cartLines.length === 0) return;
+    if (entry?.requiresProfile) {
+      setProfileOpen(true);
+      return;
+    }
+    submit();
   };
 
   // Poll the order status after submit.
@@ -251,24 +266,6 @@ export default function PublicOrderPage() {
           <p className="text-center text-gray-400 text-sm py-10">{t("public.empty")}</p>
         )}
 
-        {entry?.requiresProfile && (
-          <div className="bg-white rounded-xl border p-3 space-y-2 mt-2">
-            <input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              onBlur={autofill}
-              placeholder={t("public.phone")}
-              className="border border-gray-300 rounded-lg p-2 text-sm w-full"
-              inputMode="tel"
-            />
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t("public.name")}
-              className="border border-gray-300 rounded-lg p-2 text-sm w-full"
-            />
-          </div>
-        )}
         <input
           value={note}
           onChange={(e) => setNote(e.target.value)}
@@ -277,13 +274,47 @@ export default function PublicOrderPage() {
         />
       </div>
 
+      {/* Checkout: collect the guest's profile before confirming the order. */}
+      <Modal isOpen={profileOpen} onClose={() => setProfileOpen(false)} title={t("public.profileTitle")} size="sm">
+        <div className="space-y-3">
+          <p className="text-sm text-gray-500">{t("public.profileHint")}</p>
+          <input
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            onBlur={autofill}
+            placeholder={t("public.phone")}
+            className="border border-gray-300 rounded-lg p-2 text-sm w-full"
+            inputMode="tel"
+          />
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={t("public.name")}
+            className="border border-gray-300 rounded-lg p-2 text-sm w-full"
+          />
+          {error && <p className="text-red-600 text-sm">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setProfileOpen(false)} className="px-3 py-2 text-sm text-gray-600">
+              {t("common.cancel")}
+            </button>
+            <Button
+              loading={submitting}
+              disabled={!phone.trim() && !name.trim()}
+              onClick={submit}
+            >
+              {t("public.confirmOrder")}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {cartLines.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-3">
           <div className="mx-auto max-w-md flex items-center justify-between gap-3">
             <span className="text-sm font-semibold text-gray-800">
               {t("public.total")}: {total.toLocaleString()}
             </span>
-            <Button loading={submitting} onClick={submit} className="!px-5">
+            <Button loading={submitting} onClick={requestSubmit} className="!px-5">
               {t("public.placeOrder")}
             </Button>
           </div>

@@ -31,9 +31,10 @@ function makeService(opts: {
     publicEntryItem: { findMany: jest.fn(() => Promise.resolve(opts.items ?? [])) },
     product: {
       findFirst: jest.fn(() => Promise.resolve(opts.product ?? { id: 483, brand: 'A', baseName: 'B', currentSellPrice: 12 })),
+      findMany: jest.fn(() => Promise.resolve([])),
     },
-    menuItem: { findFirst: jest.fn(() => Promise.resolve(null)) },
-    serviceItem: { findFirst: jest.fn(() => Promise.resolve(null)) },
+    menuItem: { findFirst: jest.fn(() => Promise.resolve(null)), findMany: jest.fn(() => Promise.resolve([])) },
+    serviceItem: { findFirst: jest.fn(() => Promise.resolve(null)), findMany: jest.fn(() => Promise.resolve([])) },
     roomType: { findFirst: jest.fn(() => Promise.resolve(null)), findMany: jest.fn(() => Promise.resolve([])) },
     hotelReservation: { findMany: jest.fn(() => Promise.resolve([])) },
     guestBlocklist: {
@@ -99,6 +100,19 @@ describe('PublicService', () => {
     await expect(
       svc.submit('tok', { items: [{ ref: 'PRODUCT:999', quantity: 1 }] }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('auto-publishes the tenant catalog when no items are curated', async () => {
+    const { svc, prisma } = makeService({ items: [] });
+    prisma.product.findMany = jest.fn(() =>
+      Promise.resolve([
+        { id: 1, brand: 'N', baseName: 'Shoe', currentSellPrice: 20, imageUrl: null, variants: [] },
+      ]),
+    );
+    const view = await svc.view('tok');
+    expect(view.items).toHaveLength(1);
+    expect(view.items[0].ref).toBe('PRODUCT:1');
+    expect(view.items[0].price).toBe(20);
   });
 
   it('submits a valid order and notifies the privileged users', async () => {
