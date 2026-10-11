@@ -92,7 +92,7 @@ export default function HospitalityDashboard() {
             <p className="text-gray-400 text-sm">{t("hdb.noActiveTickets")}</p>
           ) : (
             <div className="space-y-3">
-              {(data.stationBreakdown ?? []).map((s: any) => (
+              {(data?.stationBreakdown ?? []).map((s: any) => (
                 <div key={s.station} className="flex items-center justify-between border-b border-gray-50 last:border-0 pb-2">
                   <div>
                     <p className="text-sm font-medium text-gray-800">{s.station}</p>
@@ -121,7 +121,7 @@ export default function HospitalityDashboard() {
             <p className="text-gray-400 text-sm">{t("hdb.noItemsSold")}</p>
           ) : (
             <ul className="space-y-2">
-              {(data.topItems ?? []).map((item: any) => (
+              {(data?.topItems ?? []).map((item: any) => (
                 <li key={item.name}>
                   <div className="flex justify-between text-sm mb-0.5">
                     <span className="font-medium text-gray-800">{item.name}</span>
@@ -144,7 +144,7 @@ export default function HospitalityDashboard() {
                 { key: "name", label: t("hdb.item") },
                 { key: "qty", label: t("hdb.qty"), align: "right" },
               ]}
-              rows={data.topItems ?? []}
+              rows={data?.topItems ?? []}
               shareKey="qty"
               emptyLabel={t("hdb.noItemsSold")}
             />
@@ -161,7 +161,7 @@ export default function HospitalityDashboard() {
           <p className="text-gray-400 text-sm">{t("hdb.noCategorySales")}</p>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {(data.topCategories ?? []).map((c: any) => (
+            {(data?.topCategories ?? []).map((c: any) => (
               <div key={c.name} className="border border-gray-100 rounded-lg p-3">
                 <p className="text-sm font-medium text-gray-800">{c.name}</p>
                 <p className="text-xs text-gray-400">
@@ -186,7 +186,7 @@ export default function HospitalityDashboard() {
               { key: "name", label: t("hdb.category") },
               { key: "qty", label: t("hdb.qty"), align: "right" },
             ]}
-            rows={data.topCategories ?? []}
+            rows={data?.topCategories ?? []}
             shareKey="qty"
             emptyLabel={t("hdb.noCategorySales")}
           />
@@ -213,7 +213,7 @@ export default function HospitalityDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {(data.guestFolio ?? []).map((f: any) => (
+                {(data?.guestFolio ?? []).map((f: any) => (
                   <tr key={f.orderId} className="border-b">
                     <td className="p-2 sm:p-3 font-medium">{f.tableName ?? `#${f.tableId}`}</td>
                     <td className="p-2 sm:p-3 font-mono text-xs">{f.orderNumber}</td>
