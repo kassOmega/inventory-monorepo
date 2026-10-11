@@ -42,7 +42,6 @@ export const DASHBOARD_ROUTES: DashboardRoute[] = [
   { path: "/dashboard", read: [] },
   { path: "/dashboard/profile", read: [] },
   { path: "/dashboard/businesses", read: [], ownerOnly: true },
-  { path: "/dashboard/businesses/settings", read: [], ownerOnly: true },
   { path: "/dashboard/verification", read: [], ownerOnly: true },
 
   // --- Retail / inventory ---

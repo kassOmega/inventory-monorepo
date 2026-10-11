@@ -1,10 +1,9 @@
 "use client";
 
 import { useAuth } from "@/context/AuthContext";
-import { VERTICAL_LABELS, verticalLabel, HOSPITALITY_SERVICES, DEFAULT_HOSPITALITY_SERVICES } from "@/lib/verticals";
+import { VERTICAL_LABELS, verticalLabel, HOSPITALITY_SERVICES, DEFAULT_HOSPITALITY_SERVICES, hospitalityServiceName as serviceName, hospitalityServiceDescription } from "@/lib/verticals";
 import api from "@/lib/api";
 import { useConfirm } from "@/app/components/ConfirmProvider";
-import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { useEffect } from "react";
 import SubscriptionCard from "@/app/components/SubscriptionCard";
@@ -14,7 +13,6 @@ import Button from "@/app/components/Button";
 export default function BusinessesPage() {
   const { user, activeOrganizationId, switchOrganization, refreshUser } = useAuth();
   const confirm = useConfirm();
-  const router = useRouter();
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [businessType, setBusinessType] = useState("RETAIL");
@@ -31,13 +29,31 @@ export default function BusinessesPage() {
 
   const [settingsFor, setSettingsFor] = useState<any>(null);
   const [settingsForm, setSettingsForm] = useState<any>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [services, setServices] = useState<any[]>([]);
+  const [serviceSaving, setServiceSaving] = useState<number | null>(null);
+  const [publicConfig, setPublicConfig] = useState({
+    showPublicPrices: true,
+    showPublicBusinessInfo: true,
+    showPriceListBusinessInfo: true,
+  });
+  const [publicSaving, setPublicSaving] = useState(false);
+  const [policy, setPolicy] = useState({
+    enablePackageRouting: false,
+    enableRoomFolioCharging: false,
+    allowPackagePriceCompensation: true,
+    defaultExcessSettlementMode: "FLEXIBLE",
+  });
+  const [policySaving, setPolicySaving] = useState(false);
+  const [settingsBusinessType, setSettingsBusinessType] = useState("RETAIL");
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customForm, setCustomForm] = useState({ name: "", key: "" });
 
   const [newStandalone, setNewStandalone] = useState(false);
   const [upgradeFor, setUpgradeFor] = useState<any>(null);
   const [upgradeName, setUpgradeName] = useState("");
   const [upgrading, setUpgrading] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
-  const [savingSettings, setSavingSettings] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   // The active business's subscription (shown as a card near the top).
   const [subscription, setSubscription] = useState<any>(null);
@@ -118,31 +134,171 @@ export default function BusinessesPage() {
     }
   };
 
+  const closeSettings = () => {
+    setSettingsFor(null);
+    setSettingsForm(null);
+    setCustomOpen(false);
+  };
+
   const openSettings = async (m: any) => {
     setError("");
+    switchOrganization(m.organizationId);
     try {
-      const r = await api.get(`/tenants/${m.organizationId}`);
-      const s = r.data.settings ?? {};
+      const [cash, servicesRes, orgRes] = await Promise.all([
+        api.get("/cashier/settings"),
+        api.get(`/tenants/${m.organizationId}/services`),
+        api.get(`/tenants/${m.organizationId}`),
+      ]);
+      const s = orgRes.data?.settings ?? {};
+      const bt = orgRes.data?.businessType ?? "RETAIL";
       setSettingsFor(m);
       setSettingsForm({
-        requireCashierConfirmation: s.requireCashierConfirmation !== false,
-        enableFloatManagement: !!s.enableFloatManagement,
+        requireCashierConfirmation: cash.data.requireCashierConfirmation,
+        enableFloatManagement: cash.data.enableFloatManagement,
+      });
+      setServices(Array.isArray(servicesRes.data) ? servicesRes.data : []);
+      setSettingsBusinessType(bt);
+      setPolicy({
+        enablePackageRouting: s.enablePackageRouting === true,
+        enableRoomFolioCharging: s.enableRoomFolioCharging === true,
+        allowPackagePriceCompensation: s.allowPackagePriceCompensation !== false,
+        defaultExcessSettlementMode: [
+          "FLEXIBLE",
+          "DEFER_TO_FOLIO_ONLY",
+          "COLLECT_NOW_ONLY",
+        ].includes(s.defaultExcessSettlementMode)
+          ? s.defaultExcessSettlementMode
+          : "FLEXIBLE",
+      });
+      setPublicConfig({
+        showPublicPrices: s.showPublicPrices ?? bt !== "RETAIL",
+        showPublicBusinessInfo: s.showPublicBusinessInfo ?? true,
+        showPriceListBusinessInfo: s.showPriceListBusinessInfo ?? true,
       });
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("biz.loadSettingsFail"));
     }
   };
+
   const saveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setSavingSettings(true);
     try {
-      await api.patch(`/tenants/${settingsFor.organizationId}/settings`, { settings: settingsForm });
-      setSettingsFor(null);
+      await api.put("/cashier/settings", {
+        requireCashierConfirmation: settingsForm.requireCashierConfirmation,
+        enableFloatManagement: settingsForm.enableFloatManagement,
+      });
+      closeSettings();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("biz.saveSettingsFail"));
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const toggleService = async (service: any) => {
+    if (!settingsFor) return;
+    const prev = services;
+    setServiceSaving(service.id);
+    setError("");
+    setServices(
+      services.map((s) =>
+        s.id === service.id ? { ...s, isEnabled: !s.isEnabled } : s,
+      ),
+    );
+    try {
+      await api.patch(`/tenants/${settingsFor.organizationId}/services/${service.id}`, {
+        isEnabled: !service.isEnabled,
+      });
+      window.dispatchEvent(new Event("services:changed"));
+    } catch (err: any) {
+      setServices(prev);
+      setError(err?.response?.data?.message ?? t("biz.set.updateServiceFail"));
+    } finally {
+      setServiceSaving(null);
+    }
+  };
+
+  const createCustomService = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!settingsFor || !customForm.name.trim()) return;
+    setError("");
+    try {
+      await api.post(`/tenants/${settingsFor.organizationId}/services`, {
+        name: customForm.name.trim(),
+        key: customForm.key.trim() || undefined,
+      });
+      setCustomOpen(false);
+      setCustomForm({ name: "", key: "" });
+      const r = await api.get(`/tenants/${settingsFor.organizationId}/services`);
+      setServices(Array.isArray(r.data) ? r.data : []);
+      window.dispatchEvent(new Event("services:changed"));
+    } catch (err: any) {
+      setError(err?.response?.data?.message ?? t("biz.set.createServiceFail"));
+    }
+  };
+
+  const removeCustomService = async (s: any) => {
+    if (!settingsFor) return;
+    if (!(await confirm(t("biz.set.deleteConfirm", { name: serviceName(s) })))) return;
+    setError("");
+    try {
+      await api.delete(`/tenants/${settingsFor.organizationId}/services/${s.id}`);
+      const r = await api.get(`/tenants/${settingsFor.organizationId}/services`);
+      setServices(Array.isArray(r.data) ? r.data : []);
+      window.dispatchEvent(new Event("services:changed"));
+    } catch (err: any) {
+      setError(err?.response?.data?.message ?? t("biz.set.deleteServiceFail"));
+    }
+  };
+
+  const savePublicConfig = async (next: any) => {
+    if (!settingsFor) return;
+    setPublicSaving(true);
+    setError("");
+    const prev = publicConfig;
+    setPublicConfig(next);
+    try {
+      const org = await api.get(`/tenants/${settingsFor.organizationId}`);
+      await api.patch(`/tenants/${settingsFor.organizationId}/settings`, {
+        settings: {
+          ...(org.data?.settings ?? {}),
+          showPublicPrices: next.showPublicPrices,
+          showPublicBusinessInfo: next.showPublicBusinessInfo,
+          showPriceListBusinessInfo: next.showPriceListBusinessInfo,
+        },
+      });
+    } catch (err: any) {
+      setPublicConfig(prev);
+      setError(err?.response?.data?.message ?? t("biz.set.savePolicyFail"));
+    } finally {
+      setPublicSaving(false);
+    }
+  };
+
+  const savePolicy = async (next: any) => {
+    if (!settingsFor) return;
+    setPolicySaving(true);
+    setError("");
+    const prev = policy;
+    setPolicy(next);
+    try {
+      const org = await api.get(`/tenants/${settingsFor.organizationId}`);
+      await api.patch(`/tenants/${settingsFor.organizationId}/settings`, {
+        settings: {
+          ...(org.data?.settings ?? {}),
+          enablePackageRouting: next.enablePackageRouting,
+          enableRoomFolioCharging: next.enableRoomFolioCharging,
+          allowPackagePriceCompensation: next.allowPackagePriceCompensation,
+          defaultExcessSettlementMode: next.defaultExcessSettlementMode,
+        },
+      });
+    } catch (err: any) {
+      setPolicy(prev);
+      setError(err?.response?.data?.message ?? t("biz.set.savePolicyFail"));
+    } finally {
+      setPolicySaving(false);
     }
   };
 
@@ -357,18 +513,9 @@ export default function BusinessesPage() {
                         </button>
                       )}
                       <button onClick={() => startEdit(m)} className="text-xs text-blue-600 hover:underline">{t("roles.edit")}</button>
-                      <button onClick={() => openSettings(m)} className="text-xs text-gray-600 hover:underline">{t("biz.settings")}</button>
-                      {m.businessType === "HOSPITALITY" && (
-                        <button
-                          onClick={() => {
-                            switchOrganization(m.organizationId);
-                            router.push("/dashboard/businesses/settings");
-                          }}
-                          className="text-xs text-blue-600 hover:underline"
-                        >
-                          {t("biz.services")}
-                        </button>
-                      )}
+                      <button onClick={() => openSettings(m)} className="text-xs text-gray-600 hover:underline">
+                        {t("biz.settings")}
+                      </button>
                       <Button variant="ghost" size="sm" loading={busyKey === `del-${m.organizationId}`} onClick={() => deleteBusiness(m)} className="!px-0 text-xs text-red-600 hover:underline">{t("roles.delete")}</Button>
                     </>
                   )}
@@ -401,9 +548,15 @@ export default function BusinessesPage() {
 
       {settingsFor && settingsForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-5 w-full max-w-sm shadow-xl">
-            <h2 className="font-semibold text-gray-800 mb-3">{t("biz.settingsTitle", { name: settingsFor.organizationName })}</h2>
-            <form onSubmit={saveSettings} className="space-y-3">
+          <div className="bg-white rounded-lg p-5 w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold text-gray-800">{t("biz.settingsTitle", { name: settingsFor.organizationName })}</h2>
+              <button type="button" onClick={closeSettings} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+
+            {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm mb-3">{error}</div>}
+
+            <form onSubmit={saveSettings} className="space-y-3 border-b border-gray-100 pb-4 mb-4">
               <label className="flex items-center gap-2 text-sm text-gray-700">
                 <input type="checkbox" checked={settingsForm.requireCashierConfirmation} onChange={(e) => setSettingsForm({ ...settingsForm, requireCashierConfirmation: e.target.checked })} className="rounded" />
                 {t("biz.requireCashier")}
@@ -413,13 +566,204 @@ export default function BusinessesPage() {
                 {t("biz.enableFloat")}
               </label>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setSettingsFor(null)} className="px-3 py-2 text-sm text-gray-600">{t("common.cancel")}</button>
+                <button type="button" onClick={closeSettings} className="px-3 py-2 text-sm text-gray-600">{t("common.cancel")}</button>
                 <Button type="submit" loading={savingSettings} variant="dark" className="!px-3 !text-sm">{t("biz.saveBtn")}</Button>
+              </div>
+            </form>
+
+            {settingsBusinessType === "HOSPITALITY" && (
+            <div className="mb-4">
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-800">{t("biz.set.activeServices")}</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">{t("biz.set.activeServicesHint")}</p>
+                </div>
+                <button type="button" onClick={() => { setCustomForm({ name: "", key: "" }); setCustomOpen(true); }} className="text-xs bg-blue-600 text-white rounded px-2.5 py-1.5 font-medium hover:bg-blue-700 shrink-0">
+                  {t("biz.set.addCustom")}
+                </button>
+              </div>
+              <ul className="divide-y divide-gray-100 border border-gray-100 rounded-lg">
+                {services.map((s) => (
+                  <li key={s.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-800">
+                        {serviceName(s)}
+                        {s.serviceType === "CUSTOM" && (
+                          <span className="ml-2 bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded text-[10px]">{t("biz.set.customTag")}</span>
+                        )}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {hospitalityServiceDescription(s.serviceType) || (s.customName ? t("biz.set.customServiceDesc") : "")}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {s.serviceType === "CUSTOM" && (
+                        <button type="button" onClick={() => removeCustomService(s)} className="text-xs text-red-600 hover:underline">{t("common.del")}</button>
+                      )}
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={s.isEnabled}
+                        disabled={serviceSaving === s.id}
+                        onClick={() => toggleService(s)}
+                        className={`relative w-12 h-7 rounded-full transition shrink-0 disabled:opacity-60 ${s.isEnabled ? "bg-green-500" : "bg-gray-300"}`}
+                      >
+                        <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${s.isEnabled ? "left-[22px]" : "left-0.5"}`} />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+                {services.length === 0 && (
+                  <li className="px-3 py-6 text-sm text-gray-400 text-center">{t("biz.set.noServices")}</li>
+                )}
+              </ul>
+            </div>
+            )}
+
+            <div className="mb-4">
+              <div className="mb-2">
+                <h3 className="text-sm font-semibold text-gray-800">{t("biz.set.publicTitle")}</h3>
+                <p className="text-xs text-gray-400 mt-0.5">{t("biz.set.publicHint")}</p>
+              </div>
+              <div className="space-y-2">
+                {[
+                  { key: "showPublicPrices", label: t("biz.set.showPublicPrices"), hint: t("biz.set.showPublicPricesHint") },
+                  { key: "showPublicBusinessInfo", label: t("biz.set.showPublicBusinessInfo"), hint: t("biz.set.showPublicBusinessInfoHint") },
+                  { key: "showPriceListBusinessInfo", label: t("biz.set.showPriceListBusinessInfo"), hint: t("biz.set.showPriceListBusinessInfoHint") },
+                ].map((row) => (
+                  <label key={row.key} className="flex items-start justify-between gap-3 py-2 border-b border-gray-100">
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">{row.label}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{row.hint}</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={(publicConfig as any)[row.key]}
+                      disabled={publicSaving}
+                      onClick={() => savePublicConfig({ ...publicConfig, [row.key]: !(publicConfig as any)[row.key] })}
+                      className={`relative w-12 h-7 rounded-full transition shrink-0 disabled:opacity-60 ${(publicConfig as any)[row.key] ? "bg-green-500" : "bg-gray-300"}`}
+                    >
+                      <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${(publicConfig as any)[row.key] ? "left-[22px]" : "left-0.5"}`} />
+                    </button>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {settingsBusinessType === "HOSPITALITY" && (
+              <div>
+                <div className="mb-2">
+                  <h3 className="text-sm font-semibold text-gray-800">{t("biz.set.policyTitle")}</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">{t("biz.set.policyHint")}</p>
+                </div>
+                <div className="space-y-2">
+                  <label className="flex items-start justify-between gap-3 py-2 border-b border-gray-100">
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">{t("biz.set.enableRouting")}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{t("biz.set.enableRoutingHint")}</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={policy.enablePackageRouting}
+                      disabled={policySaving}
+                      onClick={() => savePolicy({ ...policy, enablePackageRouting: !policy.enablePackageRouting })}
+                      className={`relative w-12 h-7 rounded-full transition shrink-0 disabled:opacity-60 ${policy.enablePackageRouting ? "bg-green-500" : "bg-gray-300"}`}
+                    >
+                      <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${policy.enablePackageRouting ? "left-[22px]" : "left-0.5"}`} />
+                    </button>
+                  </label>
+
+                  <label className="flex items-start justify-between gap-3 py-2 border-b border-gray-100">
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">{t("biz.set.enableFolioCharging")}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{t("biz.set.enableFolioChargingHint")}</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={policy.enableRoomFolioCharging}
+                      disabled={policySaving}
+                      onClick={() => savePolicy({ ...policy, enableRoomFolioCharging: !policy.enableRoomFolioCharging })}
+                      className={`relative w-12 h-7 rounded-full transition shrink-0 disabled:opacity-60 ${policy.enableRoomFolioCharging ? "bg-green-500" : "bg-gray-300"}`}
+                    >
+                      <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${policy.enableRoomFolioCharging ? "left-[22px]" : "left-0.5"}`} />
+                    </button>
+                  </label>
+
+                  <label className="flex items-start justify-between gap-3 py-2 border-b border-gray-100">
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">{t("biz.set.allowCompensation")}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{t("biz.set.allowCompensationHint")}</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={policy.allowPackagePriceCompensation}
+                      disabled={policySaving}
+                      onClick={() => savePolicy({ ...policy, allowPackagePriceCompensation: !policy.allowPackagePriceCompensation })}
+                      className={`relative w-12 h-7 rounded-full transition shrink-0 disabled:opacity-60 ${policy.allowPackagePriceCompensation ? "bg-green-500" : "bg-gray-300"}`}
+                    >
+                      <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${policy.allowPackagePriceCompensation ? "left-[22px]" : "left-0.5"}`} />
+                    </button>
+                  </label>
+
+                  <div className="flex items-center justify-between gap-3 py-2">
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">{t("biz.set.settlementMode")}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{t("biz.set.settlementModeHint")}</p>
+                    </div>
+                    <select
+                      value={policy.defaultExcessSettlementMode}
+                      disabled={policySaving}
+                      onChange={(e) => savePolicy({ ...policy, defaultExcessSettlementMode: e.target.value })}
+                      className="border border-gray-300 rounded p-2 text-sm bg-white"
+                    >
+                      <option value="FLEXIBLE">{t("biz.set.modeFlexible")}</option>
+                      <option value="DEFER_TO_FOLIO_ONLY">{t("biz.set.modeDeferFolio")}</option>
+                      <option value="COLLECT_NOW_ONLY">{t("biz.set.modeCollectNow")}</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {customOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-lg p-5 w-full max-w-sm shadow-xl">
+            <h2 className="font-semibold text-gray-800 mb-3">{t("biz.set.addCustomTitle")}</h2>
+            <p className="text-xs text-gray-400 mb-3">{t("biz.set.addCustomHint")}</p>
+            <form onSubmit={createCustomService} className="space-y-3">
+              <input
+                value={customForm.name}
+                onChange={(e) => setCustomForm({ ...customForm, name: e.target.value })}
+                placeholder={t("biz.set.serviceNamePh")}
+                className="border border-gray-300 rounded p-2 text-sm w-full"
+                required
+              />
+              <input
+                value={customForm.key}
+                onChange={(e) => setCustomForm({ ...customForm, key: e.target.value })}
+                placeholder={t("biz.set.serviceKeyPh")}
+                className="border border-gray-300 rounded p-2 text-sm w-full"
+              />
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setCustomOpen(false)} className="px-3 py-2 text-sm text-gray-600">
+                  {t("common.cancel")}
+                </button>
+                <button type="submit" className="bg-blue-600 text-white rounded px-3 py-2 text-sm font-medium">
+                  {t("common.create")}
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
       {upgradeFor && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-5 w-full max-w-md shadow-xl">

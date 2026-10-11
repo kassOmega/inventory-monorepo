@@ -155,6 +155,8 @@ export interface NavBuildContext {
   services: NavService[];
   /** Role-based check used to filter every menu item by its `permission`. */
   hasPermission: (key: string) => boolean;
+  /** Active business verification status (hides the Verification link once APPROVED). */
+  verificationStatus?: string | null;
   t: (key: string) => string;
 }
 
@@ -253,14 +255,12 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
       href: "/dashboard/businesses",
       label: t("nav.myBusinesses"),
     });
-    overview.items.push({
-      href: "/dashboard/businesses/settings",
-      label: t("nav.businessSettings"),
-    });
-    overview.items.push({
-      href: "/dashboard/verification",
-      label: t("nav.verification"),
-    });
+    if (ctx.verificationStatus !== "APPROVED") {
+      overview.items.push({
+        href: "/dashboard/verification",
+        label: t("nav.verification"),
+      });
+    }
   }
 
   if (ctx.hasBusiness && ctx.isRetail) {

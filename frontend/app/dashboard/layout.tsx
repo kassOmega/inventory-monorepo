@@ -264,7 +264,6 @@ export default function DashboardLayout({
     if (
       !user.isOwnerAccount &&
       (pathname === "/dashboard/businesses" ||
-        pathname === "/dashboard/businesses/settings" ||
         pathname === "/dashboard/verification")
     ) {
       router.replace("/dashboard");
@@ -349,6 +348,7 @@ export default function DashboardLayout({
       customName: s.customName ?? null,
     })),
     hasPermission: (key: string) => hasPermission(key),
+    verificationStatus: activeMembership?.verificationStatus ?? null,
     t: (key: string) => t(key),
   });
 
