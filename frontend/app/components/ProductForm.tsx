@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus } from "lucide-react";
 import AiAutofillCapture from "./AiAutofillCapture";
+import CatalogImageInput from "./CatalogImageInput";
 import BarcodeScanner from "./BarcodeScanner";
 import Modal from "./Modal";
 
@@ -129,6 +130,7 @@ export default function ProductForm({
   const [form, setForm] = useState<any>({
     brand: "",
     baseName: "",
+    imageUrl: null,
     currentBuyPrice: 0,
     currentSellPrice: 0,
     categoryId: "",
@@ -173,6 +175,7 @@ export default function ProductForm({
     setForm({
       brand: editing.brand,
       baseName: editing.baseName,
+      imageUrl: editing.imageUrl ?? null,
       currentBuyPrice: editing.currentBuyPrice,
       currentSellPrice: editing.currentSellPrice,
       categoryId: editing.categoryId ? String(editing.categoryId) : "",
@@ -489,6 +492,7 @@ export default function ProductForm({
     const payload: any = {
       brand: form.brand,
       baseName: form.baseName,
+      imageUrl: form.imageUrl ?? null,
       attributes,
       categoryId: Number(form.categoryId),
       unitId: form.unitId ? Number(form.unitId) : undefined,
@@ -734,6 +738,13 @@ export default function ProductForm({
       )}
 
       {/* --- 1. Basic Info --- */}
+      <div className="col-span-2">
+        <CatalogImageInput
+          value={form.imageUrl}
+          onChange={(f) => setForm({ ...form, imageUrl: f })}
+          label={t("catalog.image")}
+        />
+      </div>
       <div className="min-w-0">
         <label className={LABEL} title={t("pf.brand")}>
           {t("pf.brand")}

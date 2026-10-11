@@ -306,6 +306,9 @@ model Organization {
   subscription           TenantSubscription?
   subscriptionPayments   SubscriptionPayment[]
   employeeDeductions     EmployeeDeduction[]
+  publicEntries          PublicEntry[]
+  guestOrders            GuestOrder[]
+  guestBlocklist         GuestBlocklist[]
   taxRates               TaxRate[]
   fiscalConfig           TenantFiscalConfig?
 
@@ -725,6 +728,8 @@ model Location {
   notifications  Notification[]
   customers      Customer[]
   creditSales    CreditSale[]
+  publicEntries  PublicEntry[]
+  guestOrderRoutes GuestOrderRoute[]
   purchases      Purchase[]
   returns        Return[]
   cashEntries    CashEntry[]
@@ -761,6 +766,8 @@ model Product {
   barcode                String? // EAN/UPC barcode scanner support
   brand                  String
   baseName               String
+  /// Catalogue image (stored file name under uploads/catalog-images).
+  imageUrl               String?
   // Localized display content (optional per language): { en, am }.
   brandI18n              Json?
   baseNameI18n           Json?
@@ -823,6 +830,8 @@ model ProductVariant {
   product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   sku          String // e.g., SHOE-NIKE-42-BLK
   barcode      String?
+  /// Per-variant catalogue image (falls back to the product's).
+  imageUrl     String?
   attributes   Json     @default("{}") // e.g., {"size": "42", "color": "Black"}
   buyPrice     Float?
   sellPrice    Float?
@@ -1198,6 +1207,7 @@ model Customer {
   facilityVisits      FacilityVisit[]
   customerNotes       CustomerNote[]
   loyaltyEntries      CustomerLoyaltyEntry[]
+  guestOrders         GuestOrder[]  @relation("GuestOrderCustomer")
   carWashVehicles     CarWashVehicle[]
   carWashBookings     CarWashBooking[]
   carWashes           CarWash[]
@@ -1862,6 +1872,7 @@ model DiningTable {
   status       TableStatus   @default(FREE)
   orders       Order[]
   reservations Reservation[]
+  publicEntries PublicEntry[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -1994,6 +2005,8 @@ model RoomType {
   tenantId    Int?
   name        String
   description String?
+  /// Catalogue image (stored file name under uploads/catalog-images).
+  imageUrl    String?
   basePrice   Float
   rooms       Room[]
 
@@ -2959,6 +2972,8 @@ model ServiceItem {
   category     ServiceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   name         String
   description  String?
+  /// Catalogue image (stored file name under uploads/catalog-images).
+  imageUrl     String?
   price        Float            @default(0)
   durationMins Int              @default(30)
   active       Boolean          @default(true)
@@ -3071,6 +3086,180 @@ model AgentActionLog {
   createdAt      DateTime     @default(now())
 
   @@index([organizationId, createdAt])
+}
+
+// --- Public QR guest ordering -----------------------------------------------
+//
+// A business prints a QR whose URL is `<host>/o/<token>`. The token is an opaque
+// random capability for ONE target (a dining table, a hotel, a shop/branch, a
+// car-wash bay). It is the ONLY tenant scope for the public surface — internal
+// ids are never exposed, and every public call resolves token -> exactly one
+// tenant. Nothing here is reachable with an internal id.
+
+enum PublicEntryKind {
+  TABLE
+  HOTEL
+  SHOP
+  CARWASH_BAY
+  SERVICE
+}
+
+enum PublicEntryState {
+  LIVE
+  HELD
+  DROPPED
+}
+
+enum GuestOrderStatus {
+  SUBMITTED
+  REVIEWED
+  ROUTED
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+  CANCELLED
+  DROPPED
+}
+
+/// One printed QR / public link. `token` is the opaque capability in the URL.
+model PublicEntry {
+  id         Int             @id @default(autoincrement())
+  /// Opaque, high-entropy, URL-safe capability token (never the row id).
+  token      String          @unique
+  tenantId   Int
+  organization Organization  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  kind       PublicEntryKind
+  /// Human label shown on the print sheet (table name, branch, room area…).
+  label      String
+  /// Optional target: dining table id (TABLE) — other kinds are shop/hotel wide.
+  tableId    Int?
+  table      DiningTable?    @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  locationId Int?
+  location   Location?       @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  state      PublicEntryState @default(LIVE)
+  /// Scheduled activation (service hours). null = immediate / open-ended.
+  liveFrom   DateTime?
+  liveUntil  DateTime?
+  active     Boolean         @default(true)
+  /// Skip the manual approval gate: guest orders through this entry go straight
+  /// to operations. Owner-controlled per entry (default: manual approval).
+  autoApprove Boolean        @default(false)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  items      PublicEntryItem[]
+  orders     GuestOrder[]
+
+  @@index([tenantId, kind])
+  @@index([tenantId, locationId])
+}
+
+/// What a given public entry exposes (the published catalog), per entry.
+model PublicEntryItem {
+  id        Int            @id @default(autoincrement())
+  entryId   Int
+  entry     PublicEntry    @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  /// Which catalog the item comes from (MENU_ITEM | PRODUCT | SERVICE_ITEM | ROOM_TYPE).
+  itemKind  String
+  itemId    Int
+  /// Optional per-entry price override (else the item's own price).
+  priceOverride Float?
+  sortOrder Int            @default(0)
+  active    Boolean        @default(true)
+
+  @@unique([entryId, itemKind, itemId])
+  @@index([entryId])
+}
+
+/// A guest order/booking submitted through a public entry.
+model GuestOrder {
+  id            Int              @id @default(autoincrement())
+  /// Opaque token so the guest can re-open their own status page.
+  token         String           @unique
+  entryId       Int
+  entry         PublicEntry      @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  tenantId      Int
+  organization  Organization     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  status        GuestOrderStatus @default(SUBMITTED)
+  /// Captured guest identity (F&B-on-table may leave these null — the table is it).
+  customerId    Int?
+  customer      Customer?        @relation("GuestOrderCustomer", fields: [customerId], references: [id], onDelete: SetNull)
+  customerName  String?
+  customerPhone String?
+  note          String?
+  /// Retail/manufacturing: the branch(es) the central desk forwarded to.
+  routes        GuestOrderRoute[]
+  /// Resulting internal records once accepted.
+  orderId       Int?
+  saleId        Int?
+  bookingId     Int?
+  reservationId Int?
+  totalAmount   Float            @default(0)
+  items         GuestOrderItem[]
+  activities    GuestOrderActivity[]
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([tenantId, status])
+  @@index([entryId, createdAt])
+}
+
+model GuestOrderItem {
+  id           Int        @id @default(autoincrement())
+  guestOrderId Int
+  guestOrder   GuestOrder @relation(fields: [guestOrderId], references: [id], onDelete: Cascade)
+  /// MENU_ITEM | PRODUCT | SERVICE_ITEM | ROOM_TYPE
+  itemKind     String
+  itemId       Int?
+  nameSnapshot String
+  quantity     Int        @default(1)
+  unitPrice    Float      @default(0)
+  notes        String?
+
+  @@index([guestOrderId])
+}
+
+/// The central-desk -> branch conversation for retail/manufacturing orders.
+model GuestOrderRoute {
+  id           Int              @id @default(autoincrement())
+  guestOrderId Int
+  guestOrder   GuestOrder       @relation(fields: [guestOrderId], references: [id], onDelete: Cascade)
+  locationId   Int
+  location     Location         @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  status       String           @default("REQUESTED") // REQUESTED | ACCEPTED | DECLINED
+  note         String?
+  respondedById Int?
+  respondedAt  DateTime?
+  createdAt    DateTime         @default(now())
+
+  @@unique([guestOrderId, locationId])
+  @@index([locationId, status])
+}
+
+/// Append-only log of the review/route/accept conversation.
+model GuestOrderActivity {
+  id           Int        @id @default(autoincrement())
+  guestOrderId Int
+  guestOrder   GuestOrder @relation(fields: [guestOrderId], references: [id], onDelete: Cascade)
+  actorId      Int?
+  action       String
+  note         String?
+  createdAt    DateTime   @default(now())
+
+  @@index([guestOrderId, createdAt])
+}
+
+/// Block a phone from placing public orders for a business.
+model GuestBlocklist {
+  id        Int      @id @default(autoincrement())
+  tenantId  Int
+  organization Organization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  phone     String
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, phone])
 }
 
 // --- Recipe / bill-of-materials for menu items (ingredient costing) ---

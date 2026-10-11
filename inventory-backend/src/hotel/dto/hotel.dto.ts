@@ -16,12 +16,14 @@ export class CreateRoomTypeDto {
   @IsString() name!: string;
   @IsString() @IsOptional() description?: string;
   @IsNumber() @Type(() => Number) basePrice!: number;
+  @IsString() @IsOptional() imageUrl?: string | null;
 }
 
 export class UpdateRoomTypeDto {
   @IsString() @IsOptional() name?: string;
   @IsString() @IsOptional() description?: string;
   @IsNumber() @Type(() => Number) @IsOptional() basePrice?: number;
+  @IsString() @IsOptional() imageUrl?: string | null;
 }
 
 export class CreateRoomDto {

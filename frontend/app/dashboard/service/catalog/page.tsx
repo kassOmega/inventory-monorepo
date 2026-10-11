@@ -2,6 +2,7 @@
 
 import api from "@/lib/api";
 import Button from "@/app/components/Button";
+import CatalogImageInput from "@/app/components/CatalogImageInput";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -9,7 +10,7 @@ export default function ServiceCatalogPage() {
   const { t } = useTranslation();
   const [items, setItems] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
-  const [form, setForm] = useState({ name: "", price: "", durationMins: "30", categoryId: "" });
+  const [form, setForm] = useState({ name: "", price: "", durationMins: "30", categoryId: "", imageUrl: "" });
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
   const [savingCategory, setSavingCategory] = useState(false);
@@ -41,8 +42,9 @@ export default function ServiceCatalogPage() {
         price: Number(form.price) || 0,
         durationMins: Number(form.durationMins) || 30,
         categoryId: form.categoryId ? Number(form.categoryId) : null,
+        imageUrl: form.imageUrl || null,
       });
-      setForm({ name: "", price: "", durationMins: "30", categoryId: "" });
+      setForm({ name: "", price: "", durationMins: "30", categoryId: "", imageUrl: "" });
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("svc.cat.failedCreateItem"));
@@ -100,6 +102,7 @@ export default function ServiceCatalogPage() {
 
       <form onSubmit={create} className="bg-white p-4 rounded-lg border border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-3">
         <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t("svc.cat.namePh")} className="border border-gray-300 rounded p-2 text-sm" required />
+        <CatalogImageInput value={form.imageUrl} onChange={(f) => setForm((p) => ({ ...p, imageUrl: f ?? "" }))} label={t("catalog.image")} />
         <input value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder={t("svc.cat.pricePh")} type="number" min="0" className="border border-gray-300 rounded p-2 text-sm" />
         <input value={form.durationMins} onChange={(e) => setForm({ ...form, durationMins: e.target.value })} placeholder={t("svc.cat.durationPh")} type="number" min="5" className="border border-gray-300 rounded p-2 text-sm" />
         <select value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })} className="border border-gray-300 rounded p-2 text-sm">

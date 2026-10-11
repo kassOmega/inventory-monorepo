@@ -88,6 +88,7 @@ export class ServiceService {
           price: dto.price ?? 0,
           durationMins: dto.durationMins ?? 30,
           categoryId: dto.categoryId ?? null,
+          imageUrl: dto.imageUrl ?? null,
         },
       });
     } catch (err) {
@@ -105,6 +106,7 @@ export class ServiceService {
         price: dto.price,
         durationMins: dto.durationMins,
         categoryId: dto.categoryId ?? null,
+        ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl } : {}),
       },
     });
   }

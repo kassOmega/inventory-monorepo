@@ -240,6 +240,7 @@ export class ProductsService {
         tenantId,
         brand: dto.brand,
         baseName: dto.baseName,
+        imageUrl: dto.imageUrl ?? null,
         attributes: dto.attributes ?? {},
         currentBuyPrice: parentBuyPrice,
         currentSellPrice: parentSellPrice,
@@ -266,6 +267,7 @@ export class ProductsService {
           tenantId,
           sku: v.sku?.trim() || `${product.sku}-V${i + 1}`,
           barcode: v.barcode?.trim() || null,
+          imageUrl: v.imageUrl ?? null,
           attributes: v.attributes ?? {},
           buyPrice: v.buyPrice ?? null,
           sellPrice: v.sellPrice ?? null,
@@ -948,6 +950,7 @@ export class ProductsService {
     const data: any = {};
     if (dto.brand !== undefined) data.brand = dto.brand;
     if (dto.baseName !== undefined) data.baseName = dto.baseName;
+    if (dto.imageUrl !== undefined) data.imageUrl = dto.imageUrl;
     if (dto.attributes !== undefined) data.attributes = dto.attributes;
     if (dto.currentBuyPrice !== undefined) data.currentBuyPrice = dto.currentBuyPrice;
     if (dto.currentSellPrice !== undefined) data.currentSellPrice = dto.currentSellPrice;
@@ -1032,6 +1035,7 @@ export class ProductsService {
             data: {
               sku: v.sku?.trim() || undefined,
               barcode: v.barcode?.trim() || undefined,
+              imageUrl: v.imageUrl ?? undefined,
               attributes: v.attributes ?? undefined,
               buyPrice: v.buyPrice ?? undefined,
               sellPrice: v.sellPrice ?? undefined,
@@ -1064,6 +1068,7 @@ export class ProductsService {
               tenantId: getCurrentTenantId(),
               sku,
               barcode: v.barcode?.trim() || null,
+              imageUrl: v.imageUrl ?? null,
               attributes: v.attributes ?? {},
               buyPrice: v.buyPrice ?? null,
               sellPrice: v.sellPrice ?? null,

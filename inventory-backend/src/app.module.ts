@@ -48,6 +48,9 @@ import { SalesModule } from './sales/sales.module';
 import { ServiceModule } from './service/service.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { EmployeeDeductionsModule } from './employee-deductions/employee-deductions.module';
+import { GuestOrdersModule } from './guest-orders/guest-orders.module';
+import { PublicModule } from './public/public.module';
+import { UploadsModule } from './uploads/uploads.module';
 import { CarWashModule } from './carwash/carwash.module';
 import { UnitsModule } from './units/units.module';
 import { UsersModule } from './users/users.module';
@@ -100,6 +103,9 @@ import { FiscalModule } from './fiscal/fiscal.module';
     ServiceModule,
     SubscriptionsModule,
     EmployeeDeductionsModule,
+    GuestOrdersModule,
+    PublicModule,
+    UploadsModule,
     CarWashModule,
     ManufacturingModule,
     TaxesModule,

@@ -21,6 +21,10 @@ export class CreateProductVariantDto {
   barcode?: string;
 
   @IsOptional()
+  @IsString()
+  imageUrl?: string | null;
+
+  @IsOptional()
   @IsNumber()
   @Min(0.01)
   buyPrice?: number;
@@ -71,6 +75,10 @@ export class CreateProductDto {
 
   @IsString()
   baseName: string;
+
+  @IsOptional()
+  @IsString()
+  imageUrl?: string | null;
 
   @IsOptional()
   @IsObject()

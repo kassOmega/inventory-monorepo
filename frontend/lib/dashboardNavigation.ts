@@ -352,6 +352,17 @@ export function buildDashboardNav(ctx: NavBuildContext): DashboardNav {
         label: t("nav.staffDeductions"),
         permission: ["deductions.view", "deductions.manage"],
       },
+      // Public QR guest ordering: the inbox + the QR/public-link manager.
+      {
+        href: "/dashboard/guest-orders",
+        label: t("nav.guestOrders"),
+        permission: ["guest-orders.view", "guest-orders.manage"],
+      },
+      {
+        href: "/dashboard/qr-codes",
+        label: t("nav.qrCodes"),
+        permission: "qr.manage",
+      },
       // One shared reports page for every business; it renders the tab set for
       // the active business type (retail/manufacturing/hospitality/service/
       // car wash).

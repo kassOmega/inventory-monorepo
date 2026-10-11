@@ -3,6 +3,7 @@
 import api from "@/lib/api";
 import Button from "@/app/components/Button";
 import CheckInModal from "@/app/components/CheckInModal";
+import CatalogImageInput from "@/app/components/CatalogImageInput";
 import CheckoutModal from "@/app/components/CheckoutModal";
 import { useAuth } from "@/context/AuthContext";
 import { useConfirm } from "@/app/components/ConfirmProvider";
@@ -171,7 +172,7 @@ export default function HotelPage() {
 
   // --- Room type CRUD ---
   const openEditRoomType = (rt: any) =>
-    setRoomTypeModal({ id: rt.id, name: rt.name, description: rt.description ?? "", basePrice: String(rt.basePrice) });
+    setRoomTypeModal({ id: rt.id, name: rt.name, description: rt.description ?? "", basePrice: String(rt.basePrice), imageUrl: rt.imageUrl ?? null });
   const saveRoomType = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -180,6 +181,7 @@ export default function HotelPage() {
         name: roomTypeModal.name,
         description: roomTypeModal.description || undefined,
         basePrice: Number(roomTypeModal.basePrice),
+        imageUrl: roomTypeModal.imageUrl ?? null,
       });
       setRoomTypeModal(null);
       await load();
@@ -664,6 +666,11 @@ export default function HotelPage() {
                 placeholder={t("hotel.priceNight")}
                 className="border border-gray-300 rounded p-2 text-sm w-full"
                 required
+              />
+              <CatalogImageInput
+                value={roomTypeModal.imageUrl}
+                onChange={(f) => setRoomTypeModal({ ...roomTypeModal, imageUrl: f })}
+                label={t("catalog.image")}
               />
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setRoomTypeModal(null)} className="px-3 py-2 text-sm text-gray-600">

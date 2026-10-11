@@ -54,6 +54,7 @@ export class CreateMenuItemDto {
   @IsBoolean() @IsOptional() isAvailable?: boolean;
   // Treatment duration in minutes (spa / wellness service items). Optional.
   @IsInt() @IsOptional() durationMins?: number;
+  @IsString() @IsOptional() imageUrl?: string | null;
   // Optional per-item station-route override (ordered station ids).
   @IsArray() @IsInt({ each: true }) @IsOptional() stationRoute?: number[];
   @IsArray() @ValidateNested({ each: true }) @Type(() => CreateMenuItemOptionDto) @IsOptional() options?: CreateMenuItemOptionDto[];
@@ -76,6 +77,7 @@ export class UpdateMenuItemDto {
   @IsInt() @IsOptional() sortOrder?: number;
   // Treatment duration in minutes (spa / wellness service items). Optional.
   @IsInt() @IsOptional() durationMins?: number;
+  @IsString() @IsOptional() imageUrl?: string | null;
   // Optional per-item station-route override (ordered station ids).
   @IsArray() @IsInt({ each: true }) @IsOptional() stationRoute?: number[];
 }

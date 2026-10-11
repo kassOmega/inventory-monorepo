@@ -609,6 +609,7 @@ export class RestaurantService {
       name: dto.name,
       description: dto.description,
       price: dto.price,
+      imageUrl: dto.imageUrl ?? null,
       // Cost sync per tracking mode: BENCHMARK -> estimatedCogs, SIMPLE -> 0,
       // PERPETUAL -> manual fallback (recipe auto-cost takes over when set).
       cost:

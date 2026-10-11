@@ -40,6 +40,11 @@ export class CreateServiceItemDto {
   @IsOptional()
   @IsInt()
   categoryId?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  imageUrl?: string | null;
 }
 
 export class CreateServiceBookingDto {

@@ -105,3 +105,6 @@ export function createDocumentUploadOptions(subdir: string) {
 
 /** Guest ID scans live beside the KYC documents, in their own folder. */
 export const guestIdMulterOptions = createDocumentUploadOptions('guests');
+
+/** Catalogue images (product / variant / room type / service item / menu item). */
+export const catalogImageMulterOptions = createDocumentUploadOptions('catalog-images');

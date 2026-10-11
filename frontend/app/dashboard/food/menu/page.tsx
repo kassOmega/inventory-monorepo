@@ -3,6 +3,7 @@
 import api from "@/lib/api";
 import Button from "@/app/components/Button";
 import ClearableInput from "@/app/components/ClearableInput";
+import CatalogImageInput from "@/app/components/CatalogImageInput";
 import { useAuth } from "@/context/AuthContext";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useTranslation } from "react-i18next";
@@ -314,7 +315,7 @@ export default function FoodMenuPage() {
   };
 
   const openNewItem = () => {
-    setItemForm({ id: null, categoryId: selected?.id ?? null, name: "", description: "", price: "", cost: "", trackingMode: "SIMPLE", estimatedCogs: "", useCategoryRoute: true, route: [] });
+    setItemForm({ id: null, categoryId: selected?.id ?? null, name: "", description: "", price: "", cost: "", trackingMode: "SIMPLE", estimatedCogs: "", useCategoryRoute: true, route: [], imageUrl: null });
     setRecipeLines([]);
     setProductSearch("");
     setItemOpen(true);
@@ -334,6 +335,7 @@ export default function FoodMenuPage() {
       durationMins: it.durationMins != null ? String(it.durationMins) : "",
       useCategoryRoute: itemRoute.length === 0,
       route: itemRoute.map((r) => r.id),
+      imageUrl: it.imageUrl ?? null,
     });
     setRecipeLines([]);
     setProductSearch("");
@@ -372,6 +374,7 @@ export default function FoodMenuPage() {
       description: itemForm.description || undefined,
       price: Number(itemForm.price),
       trackingMode: itemForm.trackingMode || "SIMPLE",
+      imageUrl: itemForm.imageUrl ?? null,
     };
     if (itemForm.trackingMode === "BENCHMARK") {
       if (!(Number(itemForm.estimatedCogs) > 0)) {

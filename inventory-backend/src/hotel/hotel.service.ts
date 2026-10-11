@@ -130,6 +130,7 @@ export class HotelService {
         name: dto.name,
         description: dto.description,
         basePrice: dto.basePrice,
+        imageUrl: dto.imageUrl ?? null,
       },
     });
   }
@@ -146,6 +147,7 @@ export class HotelService {
         name: dto.name,
         description: dto.description,
         basePrice: dto.basePrice,
+        ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl } : {}),
       },
     });
   }
