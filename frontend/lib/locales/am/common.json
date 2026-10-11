@@ -2723,6 +2723,7 @@
     "noActiveTickets": "ንቁ ትኬቶች የሉም።",
     "activeTicketOne": "{{count}} ንቁ ትኬት",
     "activeTickets": "{{count}} ንቁ ትኬቶች",
+    "readyCount": "{{count}} ዝግጁ",
     "topSelling": "ከፍተኛ የሚሸጡ ሜኑ ዝርዝሮች",
     "noItemsSold": "በዚህ ክፍተት ውስጥ የተሸጡ ዕቃዎች የሉም።",
     "soldCount": "{{count}} ተሽጧል",

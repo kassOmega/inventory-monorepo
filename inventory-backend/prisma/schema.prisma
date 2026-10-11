@@ -1969,6 +1969,8 @@ model OrderItem {
   unitPrice       Float
   cost            Float           @default(0)
   status          OrderItemStatus @default(QUEUED)
+  preparingAt     DateTime? // when the item entered PREPARING at its current hop
+  readyAt         DateTime? // when the item became READY at its current hop
   // Snapshot of the station route at order time (ordered [{ id, name, key }]).
   stationRoute    Json            @default("[]")
   stationIndex    Int             @default(0)

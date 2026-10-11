@@ -1537,6 +1537,8 @@ export class RestaurantService {
         stationKey: next.key,
         stationName: next.name,
         status: OrderItemStatus.QUEUED,
+        preparingAt: null,
+        readyAt: null,
       },
     });
 
@@ -1628,9 +1630,20 @@ export class RestaurantService {
     if (!this.allowedItemStatusChange(item, status, user)) {
       throw new ForbiddenException(tr('errors.cannotChangeItemToThatStatus'));
     }
+    const data: {
+      status: OrderItemStatus;
+      preparingAt?: Date | null;
+      readyAt?: Date | null;
+    } = { status };
+    if (status === OrderItemStatus.PREPARING) {
+      data.preparingAt = new Date();
+      data.readyAt = null;
+    } else if (status === OrderItemStatus.READY) {
+      data.readyAt = new Date();
+    }
     await this.prisma.orderItem.update({
       where: { id: itemId },
-      data: { status },
+      data,
     });
 
     if (status === OrderItemStatus.READY) {

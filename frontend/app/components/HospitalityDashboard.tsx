@@ -101,6 +101,11 @@ export default function HospitalityDashboard() {
                         ? t("hdb.activeTicketOne", { count: s.active })
                         : t("hdb.activeTickets", { count: s.active })}
                     </p>
+                    {s.ready > 0 && (
+                      <p className="text-xs text-gray-400">
+                        {t("hdb.readyCount", { count: s.ready })}
+                      </p>
+                    )}
                   </div>
                   <span className="text-sm font-semibold text-blue-700">
                     {s.avgPrepTimeMin > 0

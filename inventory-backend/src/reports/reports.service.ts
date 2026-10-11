@@ -1088,19 +1088,36 @@ export class ReportsService {
       include: { items: true, table: true, history: { orderBy: { createdAt: 'asc' } } },
     });
 
-    const stationMap = new Map<string, { active: number; prepDurations: number[] }>();
+    // Per-item station breakdown: one row per current station, counting item
+    // lines (not quantities) that are actively being worked or ready, and
+    // averaging the real per-item prep time from preparingAt -> readyAt (or now).
+    const stationMap = new Map<
+      string,
+      { active: number; ready: number; prepDurations: number[] }
+    >();
+    const prepNow = new Date();
     for (const o of liveOrders) {
-      const stages = this.orderStationStages(o.history ?? [], this.orderStationRoute(o));
-      for (const stage of stages) {
-        const entry = stationMap.get(stage.station) ?? { active: 0, prepDurations: [] };
-        entry.prepDurations.push(stage.durationMin);
-        stationMap.set(stage.station, entry);
-      }
+      if (o.status === 'SERVED') continue;
       for (const it of o.items ?? []) {
         if (it.status === 'SERVED') continue;
         const label = it.stationName ?? it.stationKey ?? 'Unassigned';
-        const entry = stationMap.get(label) ?? { active: 0, prepDurations: [] };
-        entry.active += it.quantity;
+        const entry = stationMap.get(label) ?? {
+          active: 0,
+          ready: 0,
+          prepDurations: [],
+        };
+        if (it.status === 'QUEUED' || it.status === 'PREPARING') {
+          entry.active += 1;
+        } else if (it.status === 'READY') {
+          entry.ready += 1;
+        }
+        if (it.preparingAt) {
+          const startedAt = new Date(it.preparingAt);
+          const readyAt = it.readyAt ? new Date(it.readyAt) : prepNow;
+          entry.prepDurations.push(
+            (readyAt.getTime() - startedAt.getTime()) / 60000,
+          );
+        }
         stationMap.set(label, entry);
       }
     }
@@ -1144,6 +1161,7 @@ export class ReportsService {
       stationBreakdown: Array.from(stationMap.entries()).map(([station, d]) => ({
         station,
         active: d.active,
+        ready: d.ready,
         avgPrepTimeMin: d.prepDurations.length
           ? Math.round(d.prepDurations.reduce((s, x) => s + x, 0) / d.prepDurations.length)
           : 0,

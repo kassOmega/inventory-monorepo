@@ -2723,6 +2723,7 @@
     "noActiveTickets": "No active tickets.",
     "activeTicketOne": "{{count}} active ticket",
     "activeTickets": "{{count}} active tickets",
+    "readyCount": "{{count}} ready",
     "topSelling": "Top Selling Menu Items",
     "noItemsSold": "No items sold in this range.",
     "soldCount": "{{count}} sold",
