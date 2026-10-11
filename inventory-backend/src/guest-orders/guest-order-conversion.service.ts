@@ -13,6 +13,7 @@ import { SalesService } from '../sales/sales.service';
 import { HotelService } from '../hotel/hotel.service';
 import { ServiceService } from '../service/service.service';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
+import { tr } from '../i18n/i18n.service';
 import type { GuestOrder } from '@prisma/client';
 
 @Injectable()
@@ -37,6 +38,7 @@ export class GuestOrderConversionService {
       paymentMethodId?: number;
       saleType?: string;
       paidAmount?: number;
+      customerId?: number;
     } = {},
   ): Promise<{ kind: string; id: number }> {
     // The item kinds tell us the internal target.
@@ -74,6 +76,7 @@ export class GuestOrderConversionService {
       paymentMethodId?: number;
       saleType?: string;
       paidAmount?: number;
+      customerId?: number;
     } = {},
   ) {
     const shopId =
@@ -82,17 +85,26 @@ export class GuestOrderConversionService {
     if (!shopId) throw new BadRequestException('Assign a branch before converting');
     const saleType = (opts.saleType ?? 'FULLY_PAID') as any;
 
-    // Credit/partial sales need a customer. Resolve the one linked at submit, or
-    // create a minimal customer from the captured name/phone so the sale can be
-    // registered the same way a staff-entered credit sale would be.
-    let customerId: number | null = order.customerId ?? null;
-    if (
-      (saleType === 'PARTIALLY_PAID' || saleType === 'CREDITED') &&
-      !customerId
-    ) {
-      customerId = await this.ensureCustomer(order);
+    // Credit/partial sales need a customer who may take credit. The caller may
+    // pass an already-validated id; otherwise resolve/create it here.
+    let customerId: number | null = opts.customerId ?? order.customerId ?? null;
+    if (saleType === 'PARTIALLY_PAID' || saleType === 'CREDITED') {
       if (!customerId) {
-        throw new BadRequestException('Customer is required for credit/partial sales');
+        const customer = await this.ensureCreditCustomer(order);
+        if (!customer) {
+          throw new BadRequestException('Customer is required for credit/partial sales');
+        }
+        customerId = customer.id;
+      } else {
+        // Re-check the credit gate even when the id came from the order.
+        const customer = await this.prisma.customer.findFirst({
+          where: { id: customerId },
+          select: { id: true, name: true, canTakeCredit: true },
+        });
+        if (!customer) throw new BadRequestException(tr('errors.customerNotFound'));
+        if (!customer.canTakeCredit) {
+          throw new BadRequestException(tr('errors.customerCreditBlocked', { name: customer.name }));
+        }
       }
     }
 
@@ -122,26 +134,55 @@ export class GuestOrderConversionService {
     return { kind: 'SALE', id: created.id };
   }
 
-  /** Resolve (or create) a customer for credit/partial guest sales. */
-  private async ensureCustomer(order: any): Promise<number | null> {
+  /**
+   * Resolve (or create) the customer for a credit/partial guest sale and verify
+   * they are allowed to take credit. Returns null only when the order has no
+   * customer info at all (caller then rejects credit/partial).
+   */
+  async ensureCreditCustomer(
+    order: any,
+  ): Promise<{ id: number; name: string; phone: string | null; canTakeCredit: boolean } | null> {
     const name = (order.customerName ?? '').trim();
     const phone = (order.customerPhone ?? '').trim();
-    if (!name && !phone) return null;
-    if (phone) {
-      const existing = await this.prisma.customer.findFirst({
-        where: { organizationId: order.tenantId, phone },
-        select: { id: true },
+
+    let customer:
+      | { id: number; name: string; phone: string | null; canTakeCredit: boolean }
+      | null = null;
+    if (order.customerId) {
+      customer = await this.prisma.customer.findFirst({
+        where: { id: order.customerId },
+        select: { id: true, name: true, phone: true, canTakeCredit: true },
       });
-      if (existing) return existing.id;
+    } else if (phone) {
+      customer = await this.prisma.customer.findFirst({
+        where: { organizationId: order.tenantId, phone },
+        select: { id: true, name: true, phone: true, canTakeCredit: true },
+      });
     }
-    const created = await this.prisma.customer.create({
-      data: {
-        organizationId: order.tenantId,
-        name: name || 'Walk-in guest',
-        phone: phone || null,
-      },
-    });
-    return created.id;
+
+    if (!customer) {
+      if (!name && !phone) return null;
+      const created = await this.prisma.customer.create({
+        data: {
+          organizationId: order.tenantId,
+          name: name || 'Walk-in guest',
+          phone: phone || null,
+        },
+      });
+      customer = {
+        id: created.id,
+        name: created.name,
+        phone: created.phone,
+        canTakeCredit: created.canTakeCredit,
+      };
+    }
+
+    if (!customer.canTakeCredit) {
+      throw new BadRequestException(
+        tr('errors.customerCreditBlocked', { name: customer.name }),
+      );
+    }
+    return customer;
   }
 
   private async toReservation(order: any, actor: JwtPayload) {

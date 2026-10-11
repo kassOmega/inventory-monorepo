@@ -151,6 +151,19 @@ export default function PriceListModal({ isOpen, onClose }: PriceListModalProps)
         setAddress("");
         setPhone("");
       });
+    // Business-info visibility for the document header is a business setting;
+    // default to the configured value while keeping the per-generation checkbox.
+    if (activeMembership?.organizationId) {
+      api
+        .get(`/tenants/${activeMembership.organizationId}`)
+        .then((res) => {
+          const settings = res.data?.settings ?? {};
+          if (settings.showPriceListBusinessInfo !== undefined) {
+            setIncludeHeader(settings.showPriceListBusinessInfo !== false);
+          }
+        })
+        .catch(markHandled);
+    }
     // The user's own contact number for the header's "Contact" line. The
     // session copy above can lag behind the profile page, so this refresh is
     // best effort: on failure the seeded value simply stays.

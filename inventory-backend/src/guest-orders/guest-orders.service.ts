@@ -176,6 +176,22 @@ export class GuestOrdersService {
       data: { status: 'ROUTED' },
     });
     await this.log(id, 'ROUTED', note ?? `Sent to ${locationIds.length} branch(es)`, actor.sub);
+
+    // Notify each asked branch so it appears in their inbox/bell immediately.
+    for (const locationId of locationIds) {
+      await this.notifications
+        .notifyLocation(
+          'New guest order',
+          `Order #${id} was routed to your branch`,
+          locationId,
+          {
+            link: '/dashboard/guest-orders',
+            dedupeKey: `GUEST_ORDER_ROUTED:${id}:${locationId}`,
+            type: 'GUEST_ORDER',
+          },
+        )
+        .catch(() => {});
+    }
     return updated;
   }
 
@@ -197,6 +213,20 @@ export class GuestOrdersService {
       where: { guestOrderId_locationId: { guestOrderId: orderId, locationId } },
     });
     if (!route) throw new NotFoundException('This branch was not asked');
+    if (route.status !== 'REQUESTED') {
+      throw new BadRequestException('This branch already responded');
+    }
+
+    // Single acceptance: once any branch accepted, freeze the whole routed
+    // conversation (accept AND decline) until the central desk assigns/drops.
+    const acceptedElsewhere = await this.prisma.guestOrderRoute.findFirst({
+      where: { guestOrderId: orderId, status: 'ACCEPTED' },
+      select: { id: true },
+    });
+    if (acceptedElsewhere) {
+      throw new BadRequestException('This order is already accepted by another branch');
+    }
+
     await this.prisma.guestOrderRoute.update({
       where: { id: route.id },
       data: { status: reply, note: note ?? null, respondedById: actor.sub, respondedAt: new Date() },
@@ -207,6 +237,25 @@ export class GuestOrdersService {
       // accept just records willingness.
       await this.log(orderId, 'BRANCH_ACCEPTED_PENDING_ASSIGN', null, actor.sub);
     }
+
+    // Notify the central desk of the branch's reply.
+    const branchName =
+      (await this.prisma.location.findUnique({
+        where: { id: locationId },
+        select: { name: true },
+      }))?.name ?? `#${locationId}`;
+    await this.notifications
+      .notifyOwner(
+        'Guest order update',
+        `Branch ${branchName} ${reply === 'ACCEPTED' ? 'accepted' : 'declined'} order #${orderId}`,
+        {
+          link: '/dashboard/guest-orders',
+          dedupeKey: `GUEST_ORDER_BRANCH_REPLY:${orderId}:${locationId}`,
+          type: 'GUEST_ORDER',
+        },
+      )
+      .catch(() => {});
+
     return this.get(orderId, actor);
   }
 
@@ -235,6 +284,17 @@ export class GuestOrdersService {
     const saleType = input.saleType ?? 'FULLY_PAID';
     this.assertSaleInput(saleType, input.paymentMethodId, input.paidAmount);
 
+    // Credit/partial sales: resolve the customer and check the credit gate up
+    // front so the operator gets a clear error before any sale is attempted.
+    let customerId: number | undefined;
+    if (saleType === 'PARTIALLY_PAID' || saleType === 'CREDITED') {
+      const customer = await this.conversion.ensureCreditCustomer(order as any);
+      if (!customer) {
+        throw new BadRequestException('Customer is required for credit/partial sales');
+      }
+      customerId = customer.id;
+    }
+
     await this.prisma.guestOrder.update({ where: { id }, data: { status: 'ACCEPTED' } });
     await this.log(id, 'ASSIGNED', `Assigned to branch #${locationId}`, actor.sub);
     try {
@@ -243,11 +303,26 @@ export class GuestOrdersService {
         paymentMethodId: input.paymentMethodId,
         saleType,
         paidAmount: input.paidAmount,
+        customerId,
       });
     } catch (err) {
       await this.log(id, 'CONVERT_FAILED', (err as Error).message, actor.sub);
       throw err;
     }
+
+    await this.notifications
+      .notifyLocation(
+        'Guest order accepted',
+        `Order #${id} was assigned to your branch`,
+        locationId,
+        {
+          link: '/dashboard/guest-orders',
+          dedupeKey: `GUEST_ORDER_ASSIGNED:${id}:${locationId}`,
+          type: 'GUEST_ORDER',
+        },
+      )
+      .catch(() => {});
+
     return this.get(id, actor);
   }
 
@@ -285,13 +360,39 @@ export class GuestOrdersService {
     const saleType = input.saleType ?? 'FULLY_PAID';
     this.assertSaleInput(saleType, input.paymentMethodId, input.paidAmount);
 
+    // Credit/partial sales: resolve the customer and check the credit gate up
+    // front so the operator gets a clear error before any sale is attempted.
+    let customerId: number | undefined;
+    if (saleType === 'PARTIALLY_PAID' || saleType === 'CREDITED') {
+      const customer = await this.conversion.ensureCreditCustomer(order as any);
+      if (!customer) {
+        throw new BadRequestException('Customer is required for credit/partial sales');
+      }
+      customerId = customer.id;
+    }
+
     await this.conversion.convert(order as any, actor, {
       locationId: branchId,
       paymentMethodId: input.paymentMethodId,
       saleType,
       paidAmount: input.paidAmount,
+      customerId,
     });
     await this.log(id, 'SALE_CREATED', `Sale registered at ${loc.name}`, actor.sub);
+
+    await this.notifications
+      .notifyLocation(
+        'Guest order accepted',
+        `Order #${id} was registered as a sale at your branch`,
+        branchId,
+        {
+          link: '/dashboard/guest-orders',
+          dedupeKey: `GUEST_ORDER_SALE:${id}:${branchId}`,
+          type: 'GUEST_ORDER',
+        },
+      )
+      .catch(() => {});
+
     return this.get(id, actor);
   }
 

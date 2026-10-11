@@ -25,6 +25,12 @@ export default function BusinessSettingsPage() {
     defaultExcessSettlementMode: "FLEXIBLE",
   });
   const [policySaving, setPolicySaving] = useState(false);
+  const [publicConfig, setPublicConfig] = useState({
+    showPublicPrices: true,
+    showPublicBusinessInfo: true,
+    showPriceListBusinessInfo: true,
+  });
+  const [publicSaving, setPublicSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
@@ -52,6 +58,14 @@ export default function BusinessSettingsPage() {
           )
             ? settings.defaultExcessSettlementMode
             : "FLEXIBLE",
+      });
+      const businessType = o.data?.businessType ?? "RETAIL";
+      setPublicConfig({
+        showPublicPrices:
+          settings.showPublicPrices ?? businessType !== "RETAIL",
+        showPublicBusinessInfo: settings.showPublicBusinessInfo ?? true,
+        showPriceListBusinessInfo:
+          settings.showPriceListBusinessInfo ?? true,
       });
     } catch (e: any) {
       setError(e?.response?.data?.message ?? t("biz.set.loadFail"));
@@ -84,6 +98,30 @@ export default function BusinessSettingsPage() {
       setError(e?.response?.data?.message ?? t("biz.set.savePolicyFail"));
     } finally {
       setPolicySaving(false);
+    }
+  };
+
+  const savePublicConfig = async (next: any) => {
+    if (!orgId) return;
+    setPublicSaving(true);
+    setError("");
+    const prev = publicConfig;
+    setPublicConfig(next);
+    try {
+      const org = await api.get(`/tenants/${orgId}`);
+      await api.patch(`/tenants/${orgId}/settings`, {
+        settings: {
+          ...(org.data?.settings ?? {}),
+          showPublicPrices: next.showPublicPrices,
+          showPublicBusinessInfo: next.showPublicBusinessInfo,
+          showPriceListBusinessInfo: next.showPriceListBusinessInfo,
+        },
+      });
+    } catch (e: any) {
+      setPublicConfig(prev);
+      setError(e?.response?.data?.message ?? t("biz.set.savePolicyFail"));
+    } finally {
+      setPublicSaving(false);
     }
   };
 
@@ -243,6 +281,61 @@ export default function BusinessSettingsPage() {
             )}
           </ul>
         )}
+      </div>
+
+      {/* --- Public ordering & price-list visibility --- */}
+      <div className="bg-white p-4 rounded-lg border border-gray-200">
+        <div className="mb-4">
+          <h2 className="font-semibold text-gray-800">{t("biz.set.publicTitle")}</h2>
+          <p className="text-xs text-gray-400 mt-0.5">{t("biz.set.publicHint")}</p>
+        </div>
+        <div className="space-y-3">
+          {[
+            {
+              key: "showPublicPrices",
+              label: t("biz.set.showPublicPrices"),
+              hint: t("biz.set.showPublicPricesHint"),
+            },
+            {
+              key: "showPublicBusinessInfo",
+              label: t("biz.set.showPublicBusinessInfo"),
+              hint: t("biz.set.showPublicBusinessInfoHint"),
+            },
+            {
+              key: "showPriceListBusinessInfo",
+              label: t("biz.set.showPriceListBusinessInfo"),
+              hint: t("biz.set.showPriceListBusinessInfoHint"),
+            },
+          ].map((row) => (
+            <label key={row.key} className="flex items-start justify-between gap-3 py-2 border-b border-gray-100">
+              <div>
+                <p className="text-sm font-medium text-gray-800">{row.label}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{row.hint}</p>
+              </div>
+              <button
+                role="switch"
+                aria-checked={(publicConfig as any)[row.key]}
+                disabled={publicSaving}
+                onClick={() =>
+                  savePublicConfig({
+                    ...publicConfig,
+                    [row.key]: !(publicConfig as any)[row.key],
+                  })
+                }
+                className={`relative w-12 h-7 rounded-full transition shrink-0 disabled:opacity-60 ${
+                  (publicConfig as any)[row.key] ? "bg-green-500" : "bg-gray-300"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${
+                    (publicConfig as any)[row.key] ? "left-[22px]" : "left-0.5"
+                  }`}
+                />
+              </button>
+            </label>
+          ))}
+        </div>
+        {publicSaving && <p className="text-xs text-gray-400 mt-2">{t("common.saving")}</p>}
       </div>
 
       {/* --- Hospitality Packages & Guest Folio Policy --- */}

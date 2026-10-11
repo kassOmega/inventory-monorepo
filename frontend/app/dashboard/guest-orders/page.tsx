@@ -10,7 +10,10 @@ import Modal from "@/app/components/Modal";
 import SearchableSelect from "@/app/components/SearchableSelect";
 import { useToast } from "@/app/components/ToastProvider";
 import { useAuth } from "@/context/AuthContext";
-import { formatDateTime } from "@/lib/datetime";
+import { formatDate, formatDateTime } from "@/lib/datetime";
+import { fmtCurrency } from "@/lib/currency";
+import { canShareFiles, shareFile } from "@/lib/shareFile";
+import { buildPriceListPdf, priceListFileName } from "@/lib/priceListPdf";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -35,7 +38,7 @@ const SALE_TYPE_STATUS_KEY: Record<string, string> = {
 export default function GuestOrdersPage() {
   const { t } = useTranslation();
   const toast = useToast();
-  const { user, hasPermission } = useAuth();
+  const { user, activeMembership, hasPermission } = useAuth();
   const canManage = hasPermission("guest-orders.manage");
   const isCentral = !user?.locationId;
 
@@ -53,6 +56,12 @@ export default function GuestOrdersPage() {
   const [saleMethod, setSaleMethod] = useState("");
   const [saleType, setSaleType] = useState<string>("FULLY_PAID");
   const [paidAmount, setPaidAmount] = useState("");
+  // "Share prices" (ordered items) state.
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareHeader, setShareHeader] = useState(true);
+  const [shareAddress, setShareAddress] = useState("");
+  const [sharePhone, setSharePhone] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -125,6 +134,83 @@ export default function GuestOrdersPage() {
       toast.error(e?.response?.data?.message ?? "Action failed");
     } finally {
       setBusy(false);
+    }
+  };
+
+  /** Ordered items as price-list rows (unit price, like the products list). */
+  const shareRowsFor = (d: any) =>
+    (d?.items ?? []).map((it: any) => ({
+      item: it.nameSnapshot,
+      price: fmtCurrency(it.unitPrice, 2, "en"),
+    }));
+
+  /** Open the price-share modal, loading the business-info visibility config. */
+  const openShare = async () => {
+    setShareBusy(true);
+    try {
+      const orgId = activeMembership?.organizationId;
+      if (orgId) {
+        const [org, fiscal] = await Promise.all([
+          api.get(`/tenants/${orgId}`).catch(() => ({ data: { settings: {} } })),
+          api.get("/fiscal/config").catch(() => ({ data: {} })),
+        ]);
+        const settings = org.data?.settings ?? {};
+        setShareHeader(settings.showPriceListBusinessInfo !== false);
+        setShareAddress(String(fiscal.data?.address ?? "").trim());
+        setSharePhone(String(fiscal.data?.phone ?? "").trim());
+      }
+    } catch {
+      // best effort — keep the default header-on behavior
+    } finally {
+      setShareBusy(false);
+    }
+    setShareOpen(true);
+  };
+
+  /** Build + download/share the ordered-items price list. */
+  const doSharePrices = async (action: "download" | "share") => {
+    const rows = shareRowsFor(detail);
+    if (rows.length === 0) return;
+    setShareBusy(true);
+    try {
+      const headerLines = shareHeader
+        ? [
+            activeMembership?.organizationName ?? "",
+            shareAddress,
+            sharePhone
+              ? `${t("products.priceList.phoneLabel")}: ${sharePhone}`
+              : "",
+          ]
+        : [];
+      const opts = {
+        rows,
+        title: t("products.priceList.docTitle"),
+        generatedOnLabel: t("products.priceList.generatedOn", {
+          date: formatDate(new Date().toISOString(), "en"),
+        }),
+        labels: {
+          item: t("products.priceList.item"),
+          price: t("products.priceList.price"),
+          footer: t("products.priceList.footer"),
+        },
+        headerLines,
+      };
+      if (action === "share") {
+        const doc = await buildPriceListPdf(opts);
+        const file = new File([doc.output("blob")], priceListFileName(), {
+          type: "application/pdf",
+        });
+        const outcome = await shareFile(file, t("products.priceList.docTitle"));
+        if (outcome === "shared") toast.success(t("products.priceList.shared"));
+      } else {
+        await buildPriceListPdf({ ...opts, fileName: priceListFileName() });
+        toast.success(t("products.priceList.downloaded"));
+      }
+      setShareOpen(false);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Share failed");
+    } finally {
+      setShareBusy(false);
     }
   };
 
@@ -266,6 +352,10 @@ export default function GuestOrdersPage() {
         {detail && (
           <div className="space-y-3 text-sm">
             <p className="text-xs text-gray-500">{formatDateTime(detail.createdAt)}</p>
+            <p className="text-sm text-gray-700">
+              {t("guestOrders.customer")}: {detail.customerName ?? "—"}
+              {detail.customerPhone ? ` · ${detail.customerPhone}` : ""}
+            </p>
             <ul className="divide-y divide-gray-100 border rounded-lg">
               {detail.items?.map((it: any) => (
                 <li key={it.id} className="flex justify-between px-3 py-2">
@@ -356,13 +446,22 @@ export default function GuestOrdersPage() {
             {/* Accept & review (the go-live gate) + central routing. */}
             {canManage && ["SUBMITTED", "REVIEWED"].includes(detail.status) && (
               <div className="space-y-2 pt-2 border-t">
-                <Button
-                  loading={busy}
-                  className="w-full"
-                  onClick={() => act(() => api.post(`/guest-orders/${detail.id}/review`))}
-                >
-                  {t("guestOrders.acceptReview")}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    loading={busy}
+                    className="flex-1"
+                    onClick={() => act(() => api.post(`/guest-orders/${detail.id}/review`))}
+                  >
+                    {t("guestOrders.acceptReview")}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={shareRowsFor(detail).length === 0}
+                    onClick={openShare}
+                  >
+                    {t("guestOrders.sharePrices")}
+                  </Button>
+                </div>
                 {isCentral && hasProducts(detail) && locations.length > 0 && (
                   <div>
                     <p className="text-xs text-gray-500 mb-1">{t("guestOrders.routeTo")}</p>
@@ -498,6 +597,45 @@ export default function GuestOrdersPage() {
             )}
           </div>
         )}
+      </Modal>
+
+      {/* Share ordered items as a customer-facing price list. */}
+      <Modal
+        isOpen={shareOpen}
+        onClose={() => setShareOpen(false)}
+        title={t("products.priceList.modalTitle")}
+        size="sm"
+      >
+        <div className="space-y-3 text-sm">
+          <ul className="divide-y divide-gray-100 border rounded-lg max-h-60 overflow-y-auto">
+            {shareRowsFor(detail).map((r: any, i: number) => (
+              <li key={i} className="flex justify-between px-3 py-2">
+                <span>{r.item}</span>
+                <span className="text-gray-500">{r.price}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="flex flex-wrap justify-end gap-2">
+            {canShareFiles() && (
+              <button
+                type="button"
+                onClick={() => doSharePrices("share")}
+                disabled={shareBusy}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+              >
+                {t("products.shareLabel")}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => doSharePrices("download")}
+              disabled={shareBusy}
+              className="border border-blue-600 text-blue-600 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+            >
+              {t("products.priceList.generatePdf")}
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

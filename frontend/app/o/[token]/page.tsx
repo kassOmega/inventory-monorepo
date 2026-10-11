@@ -27,6 +27,10 @@ interface EntryView {
   state: "LIVE" | "HELD" | "DROPPED";
   tableName: string | null;
   requiresProfile: boolean;
+  showPrices: boolean;
+  showBusinessInfo: boolean;
+  businessAddress: string | null;
+  businessPhone: string | null;
   items: PublicItem[];
   services: Array<{ key: string; label: string; items: PublicItem[] }>;
 }
@@ -219,11 +223,20 @@ export default function PublicOrderPage() {
   return (
     <div className="min-h-screen bg-gray-100 pb-32">
       <header className="bg-white border-b px-4 py-3 sticky top-0 z-10">
-        <p className="font-semibold text-gray-800">{entry?.businessName}</p>
-        <p className="text-xs text-gray-400">
-          {t("public.orderHere")}
-          {entry?.label ? ` · ${entry.label}` : ""}
-        </p>
+        {entry?.showBusinessInfo ? (
+          <>
+            <p className="font-semibold text-gray-800">{entry?.businessName}</p>
+            {entry?.businessAddress && (
+              <p className="text-xs text-gray-500">{entry.businessAddress}</p>
+            )}
+            {entry?.businessPhone && (
+              <p className="text-xs text-gray-500">{entry.businessPhone}</p>
+            )}
+          </>
+        ) : (
+          <p className="font-semibold text-gray-800">{t("public.orderHere")}</p>
+        )}
+        {entry?.label && <p className="text-xs text-gray-400">{entry.label}</p>}
       </header>
 
       {error && (
@@ -276,6 +289,7 @@ export default function PublicOrderPage() {
             add={add}
             sub={sub}
             t={t}
+            showPrices={entry?.showPrices ?? false}
           />
         ))}
         {visibleItems.length === 0 && (
@@ -334,16 +348,20 @@ export default function PublicOrderPage() {
                   <span className="min-w-0 truncate">
                     {l.item!.name} <span className="text-gray-400">× {l.qty}</span>
                   </span>
-                  <span className="font-medium whitespace-nowrap">
-                    {(l.item!.price * l.qty).toLocaleString()}
-                  </span>
+                  {entry?.showPrices && (
+                    <span className="font-medium whitespace-nowrap">
+                      {(l.item!.price * l.qty).toLocaleString()}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-semibold text-gray-800">
-                {t("public.total")}: {total.toLocaleString()}
-              </span>
+              {entry?.showPrices && (
+                <span className="text-sm font-semibold text-gray-800">
+                  {t("public.total")}: {total.toLocaleString()}
+                </span>
+              )}
               <Button loading={submitting} onClick={requestSubmit} className="!px-5">
                 {t("public.placeOrder")}
               </Button>
@@ -362,12 +380,14 @@ function ItemCard({
   add,
   sub,
   t,
+  showPrices,
 }: {
   item: PublicItem;
   cart: Cart;
   add: (ref: string) => void;
   sub: (ref: string) => void;
   t: (k: string, o?: Record<string, unknown>) => string;
+  showPrices: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const hasVariants = (item.variants?.length ?? 0) > 0;
@@ -402,15 +422,17 @@ function ItemCard({
           {item.description && (
             <p className="text-xs text-gray-400 line-clamp-2">{item.description}</p>
           )}
-          <p className="text-sm text-gray-700 mt-0.5">
-            {hasVariants ? `${t("public.from")} ` : ""}
-            {item.price.toLocaleString()}
-            {item.meta?.availableCount != null && (
-              <span className="ml-2 text-[11px] text-emerald-600">
-                {t("public.roomsFree", { count: item.meta.availableCount as number })}
-              </span>
-            )}
-          </p>
+          {showPrices && (
+            <p className="text-sm text-gray-700 mt-0.5">
+              {hasVariants ? `${t("public.from")} ` : ""}
+              {item.price.toLocaleString()}
+              {item.meta?.availableCount != null && (
+                <span className="ml-2 text-[11px] text-emerald-600">
+                  {t("public.roomsFree", { count: item.meta.availableCount as number })}
+                </span>
+              )}
+            </p>
+          )}
         </div>
         {hasVariants ? (
           <button
@@ -430,7 +452,7 @@ function ItemCard({
             <li key={v.ref} className="flex items-center gap-2 py-2">
               <Thumb src={v.image} />
               <span className="min-w-0 flex-1 text-sm text-gray-700 truncate">{v.name}</span>
-              <span className="text-sm text-gray-600">{v.price.toLocaleString()}</span>
+              {showPrices && <span className="text-sm text-gray-600">{v.price.toLocaleString()}</span>}
               <Qty ref={v.ref} />
             </li>
           ))}

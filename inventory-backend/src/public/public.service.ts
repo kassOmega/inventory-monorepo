@@ -40,6 +40,13 @@ export interface PublicEntryView {
   tableName: string | null;
   /** True when the guest must fill name/phone (false for F&B on a table). */
   requiresProfile: boolean;
+  /** Business-configurable: show prices on the public page. */
+  showPrices: boolean;
+  /** Business-configurable: show business name/address/phone on the public page. */
+  showBusinessInfo: boolean;
+  /** Business contact lines for the public header (whitelisted, best effort). */
+  businessAddress: string | null;
+  businessPhone: string | null;
   items: PublicItem[];
   /**
    * Multi-service hospitality: the catalog grouped per enabled service so the
@@ -69,8 +76,25 @@ export class PublicService {
     const entry = await this.resolveEntry(token);
     const business = await this.prisma.organization.findUnique({
       where: { id: entry.tenantId },
-      select: { name: true, businessType: true, enabledHospitalityServices: true },
+      select: {
+        name: true,
+        businessType: true,
+        enabledHospitalityServices: true,
+        settings: true,
+      },
     });
+    const fiscal = await this.prisma.tenantFiscalConfig.findUnique({
+      where: { tenantId: entry.tenantId },
+      select: { address: true, phone: true },
+    });
+
+    const businessType = business?.businessType ?? 'RETAIL';
+    const settings = (business?.settings ?? {}) as Record<string, unknown>;
+    const showPrices =
+      (settings.showPublicPrices as boolean | undefined) ??
+      businessType !== 'RETAIL';
+    const showBusinessInfo =
+      (settings.showPublicBusinessInfo as boolean | undefined) ?? true;
 
     const state = this.effectiveState(entry);
     // F&B on a table identifies the guest by the table number (typed on the
@@ -86,12 +110,15 @@ export class PublicService {
         state,
         tableName: entry.table?.name ?? null,
         requiresProfile,
+        showPrices,
+        showBusinessInfo,
+        businessAddress: fiscal?.address ?? null,
+        businessPhone: fiscal?.phone ?? null,
         items: [],
         services: [],
       };
     }
 
-    const businessType = business?.businessType ?? 'RETAIL';
     const enabled = business?.enabledHospitalityServices ?? [];
     const all = await this.catalog(entry);
     // Multi-service hospitality shows tabs; everyone else a flat catalog.
@@ -107,6 +134,10 @@ export class PublicService {
       state,
       tableName: entry.table?.name ?? null,
       requiresProfile,
+      showPrices,
+      showBusinessInfo,
+      businessAddress: fiscal?.address ?? null,
+      businessPhone: fiscal?.phone ?? null,
       items: services.length ? [] : all,
       services,
     };

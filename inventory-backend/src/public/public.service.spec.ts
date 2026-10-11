@@ -28,6 +28,7 @@ function makeService(opts: {
     organization: {
       findUnique: jest.fn(() => Promise.resolve({ name: 'Biz', businessType: 'RETAIL', enabledHospitalityServices: [] })),
     },
+    tenantFiscalConfig: { findUnique: jest.fn(() => Promise.resolve(null)) },
     publicEntryItem: { findMany: jest.fn(() => Promise.resolve(opts.items ?? [])) },
     product: {
       findFirst: jest.fn(() => Promise.resolve(opts.product ?? { id: 483, brand: 'A', baseName: 'B', currentSellPrice: 12 })),
