@@ -4689,7 +4689,11 @@
     "branchReplies": "Branch replies",
     "assignTo": "Assign to {{branch}}",
     "reject": "Reject",
-    "free": "Free table",
+    "accept": "Accept",
+    "decline": "Decline",
+    "saleType": "Sale type",
+    "addAsSale": "Add as sale",
+    "saleLinked": "Sale",
     "status": {
       "SUBMITTED": "New",
       "REVIEWED": "Reviewed",

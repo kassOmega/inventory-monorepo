@@ -32,12 +32,17 @@ export class GuestOrderConversionService {
   async convert(
     order: GuestOrder & { items: Array<{ itemKind: string; itemId: number | null; quantity: number; notes: string | null }> },
     actor: JwtPayload,
-    opts: { locationId?: number } = {},
+    opts: {
+      locationId?: number;
+      paymentMethodId?: number;
+      saleType?: string;
+      paidAmount?: number;
+    } = {},
   ): Promise<{ kind: string; id: number }> {
     // The item kinds tell us the internal target.
     const kinds = new Set(order.items.map((i) => i.itemKind));
     if (kinds.has('MENU_ITEM')) return this.toOrder(order, actor);
-    if (kinds.has('PRODUCT')) return this.toSale(order, actor, opts.locationId);
+    if (kinds.has('PRODUCT')) return this.toSale(order, actor, opts);
     if (kinds.has('ROOM_TYPE')) return this.toReservation(order, actor);
     if (kinds.has('SERVICE_ITEM')) return this.toBooking(order, actor);
     throw new BadRequestException('Nothing to convert for this guest order');
@@ -61,16 +66,45 @@ export class GuestOrderConversionService {
     return { kind: 'ORDER', id: created.id };
   }
 
-  private async toSale(order: any, actor: JwtPayload, locationId?: number) {
-    const shopId = locationId ?? order.routes?.find((r: any) => r.status === 'ACCEPTED')?.locationId;
+  private async toSale(
+    order: any,
+    actor: JwtPayload,
+    opts: {
+      locationId?: number;
+      paymentMethodId?: number;
+      saleType?: string;
+      paidAmount?: number;
+    } = {},
+  ) {
+    const shopId =
+      opts.locationId ??
+      order.routes?.find((r: any) => r.status === 'ACCEPTED')?.locationId;
     if (!shopId) throw new BadRequestException('Assign a branch before converting');
-    // A synthetic shop-scoped actor so SalesService uses the accepted branch.
+    const saleType = (opts.saleType ?? 'FULLY_PAID') as any;
+
+    // Credit/partial sales need a customer. Resolve the one linked at submit, or
+    // create a minimal customer from the captured name/phone so the sale can be
+    // registered the same way a staff-entered credit sale would be.
+    let customerId: number | null = order.customerId ?? null;
+    if (
+      (saleType === 'PARTIALLY_PAID' || saleType === 'CREDITED') &&
+      !customerId
+    ) {
+      customerId = await this.ensureCustomer(order);
+      if (!customerId) {
+        throw new BadRequestException('Customer is required for credit/partial sales');
+      }
+    }
+
+    // A synthetic shop-scoped actor so SalesService uses the chosen branch.
     const shopActor: JwtPayload = { ...actor, locationId: shopId, locationType: 'SHOP' as any };
     const created = await this.sales.createSale(
       {
         shopId,
-        customerId: order.customerId ?? undefined,
-        saleType: 'FULLY_PAID',
+        customerId: customerId ?? undefined,
+        saleType,
+        paymentMethodId: opts.paymentMethodId,
+        paidAmount: opts.paidAmount,
         items: order.items
           .filter((i: any) => i.itemKind === 'PRODUCT')
           .map((i: any) => ({ productId: i.itemId, quantity: i.quantity })),
@@ -79,9 +113,35 @@ export class GuestOrderConversionService {
     );
     await this.prisma.guestOrder.update({
       where: { id: order.id },
-      data: { saleId: created.id, status: 'ACCEPTED' },
+      data: {
+        saleId: created.id,
+        status: 'ACCEPTED',
+        ...(customerId && !order.customerId ? { customerId } : {}),
+      },
     });
     return { kind: 'SALE', id: created.id };
+  }
+
+  /** Resolve (or create) a customer for credit/partial guest sales. */
+  private async ensureCustomer(order: any): Promise<number | null> {
+    const name = (order.customerName ?? '').trim();
+    const phone = (order.customerPhone ?? '').trim();
+    if (!name && !phone) return null;
+    if (phone) {
+      const existing = await this.prisma.customer.findFirst({
+        where: { organizationId: order.tenantId, phone },
+        select: { id: true },
+      });
+      if (existing) return existing.id;
+    }
+    const created = await this.prisma.customer.create({
+      data: {
+        organizationId: order.tenantId,
+        name: name || 'Walk-in guest',
+        phone: phone || null,
+      },
+    });
+    return created.id;
   }
 
   private async toReservation(order: any, actor: JwtPayload) {

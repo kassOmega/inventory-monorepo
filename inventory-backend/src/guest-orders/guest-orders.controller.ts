@@ -26,8 +26,8 @@ export class GuestOrdersController {
 
   @Get()
   @Permissions('guest-orders.view')
-  list(@Query('status') status?: string) {
-    return this.guestOrders.list(status);
+  list(@Query('status') status: string | undefined, @Req() req: RequestWithUser) {
+    return this.guestOrders.list(status, req.user);
   }
 
   // Bulk routes MUST be declared before the `:id` routes so `/bulk/review`
@@ -52,14 +52,14 @@ export class GuestOrdersController {
 
   @Get('pending-count')
   @Permissions('guest-orders.view')
-  pendingCount() {
-    return this.guestOrders.pendingCount();
+  pendingCount(@Req() req: RequestWithUser) {
+    return this.guestOrders.pendingCount(req.user);
   }
 
   @Get(':id')
   @Permissions('guest-orders.view')
-  get(@Param('id', ParseIntPipe) id: number) {
-    return this.guestOrders.get(id);
+  get(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
+    return this.guestOrders.get(id, req.user);
   }
 
   @Post(':id/review')
@@ -79,7 +79,7 @@ export class GuestOrdersController {
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { locationIds: number[]; note?: string },
   ) {
-    return this.guestOrders.route(id, body.locationIds ?? [], req.user.sub, body.note);
+    return this.guestOrders.route(id, body.locationIds ?? [], req.user, body.note);
   }
 
   @Post(':id/branches/:locationId/respond')
@@ -90,7 +90,7 @@ export class GuestOrdersController {
     @Param('locationId', ParseIntPipe) locationId: number,
     @Body() body: { reply: 'ACCEPTED' | 'DECLINED'; note?: string },
   ) {
-    return this.guestOrders.respond(id, locationId, req.user.sub, body.reply, body.note);
+    return this.guestOrders.respond(id, locationId, req.user, body.reply, body.note);
   }
 
   @Post(':id/assign')
@@ -98,9 +98,40 @@ export class GuestOrdersController {
   assign(
     @Req() req: RequestWithUser,
     @Param('id', ParseIntPipe) id: number,
-    @Body('locationId', ParseIntPipe) locationId: number,
+    @Body()
+    body: {
+      locationId: number;
+      paymentMethodId?: number;
+      saleType?: string;
+      paidAmount?: number;
+    },
   ) {
-    return this.guestOrders.assign(id, locationId, req.user);
+    return this.guestOrders.assign(id, Number(body.locationId), req.user, {
+      paymentMethodId: body.paymentMethodId ? Number(body.paymentMethodId) : undefined,
+      saleType: body.saleType,
+      paidAmount: body.paidAmount ? Number(body.paidAmount) : undefined,
+    });
+  }
+
+  @Post(':id/convert')
+  @Permissions('guest-orders.manage')
+  convert(
+    @Req() req: RequestWithUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body()
+    body: {
+      locationId?: number;
+      paymentMethodId?: number;
+      saleType?: string;
+      paidAmount?: number;
+    },
+  ) {
+    return this.guestOrders.convert(id, req.user, {
+      locationId: body.locationId ? Number(body.locationId) : undefined,
+      paymentMethodId: body.paymentMethodId ? Number(body.paymentMethodId) : undefined,
+      saleType: body.saleType,
+      paidAmount: body.paidAmount ? Number(body.paidAmount) : undefined,
+    });
   }
 
   @Post(':id/reject')
@@ -110,17 +141,7 @@ export class GuestOrdersController {
     @Param('id', ParseIntPipe) id: number,
     @Body('note') note?: string,
   ) {
-    return this.guestOrders.reject(id, req.user.sub, note);
-  }
-
-  @Post(':id/free')
-  @Permissions('guest-orders.manage')
-  free(
-    @Req() req: RequestWithUser,
-    @Param('id', ParseIntPipe) id: number,
-    @Body('note') note?: string,
-  ) {
-    return this.guestOrders.free(id, req.user.sub, note);
+    return this.guestOrders.reject(id, req.user, note);
   }
 
   // --- QR / public entries --------------------------------------------------

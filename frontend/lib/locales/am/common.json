@@ -4689,7 +4689,11 @@
     "branchReplies": "የቅርንጫፍ ምላሾች",
     "assignTo": "ለ{{branch}} መድብ",
     "reject": "ግለስ",
-    "free": "ጠረጴዛ አስለቅ",
+    "accept": "ተቀበል",
+    "decline": "አትቀበል",
+    "saleType": "የሽያጭ አይነት",
+    "addAsSale": "እንደ ሽያጭ አክል",
+    "saleLinked": "ሽያጭ",
     "status": {
       "SUBMITTED": "አዲስ",
       "REVIEWED": "ተገምግሟል",

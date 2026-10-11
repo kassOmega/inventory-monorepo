@@ -30,14 +30,33 @@ export class GuestOrdersService {
   }
 
   /** The privileged inbox: guest orders for the active business. */
-  async list(status?: string) {
+  async list(status?: string, user?: JwtPayload) {
+    const tenantId = this.tenantId();
+    const branchId = user?.locationId ?? null;
     return this.prisma.guestOrder.findMany({
       where: {
-        tenantId: this.tenantId(),
+        tenantId,
         ...(status ? { status: status as any } : {}),
+        // Branch-scoped inbox: a branch sees orders placed through its own entry
+        // or routed to it by the central desk. Central sees everything.
+        ...(branchId
+          ? {
+              OR: [
+                { entry: { locationId: branchId } },
+                { routes: { some: { locationId: branchId } } },
+              ],
+            }
+          : {}),
       },
       include: {
-        entry: { select: { label: true, kind: true, table: { select: { name: true } } } },
+        entry: {
+          select: {
+            label: true,
+            kind: true,
+            locationId: true,
+            table: { select: { name: true } },
+          },
+        },
         items: true,
         routes: { include: { location: { select: { id: true, name: true } } } },
       },
@@ -46,9 +65,22 @@ export class GuestOrdersService {
     });
   }
 
-  async get(id: number) {
+  async get(id: number, user?: JwtPayload) {
+    const tenantId = this.tenantId();
+    const branchId = user?.locationId ?? null;
     const order = await this.prisma.guestOrder.findFirst({
-      where: { id, tenantId: this.tenantId() },
+      where: {
+        id,
+        tenantId,
+        ...(branchId
+          ? {
+              OR: [
+                { entry: { locationId: branchId } },
+                { routes: { some: { locationId: branchId } } },
+              ],
+            }
+          : {}),
+      },
       include: {
         entry: true,
         items: true,
@@ -57,6 +89,20 @@ export class GuestOrdersService {
       },
     });
     if (!order) throw new NotFoundException('Guest order not found');
+
+    // GuestOrder.saleId is a plain Int? (no relation in Prisma), so fetch the
+    // linked sale summary explicitly for the detail modal.
+    if (order.saleId) {
+      const sale = await this.prisma.sale.findUnique({
+        where: { id: order.saleId },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          shop: { select: { id: true, name: true } },
+        },
+      });
+      return { ...order, sale: sale ?? null };
+    }
     return order;
   }
 
@@ -75,11 +121,11 @@ export class GuestOrdersService {
 
   /**
    * Privileged review: accept the order into the business. For F&B/service the
-   * review immediately creates the internal record (order/booking); retail waits
-   * for a branch to accept (see `assign`).
+   * review immediately creates the internal record (order/booking); retail is
+   * then registered as a Sale via `convert` (or `assign`).
    */
   async review(id: number, actor: JwtPayload, note?: string) {
-    const order = await this.get(id);
+    const order = await this.get(id, actor);
     this.assertOpen(order.status);
     const updated = await this.prisma.guestOrder.update({
       where: { id },
@@ -87,20 +133,29 @@ export class GuestOrdersService {
     });
     await this.log(id, 'REVIEWED', note, actor.sub);
 
-    // F&B / service bookings convert right away; retail/mfg wait for assign.
+    // F&B / service bookings convert right away; retail/mfg use `convert`.
     const kinds = new Set((order.items ?? []).map((i) => i.itemKind));
     if (kinds.has('MENU_ITEM') || kinds.has('SERVICE_ITEM') || kinds.has('ROOM_TYPE')) {
       await this.conversion.convert(order as any, actor).catch(() => {});
     }
-    return this.get(id);
+    return this.get(id, actor);
   }
 
   /**
    * Route to one or more branches (retail/manufacturing). Creates a REQUESTED row
    * per branch; branches reply ACCEPTED/DECLINED.
    */
-  async route(id: number, locationIds: number[], actorId: number, note?: string) {
-    const order = await this.get(id);
+  async route(
+    id: number,
+    locationIds: number[],
+    actor: JwtPayload,
+    note?: string,
+  ) {
+    // Routing is a central-desk action (a branch forwards nothing to itself).
+    if (actor.locationId) {
+      throw new BadRequestException('Only the central desk can route to branches');
+    }
+    const order = await this.get(id, actor);
     this.assertOpen(order.status);
     if (locationIds.length === 0) throw new BadRequestException('Pick at least one branch');
 
@@ -120,7 +175,7 @@ export class GuestOrdersService {
       where: { id },
       data: { status: 'ROUTED' },
     });
-    await this.log(id, 'ROUTED', note ?? `Sent to ${locationIds.length} branch(es)`, actorId);
+    await this.log(id, 'ROUTED', note ?? `Sent to ${locationIds.length} branch(es)`, actor.sub);
     return updated;
   }
 
@@ -128,11 +183,15 @@ export class GuestOrdersService {
   async respond(
     orderId: number,
     locationId: number,
-    actorId: number,
+    actor: JwtPayload,
     reply: 'ACCEPTED' | 'DECLINED',
     note?: string,
   ) {
-    const order = await this.get(orderId);
+    // A branch may only answer for itself.
+    if (actor.locationId && actor.locationId !== locationId) {
+      throw new BadRequestException('You can only respond for your own branch');
+    }
+    const order = await this.get(orderId, actor);
     this.assertOpen(order.status);
     const route = await this.prisma.guestOrderRoute.findUnique({
       where: { guestOrderId_locationId: { guestOrderId: orderId, locationId } },
@@ -140,55 +199,124 @@ export class GuestOrdersService {
     if (!route) throw new NotFoundException('This branch was not asked');
     await this.prisma.guestOrderRoute.update({
       where: { id: route.id },
-      data: { status: reply, note: note ?? null, respondedById: actorId, respondedAt: new Date() },
+      data: { status: reply, note: note ?? null, respondedById: actor.sub, respondedAt: new Date() },
     });
-    await this.log(orderId, `BRANCH_${reply}`, note ?? `Branch #${locationId}`, actorId);
+    await this.log(orderId, `BRANCH_${reply}`, note ?? `Branch #${locationId}`, actor.sub);
     if (reply === 'ACCEPTED') {
-      // The central desk assigns; an accept just records willingness.
-      await this.log(orderId, 'BRANCH_ACCEPTED_PENDING_ASSIGN', null, actorId);
+      // The central desk assigns (or the branch registers the sale itself); an
+      // accept just records willingness.
+      await this.log(orderId, 'BRANCH_ACCEPTED_PENDING_ASSIGN', null, actor.sub);
     }
-    return this.get(orderId);
+    return this.get(orderId, actor);
   }
 
   /**
-   * Central desk assigns the order to a branch that accepted it; the branch's
-   * sale is then created through the real sales flow (stock/price/GL enforced).
+   * Central desk assigns the order to a branch and registers the sale there.
+   * `input` carries the sale/payment choices (same as `convert`).
    */
-  async assign(id: number, locationId: number, actor: JwtPayload) {
-    const order = await this.get(id);
+  async assign(
+    id: number,
+    locationId: number,
+    actor: JwtPayload,
+    input: {
+      paymentMethodId?: number;
+      saleType?: string;
+      paidAmount?: number;
+    } = {},
+  ) {
+    if (actor.locationId) {
+      throw new BadRequestException('Only the central desk can assign to a branch');
+    }
+    const order = await this.get(id, actor);
     this.assertOpen(order.status);
     const route = order.routes.find((r) => r.locationId === locationId);
     if (!route) throw new NotFoundException('This branch was not asked');
+
+    const saleType = input.saleType ?? 'FULLY_PAID';
+    this.assertSaleInput(saleType, input.paymentMethodId, input.paidAmount);
+
     await this.prisma.guestOrder.update({ where: { id }, data: { status: 'ACCEPTED' } });
     await this.log(id, 'ASSIGNED', `Assigned to branch #${locationId}`, actor.sub);
-    // Create the internal Sale at the assigned branch.
-    await this.conversion
-      .convert(order as any, actor, { locationId })
-      .catch(async (err) => {
-        await this.log(id, 'CONVERT_FAILED', (err as Error).message, actor.sub);
+    try {
+      await this.conversion.convert(order as any, actor, {
+        locationId,
+        paymentMethodId: input.paymentMethodId,
+        saleType,
+        paidAmount: input.paidAmount,
       });
-    return this.get(id);
+    } catch (err) {
+      await this.log(id, 'CONVERT_FAILED', (err as Error).message, actor.sub);
+      throw err;
+    }
+    return this.get(id, actor);
   }
 
-  /** Reject (frees the table/entry immediately). */
-  async reject(id: number, actorId: number, note?: string) {
-    await this.get(id);
+  /**
+   * Register an accepted retail/manufacturing guest order as an internal Sale.
+   * Branch users always register at their own branch; central must pick one.
+   */
+  async convert(
+    id: number,
+    actor: JwtPayload,
+    input: {
+      locationId?: number;
+      paymentMethodId?: number;
+      saleType?: string;
+      paidAmount?: number;
+    },
+  ) {
+    const order = await this.get(id, actor);
+    this.assertOpen(order.status);
+    const kinds = new Set((order.items ?? []).map((i) => i.itemKind));
+    if (!kinds.has('PRODUCT')) {
+      throw new BadRequestException('Only product orders can be added as a sale');
+    }
+
+    const branchId = actor.locationId ?? input.locationId;
+    if (!branchId) {
+      throw new BadRequestException('Select a branch where the sale will be registered');
+    }
+    const loc = await this.prisma.location.findFirst({
+      where: { id: branchId, tenantId: order.tenantId },
+      select: { id: true, name: true },
+    });
+    if (!loc) throw new BadRequestException('Branch not found');
+
+    const saleType = input.saleType ?? 'FULLY_PAID';
+    this.assertSaleInput(saleType, input.paymentMethodId, input.paidAmount);
+
+    await this.conversion.convert(order as any, actor, {
+      locationId: branchId,
+      paymentMethodId: input.paymentMethodId,
+      saleType,
+      paidAmount: input.paidAmount,
+    });
+    await this.log(id, 'SALE_CREATED', `Sale registered at ${loc.name}`, actor.sub);
+    return this.get(id, actor);
+  }
+
+  /** Shared sale/payment validation for `assign` and `convert`. */
+  private assertSaleInput(
+    saleType: string,
+    paymentMethodId?: number,
+    paidAmount?: number,
+  ) {
+    if (saleType !== 'CREDITED' && !paymentMethodId) {
+      throw new BadRequestException('Payment method is required');
+    }
+    if (saleType === 'PARTIALLY_PAID' && (paidAmount ?? 0) <= 0) {
+      throw new BadRequestException('Paid amount is required for partially paid');
+    }
+  }
+
+  /** Reject (decline) a guest order before anything goes live. */
+  async reject(id: number, actor: JwtPayload, note?: string) {
+    await this.get(id, actor);
     const updated = await this.prisma.guestOrder.update({
       where: { id },
       data: { status: 'REJECTED' },
     });
-    await this.log(id, 'REJECTED', note, actorId);
-    return updated;
-  }
-
-  /** Manually free an order (guest left / table reset). */
-  async free(id: number, actorId: number, note?: string) {
-    await this.get(id);
-    const updated = await this.prisma.guestOrder.update({
-      where: { id },
-      data: { status: 'DROPPED' },
-    });
-    await this.log(id, 'DROPPED', note, actorId);
+    await this.log(id, 'REJECTED', note, actor.sub);
     return updated;
   }
 
@@ -211,7 +339,7 @@ export class GuestOrdersService {
     const results: Array<{ id: number; ok: boolean }> = [];
     for (const id of ids) {
       try {
-        await this.reject(id, actor.sub, note);
+        await this.reject(id, actor, note);
         results.push({ id, ok: true });
       } catch {
         results.push({ id, ok: false });
@@ -255,9 +383,22 @@ export class GuestOrdersService {
   }
 
   /** Count of orders still needing a privileged decision (for the nav badge). */
-  async pendingCount(): Promise<{ count: number }> {
+  /** Count of orders still needing a privileged decision (for the nav badge). */
+  async pendingCount(user?: JwtPayload): Promise<{ count: number }> {
+    const branchId = user?.locationId ?? null;
     const count = await this.prisma.guestOrder.count({
-      where: { tenantId: this.tenantId(), status: { in: ['SUBMITTED', 'ROUTED'] } },
+      where: {
+        tenantId: this.tenantId(),
+        status: { in: ['SUBMITTED', 'ROUTED'] },
+        ...(branchId
+          ? {
+              OR: [
+                { entry: { locationId: branchId } },
+                { routes: { some: { locationId: branchId } } },
+              ],
+            }
+          : {}),
+      },
     });
     return { count };
   }

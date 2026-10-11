@@ -1,11 +1,13 @@
 "use client";
 
 // Privileged Guest Orders inbox. Reviews incoming public orders, routes them to
-// branches (which reply accept/decline), assigns, or rejects/frees them.
+// branches (which reply accept/decline), and registers accepted product orders
+// as internal Sales (branch or central, central picking the branch).
 import api from "@/lib/api";
 import Button from "@/app/components/Button";
 import Loading from "@/app/components/Loading";
 import Modal from "@/app/components/Modal";
+import SearchableSelect from "@/app/components/SearchableSelect";
 import { useToast } from "@/app/components/ToastProvider";
 import { useAuth } from "@/context/AuthContext";
 import { formatDateTime } from "@/lib/datetime";
@@ -22,29 +24,46 @@ const STATUS_CLASS: Record<string, string> = {
   DROPPED: "bg-gray-200 text-gray-500",
 };
 
+const SALE_TYPES = ["FULLY_PAID", "PARTIALLY_PAID", "CREDITED"] as const;
+
+const SALE_TYPE_STATUS_KEY: Record<string, string> = {
+  FULLY_PAID: "status.fullyPaid",
+  PARTIALLY_PAID: "status.partiallyPaid",
+  CREDITED: "status.credited",
+};
+
 export default function GuestOrdersPage() {
   const { t } = useTranslation();
   const toast = useToast();
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
   const canManage = hasPermission("guest-orders.manage");
+  const isCentral = !user?.locationId;
 
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<any[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [locations, setLocations] = useState<any[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [statusFilter, setStatusFilter] = useState("");
   const [detail, setDetail] = useState<any | null>(null);
   const [routePick, setRoutePick] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
+  // "Add as sale" form state (per detail).
+  const [saleBranch, setSaleBranch] = useState("");
+  const [saleMethod, setSaleMethod] = useState("");
+  const [saleType, setSaleType] = useState<string>("FULLY_PAID");
+  const [paidAmount, setPaidAmount] = useState("");
 
   const load = useCallback(async () => {
     try {
-      const [o, l] = await Promise.all([
+      const [o, l, p] = await Promise.all([
         api.get(`/guest-orders${statusFilter ? `?status=${statusFilter}` : ""}`),
         api.get("/locations").catch(() => ({ data: [] })),
+        api.get("/payment-methods").catch(() => ({ data: [] })),
       ]);
       setOrders(Array.isArray(o.data) ? o.data : []);
       setLocations(Array.isArray(l.data) ? l.data : []);
+      setPaymentMethods(Array.isArray(p.data) ? p.data : []);
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? "Failed to load");
     } finally {
@@ -81,6 +100,10 @@ export default function GuestOrdersPage() {
 
   const openDetail = async (o: any) => {
     setRoutePick([]);
+    setSaleBranch("");
+    setSaleMethod("");
+    setSaleType("FULLY_PAID");
+    setPaidAmount("");
     try {
       const r = await api.get(`/guest-orders/${o.id}`);
       setDetail(r.data);
@@ -106,6 +129,15 @@ export default function GuestOrdersPage() {
   };
 
   if (loading) return <Loading className="py-24" />;
+
+  const hasProducts = (o: any) =>
+    (o?.items ?? []).some((it: any) => it.itemKind === "PRODUCT");
+  const myBranch = locations.find((l) => l.id === user?.locationId);
+  const openStatuses = ["SUBMITTED", "REVIEWED", "ROUTED"];
+  const saleValid =
+    (isCentral ? !!saleBranch : true) &&
+    (saleType === "CREDITED" || !!saleMethod) &&
+    (saleType !== "PARTIALLY_PAID" || Number(paidAmount) > 0);
 
   return (
     <div className="space-y-6">
@@ -249,12 +281,20 @@ export default function GuestOrdersPage() {
             </p>
             {detail.note && <p className="text-xs text-gray-500">{detail.note}</p>}
 
+            {/* Linked internal record (sale) once converted. */}
+            {detail.sale && (
+              <p className="text-xs text-emerald-700">
+                {t("guestOrders.saleLinked")}: {detail.sale.invoiceNumber}
+                {detail.sale.shop?.name ? ` · ${detail.sale.shop.name}` : ""}
+              </p>
+            )}
+
             {/* Branch replies (retail/manufacturing). */}
             {detail.routes?.length > 0 && (
               <div className="text-xs">
                 <p className="text-gray-400 mb-1">{t("guestOrders.branchReplies")}</p>
                 {detail.routes.map((r: any) => (
-                  <div key={r.id} className="flex justify-between py-0.5">
+                  <div key={r.id} className="flex items-center justify-between py-0.5 gap-2">
                     <span>{r.location?.name}</span>
                     <span
                       className={
@@ -272,6 +312,48 @@ export default function GuestOrdersPage() {
               </div>
             )}
 
+            {/* Branch: answer a request that was routed to this branch. */}
+            {canManage && !isCentral &&
+              detail.routes
+                ?.filter(
+                  (r: any) =>
+                    r.locationId === user?.locationId && r.status === "REQUESTED",
+                )
+                .map((r: any) => (
+                  <div key={r.id} className="flex gap-2 pt-2 border-t">
+                    <Button
+                      size="sm"
+                      loading={busy}
+                      onClick={() =>
+                        act(() =>
+                          api.post(
+                            `/guest-orders/${detail.id}/branches/${r.locationId}/respond`,
+                            { reply: "ACCEPTED" },
+                          ),
+                        )
+                      }
+                    >
+                      {t("guestOrders.accept")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      loading={busy}
+                      onClick={() =>
+                        act(() =>
+                          api.post(
+                            `/guest-orders/${detail.id}/branches/${r.locationId}/respond`,
+                            { reply: "DECLINED" },
+                          ),
+                        )
+                      }
+                    >
+                      {t("guestOrders.decline")}
+                    </Button>
+                  </div>
+                ))}
+
+            {/* Accept & review (the go-live gate) + central routing. */}
             {canManage && ["SUBMITTED", "REVIEWED"].includes(detail.status) && (
               <div className="space-y-2 pt-2 border-t">
                 <Button
@@ -281,7 +363,7 @@ export default function GuestOrdersPage() {
                 >
                   {t("guestOrders.acceptReview")}
                 </Button>
-                {locations.length > 0 && (
+                {isCentral && hasProducts(detail) && locations.length > 0 && (
                   <div>
                     <p className="text-xs text-gray-500 mb-1">{t("guestOrders.routeTo")}</p>
                     <div className="flex flex-wrap gap-1.5">
@@ -324,28 +406,81 @@ export default function GuestOrdersPage() {
               </div>
             )}
 
-            {/* Assign to a branch that accepted. */}
-            {canManage && detail.status === "ROUTED" && (
-              <div className="space-y-1 pt-2 border-t">
-                {detail.routes
-                  ?.filter((r: any) => r.status === "ACCEPTED")
-                  .map((r: any) => (
-                    <Button
-                      key={r.id}
-                      size="sm"
-                      className="w-full"
-                      loading={busy}
-                      onClick={() =>
-                        act(() =>
-                          api.post(`/guest-orders/${detail.id}/assign`, {
-                            locationId: r.locationId,
-                          }),
-                        )
-                      }
-                    >
-                      {t("guestOrders.assignTo", { branch: r.location?.name })}
-                    </Button>
-                  ))}
+            {/* Register a product order as a Sale (branch or central). */}
+            {canManage && hasProducts(detail) && openStatuses.includes(detail.status) && (
+              <div className="space-y-2 pt-2 border-t">
+                <p className="text-xs font-semibold text-gray-500">
+                  {t("guestOrders.addAsSale")}
+                </p>
+                {isCentral ? (
+                  <SearchableSelect
+                    options={locations.map((l: any) => ({
+                      value: String(l.id),
+                      label: l.name,
+                    }))}
+                    value={saleBranch}
+                    onChange={setSaleBranch}
+                    placeholder={t("sales.shopLocation")}
+                    required
+                  />
+                ) : (
+                  <p className="text-xs text-gray-500">
+                    {t("sales.shopLocation")}: {myBranch?.name ?? user?.locationId}
+                  </p>
+                )}
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">{t("guestOrders.saleType")}</p>
+                  <select
+                    value={saleType}
+                    onChange={(e) => setSaleType(e.target.value)}
+                    className="border border-gray-300 rounded-lg p-2 text-sm w-full bg-white"
+                  >
+                    {SALE_TYPES.map((st) => (
+                      <option key={st} value={st}>
+                        {t(SALE_TYPE_STATUS_KEY[st])}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {saleType !== "CREDITED" && (
+                  <SearchableSelect
+                    options={paymentMethods.map((m: any) => ({
+                      value: String(m.id),
+                      label: m.name,
+                    }))}
+                    value={saleMethod}
+                    onChange={setSaleMethod}
+                    placeholder={t("sales.paymentMethod")}
+                    required
+                  />
+                )}
+                {saleType === "PARTIALLY_PAID" && (
+                  <input
+                    value={paidAmount}
+                    onChange={(e) => setPaidAmount(e.target.value)}
+                    type="number"
+                    min="0"
+                    placeholder={t("sales.paidAmount")}
+                    className="border border-gray-300 rounded-lg p-2 text-sm w-full"
+                  />
+                )}
+                <Button
+                  className="w-full"
+                  disabled={!saleValid}
+                  loading={busy}
+                  onClick={() =>
+                    act(() =>
+                      api.post(`/guest-orders/${detail.id}/convert`, {
+                        locationId: isCentral && saleBranch ? Number(saleBranch) : undefined,
+                        paymentMethodId: saleMethod ? Number(saleMethod) : undefined,
+                        saleType,
+                        paidAmount: saleType === "PARTIALLY_PAID" ? Number(paidAmount) : undefined,
+                      }),
+                    )
+                  }
+                >
+                  {t("guestOrders.addAsSale")}
+                </Button>
               </div>
             )}
 
@@ -358,14 +493,6 @@ export default function GuestOrdersPage() {
                   onClick={() => act(() => api.post(`/guest-orders/${detail.id}/reject`))}
                 >
                   {t("guestOrders.reject")}
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  loading={busy}
-                  onClick={() => act(() => api.post(`/guest-orders/${detail.id}/free`))}
-                >
-                  {t("guestOrders.free")}
                 </Button>
               </div>
             )}
