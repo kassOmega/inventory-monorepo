@@ -10,10 +10,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { PublicEntry, PublicEntryKind } from '@prisma/client';
+import { CarWashBookingStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { GuestOrdersService } from '../guest-orders/guest-orders.service';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
+import { tenantContext } from '../common/tenant/tenant.context';
 import { variantAttributeLabel } from '../common/variant-label.util';
 import { catalogsForKind } from './public.constants';
 
@@ -600,5 +602,308 @@ export class PublicService {
       }
     }
     return map;
+  }
+
+  // --- Car-wash public booking ---------------------------------------------
+
+  /** The entry must be a car-wash bay link. */
+  private async carwashEntry(token: string) {
+    const entry = await this.resolveEntry(token);
+    if (entry.kind !== 'CARWASH_BAY') {
+      throw new BadRequestException('This link is not a car wash booking link');
+    }
+    return entry;
+  }
+
+  /** Overlap check for a washer in a time slot (mirrors CarWashService). */
+  private async carwashAvailabilityForTenant(
+    tenantId: number,
+    washerId: number,
+    startsAt: string,
+    slotMinutes?: number,
+  ): Promise<boolean> {
+    const start = new Date(startsAt);
+    if (Number.isNaN(start.getTime())) {
+      throw new BadRequestException('Invalid booking time');
+    }
+    const mins = slotMinutes ?? 30;
+    const end = new Date(start.getTime() + mins * 60 * 1000);
+    const overlapping = await this.prisma.carWashBooking.findMany({
+      where: {
+        tenantId,
+        washerId,
+        status: {
+          in: [CarWashBookingStatus.PENDING, CarWashBookingStatus.SERVING],
+        },
+        startsAt: { lt: end },
+        OR: [{ endsAt: { gt: start } }, { endsAt: null }],
+      },
+      select: { id: true },
+    });
+    return overlapping.length === 0;
+  }
+
+  /** Public-safe booking options for a car-wash QR link. */
+  async carwashOptions(token: string) {
+    const entry = await this.carwashEntry(token);
+    const org = await this.prisma.organization.findUnique({
+      where: { id: entry.tenantId },
+      select: { name: true, businessType: true, settings: true },
+    });
+    if (org?.businessType !== 'CAR_WASH') {
+      throw new BadRequestException('This link is not a car wash link');
+    }
+    const fiscal = await this.prisma.tenantFiscalConfig.findUnique({
+      where: { tenantId: entry.tenantId },
+      select: { address: true, phone: true },
+    });
+    const settings = (org?.settings ?? {}) as Record<string, unknown>;
+    const profile = await this.prisma.carWashProfile.findUnique({
+      where: { organizationId: entry.tenantId },
+    });
+    const [vehicleTypes, washTypes, prices, washers] = await Promise.all([
+      this.prisma.carWashVehicleType.findMany({
+        where: { tenantId: entry.tenantId },
+        orderBy: { name: 'asc' },
+        select: { name: true },
+      }),
+      this.prisma.carWashWashType.findMany({
+        where: { tenantId: entry.tenantId },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true },
+      }),
+      this.prisma.carWashPrice.findMany({
+        where: { tenantId: entry.tenantId },
+        select: { vehicleType: true, washTypeId: true, amount: true },
+      }),
+      this.prisma.carWashWasher.findMany({
+        where: { tenantId: entry.tenantId, isActive: true },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true },
+      }),
+    ]);
+
+    return {
+      kind: entry.kind,
+      label: entry.label,
+      businessName: org?.name ?? '',
+      state: this.effectiveState(entry),
+      showPrices: (settings.showPublicPrices as boolean | undefined) ?? true,
+      showBusinessInfo:
+        (settings.showPublicBusinessInfo as boolean | undefined) ?? true,
+      businessAddress: fiscal?.address ?? null,
+      businessPhone: fiscal?.phone ?? null,
+      slotMinutes: profile?.slotMinutes ?? 30,
+      vehicleTypes: vehicleTypes.map((v) => v.name),
+      washTypes,
+      prices,
+      washers,
+    };
+  }
+
+  /** Check a washer's availability for a slot (public, token-scoped). */
+  async carwashAvailability(
+    token: string,
+    washerId: number,
+    startsAt: string,
+    slotMinutes?: number,
+  ) {
+    const entry = await this.carwashEntry(token);
+    if (!washerId || Number.isNaN(washerId)) {
+      throw new BadRequestException('Washer is required');
+    }
+    const washer = await this.prisma.carWashWasher.findFirst({
+      where: { id: washerId, tenantId: entry.tenantId, isActive: true },
+      select: { id: true },
+    });
+    if (!washer) throw new BadRequestException('Washer not available');
+    const available = await this.carwashAvailabilityForTenant(
+      entry.tenantId,
+      washerId,
+      startsAt,
+      slotMinutes,
+    );
+    return { available, slotMinutes: slotMinutes ?? 30 };
+  }
+
+  /** Submit a public car-wash booking. */
+  async carwashBooking(
+    token: string,
+    body: {
+      name?: string;
+      phone?: string;
+      plateNumber?: string;
+      vehicleType?: string;
+      washTypeId?: number;
+      washerId?: number;
+      startsAt?: string;
+      notes?: string;
+      items?: Array<{
+        vehicleType?: string;
+        washTypeId?: number;
+        plateNumber?: string;
+        amount?: number;
+      }>;
+    },
+  ) {
+    const entry = await this.carwashEntry(token);
+    if (this.effectiveState(entry) !== 'LIVE') {
+      throw new ForbiddenException('This link is not accepting bookings right now');
+    }
+    const name = body.name?.trim() ?? '';
+    const phone = body.phone?.trim() ?? '';
+    if (!name && !phone) {
+      throw new BadRequestException('Please provide your name or phone number');
+    }
+    if (phone) {
+      const blocked = await this.prisma.guestBlocklist.findFirst({
+        where: { tenantId: entry.tenantId, phone },
+        select: { id: true },
+      });
+      if (blocked) {
+        throw new ForbiddenException('Booking is unavailable for this number');
+      }
+    }
+
+    const profile = await this.prisma.carWashProfile.findUnique({
+      where: { organizationId: entry.tenantId },
+    });
+    const slotMinutes = profile?.slotMinutes ?? 30;
+    const startsAt = new Date(body.startsAt ?? '');
+    if (Number.isNaN(startsAt.getTime())) {
+      throw new BadRequestException('Please choose a booking time');
+    }
+
+    const lines =
+      body.items && body.items.length > 0
+        ? body.items
+        : [
+            {
+              vehicleType: body.vehicleType,
+              washTypeId: body.washTypeId,
+              plateNumber: body.plateNumber,
+              amount: undefined as number | undefined,
+            },
+          ];
+
+    const prices = await this.prisma.carWashPrice.findMany({
+      where: { tenantId: entry.tenantId },
+      select: { vehicleType: true, washTypeId: true, amount: true },
+    });
+    const priceFor = (vehicleType: string, washTypeId: number | null) => {
+      const p = prices.find(
+        (x) =>
+          String(x.vehicleType ?? '').toLowerCase() ===
+            vehicleType.toLowerCase() &&
+          String(x.washTypeId ?? '') === String(washTypeId ?? ''),
+      );
+      return p ? p.amount : 0;
+    };
+
+    let washerId: number | null = null;
+    if (body.washerId) {
+      washerId = Number(body.washerId);
+      const washer = await this.prisma.carWashWasher.findFirst({
+        where: { id: washerId, tenantId: entry.tenantId, isActive: true },
+        select: { id: true },
+      });
+      if (!washer) throw new BadRequestException('Washer not available');
+      const available = await this.carwashAvailabilityForTenant(
+        entry.tenantId,
+        washerId,
+        startsAt.toISOString(),
+        slotMinutes,
+      );
+      if (!available) {
+        throw new BadRequestException('This washer is not available at that time');
+      }
+    }
+
+    const resolved: Array<{
+      vehicleId: number | null;
+      vehicleType: string;
+      washTypeId: number | null;
+      amount: number;
+      startsAt: Date;
+      date: Date;
+    }> = [];
+    let totalAmount = 0;
+    for (const line of lines) {
+      const vehicleType = line.vehicleType?.trim() || 'Car';
+      const washTypeId = line.washTypeId ? Number(line.washTypeId) : null;
+      const plate = line.plateNumber?.trim();
+      let vehicleId: number | null = null;
+      if (plate) {
+        let vehicle = await this.prisma.carWashVehicle.findFirst({
+          where: { tenantId: entry.tenantId, plateNumber: plate },
+          select: { id: true },
+        });
+        if (!vehicle) {
+          vehicle = await this.prisma.carWashVehicle.create({
+            data: {
+              tenantId: entry.tenantId,
+              plateNumber: plate,
+              vehicleType,
+            },
+            select: { id: true },
+          });
+        }
+        vehicleId = vehicle.id;
+      }
+      const amount = Number(line.amount) || priceFor(vehicleType, washTypeId);
+      totalAmount += amount;
+      resolved.push({
+        vehicleId,
+        vehicleType,
+        washTypeId,
+        amount,
+        startsAt,
+        date: startsAt,
+      });
+    }
+
+    const booking = await this.prisma.carWashBooking.create({
+      data: {
+        tenantId: entry.tenantId,
+        customerId: null,
+        vehicleId: resolved[0].vehicleId,
+        washerId,
+        vehicleType: resolved[0].vehicleType,
+        amount: totalAmount,
+        isTimeSlotBooking: true,
+        bookingDate: startsAt,
+        startsAt,
+        endsAt: new Date(startsAt.getTime() + slotMinutes * 60 * 1000),
+        notes: body.notes?.trim() || null,
+        items: {
+          create: resolved.map((r) => ({
+            tenantId: entry.tenantId,
+            vehicleId: r.vehicleId,
+            vehicleType: r.vehicleType,
+            washTypeId: r.washTypeId,
+            amount: r.amount,
+            date: r.date,
+            startsAt: r.startsAt,
+          })),
+        },
+      },
+      include: { items: true },
+    });
+
+    await tenantContext
+      .run(entry.tenantId, () =>
+        this.notifications.notifyOwner(
+          'New car wash booking',
+          `${entry.label}: ${resolved.length} vehicle(s), ${totalAmount} total.`,
+          {
+            type: 'CARWASH_BOOKING',
+            link: '/dashboard/carwash/bookings',
+            dedupeKey: `CARWASH_BOOKING:${booking.id}`,
+          },
+        ),
+      )
+      .catch(() => {});
+
+    return { id: booking.id, status: booking.status, startsAt: booking.startsAt };
   }
 }

@@ -2,7 +2,7 @@
 // PUBLIC (unauthenticated) guest-ordering endpoints. Every route is scoped ONLY
 // by the opaque entry token in the path/body — there are no internal :id params,
 // and no X-Tenant-Id is ever trusted here.
-import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { Public } from '../common/decorators/public.decorator';
 import { PublicService } from './public.service';
@@ -43,5 +43,52 @@ export class PublicController {
   @Get('orders/:orderToken')
   status(@Param('orderToken') orderToken: string) {
     return this.publicSvc.orderStatus(orderToken);
+  }
+
+  /** Public-safe car-wash booking options (wash types, prices, washers, slots). */
+  @Get('entry/:token/carwash-options')
+  carwashOptions(@Param('token') token: string) {
+    return this.publicSvc.carwashOptions(token);
+  }
+
+  /** Check a washer's availability for a slot (scoped by the entry token). */
+  @Get('entry/:token/carwash-availability')
+  carwashAvailability(
+    @Param('token') token: string,
+    @Query('washerId') washerId: string,
+    @Query('startsAt') startsAt: string,
+    @Query('slotMinutes') slotMinutes?: string,
+  ) {
+    return this.publicSvc.carwashAvailability(
+      token,
+      Number(washerId),
+      startsAt,
+      slotMinutes ? Number(slotMinutes) : undefined,
+    );
+  }
+
+  /** Submit a public car-wash booking (no auth, scoped by the entry token). */
+  @Post('entry/:token/carwash-bookings')
+  carwashBooking(
+    @Param('token') token: string,
+    @Body()
+    body: {
+      name?: string;
+      phone?: string;
+      plateNumber?: string;
+      vehicleType?: string;
+      washTypeId?: number;
+      washerId?: number;
+      startsAt?: string;
+      notes?: string;
+      items?: Array<{
+        vehicleType?: string;
+        washTypeId?: number;
+        plateNumber?: string;
+        amount?: number;
+      }>;
+    },
+  ) {
+    return this.publicSvc.carwashBooking(token, body);
   }
 }

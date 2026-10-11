@@ -5,16 +5,12 @@ import Button from "@/app/components/Button";
 import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
 import { getDateRange, type DatePreset } from "@/app/components/DateFilter";
 import Modal from "@/app/components/Modal";
-import SearchableSelect from "@/app/components/SearchableSelect";
+import CarWashBookingForm, {
+  type CarWashBookingPayload,
+} from "@/app/components/CarWashBookingForm";
 import { useAuth } from "@/context/AuthContext";
 import { useTranslation } from "react-i18next";
-import { useCallback, useEffect, useMemo, useState } from "react";
-
-interface BookingItem {
-  vehicleId: string;
-  washTypeId: string;
-  amount: string;
-}
+import { useCallback, useEffect, useState } from "react";
 
 export default function CarWashBookingsPage() {
   const { hasPermission } = useAuth();
@@ -26,15 +22,7 @@ export default function CarWashBookingsPage() {
   const [washTypes, setWashTypes] = useState<any[]>([]);
   const [prices, setPrices] = useState<any[]>([]);
 
-  const [form, setForm] = useState({
-    customerId: "",
-    washerId: "",
-    isTimeSlotBooking: true,
-    startsAt: "",
-    notes: "",
-  });
-  const [items, setItems] = useState<BookingItem[]>([]);
-  const [availability, setAvailability] = useState<boolean | null>(null);
+  const [slotMinutes, setSlotMinutes] = useState(30);
   const [open, setOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
   const [error, setError] = useState("");
@@ -53,18 +41,20 @@ export default function CarWashBookingsPage() {
 
   const load = useCallback(async () => {
     try {
-      const [b, w, c, wt, pr] = await Promise.all([
+      const [b, w, c, wt, pr, st] = await Promise.all([
         api.get(`/carwash/bookings?startDate=${startDate}&endDate=${endDate}`),
         api.get("/carwash/washers?activeOnly=1"),
         api.get("/customers").catch(() => ({ data: [] })),
         api.get("/carwash/wash-types").catch(() => ({ data: [] })),
         api.get("/carwash/prices").catch(() => ({ data: [] })),
+        api.get("/carwash/settings").catch(() => ({ data: { slotMinutes: 30 } })),
       ]);
       setBookings(b.data);
       setWashers(w.data);
       setCustomers(Array.isArray(c.data) ? c.data : []);
       setWashTypes(Array.isArray(wt.data) ? wt.data : []);
       setPrices(Array.isArray(pr.data) ? pr.data : []);
+      setSlotMinutes(Number(st.data?.slotMinutes) || 30);
     } catch (e: any) {
       setError(e?.response?.data?.message ?? t("carwash.failedLoad"));
     }
@@ -74,110 +64,45 @@ export default function CarWashBookingsPage() {
     load();
   }, [load]);
 
-  // The customer's vehicles drive the per-vehicle picker. With no customer
-  // selected, all vehicles are selectable.
-  const customerVehicles = useMemo(() => {
-    if (!form.customerId) return vehicles;
-    return vehicles.filter((v) => String(v.customerId) === form.customerId);
-  }, [vehicles, form.customerId]);
-
-  const loadVehiclesForCustomer = async (customerId: string) => {
-    try {
-      const r = await api.get(
-        `/carwash/vehicles${customerId ? `?customerId=${customerId}` : ""}`,
-      );
-      setVehicles(Array.isArray(r.data) ? r.data : []);
-    } catch {
-      setVehicles([]);
-    }
-  };
-
-  const priceFor = (vehicleType: string, washTypeId: string) => {
-    const p = prices.find(
-      (x) =>
-        String(x.vehicleType ?? "").toLowerCase() === vehicleType.toLowerCase() &&
-        String(x.washTypeId ?? "") === washTypeId,
-    );
-    return p ? String(p.amount) : "";
-  };
-
-  const vehicleTypeOf = (vehicleId: string) =>
-    vehicles.find((v) => String(v.id) === vehicleId)?.vehicleType ?? "Car";
-
   const openNew = async () => {
-    setForm({ customerId: "", washerId: "", isTimeSlotBooking: true, startsAt: "", notes: "" });
-    setItems([]);
-    setAvailability(null);
+    setError("");
     try {
       const r = await api.get("/carwash/vehicles");
       setVehicles(Array.isArray(r.data) ? r.data : []);
     } catch {
-      /* keep current list */
+      setVehicles([]);
     }
     setOpen(true);
   };
 
-  const addItem = () =>
-    setItems((prev) => [
-      ...prev,
-      { vehicleId: "", washTypeId: "", amount: "" },
-    ]);
-
-  const removeItem = (idx: number) =>
-    setItems((prev) => prev.filter((_, i) => i !== idx));
-
-  const updateItem = (idx: number, patch: Partial<BookingItem>) =>
-    setItems((prev) =>
-      prev.map((it, i) => {
-        if (i !== idx) return it;
-        const next = { ...it, ...patch };
-        // Price autofills from the price list (vehicle type + wash type).
-        const vt = vehicleTypeOf(next.vehicleId);
-        if (patch.washTypeId !== undefined || patch.vehicleId !== undefined) {
-          const p = priceFor(vt, next.washTypeId);
-          if (p !== "") next.amount = p;
-        }
-        return next;
-      }),
-    );
-
-  const totalAmount = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
-
-  const checkAvailability = async () => {
-    if (!form.washerId || !form.startsAt) {
-      setAvailability(null);
-      return;
-    }
+  const checkAvailability = async (
+    washerId: string,
+    startsAt: string,
+    slotMinutes: number,
+  ) => {
     try {
       const r = await api.get(
-        `/carwash/bookings/availability?washerId=${form.washerId}&startsAt=${new Date(form.startsAt).toISOString()}`,
+        `/carwash/bookings/availability?washerId=${washerId}&startsAt=${encodeURIComponent(startsAt)}&slotMinutes=${slotMinutes}`,
       );
-      setAvailability(r.data.available);
+      return { available: !!r.data?.available };
     } catch {
-      setAvailability(null);
+      return { available: false };
     }
   };
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submitBooking = async (payload: CarWashBookingPayload) => {
     setError("");
-    if (items.length === 0) {
-      setError(t("carwash.needVehicle"));
-      return;
-    }
     setSaving(true);
     try {
       await api.post("/carwash/bookings", {
-        customerId: form.customerId ? Number(form.customerId) : null,
-        washerId: form.washerId ? Number(form.washerId) : null,
-        isTimeSlotBooking: form.isTimeSlotBooking,
-        startsAt: form.startsAt
-          ? new Date(form.startsAt).toISOString()
-          : new Date().toISOString(),
-        notes: form.notes.trim() || undefined,
-        items: items.map((it) => ({
+        customerId: payload.customerId ? Number(payload.customerId) : null,
+        washerId: payload.washerId ? Number(payload.washerId) : null,
+        isTimeSlotBooking: payload.isTimeSlotBooking,
+        startsAt: payload.startsAt,
+        notes: payload.notes,
+        items: payload.items.map((it) => ({
           vehicleId: it.vehicleId ? Number(it.vehicleId) : null,
-          vehicleType: vehicleTypeOf(it.vehicleId),
+          vehicleType: it.vehicleType,
           washTypeId: it.washTypeId ? Number(it.washTypeId) : null,
           amount: Number(it.amount) || 0,
         })),
@@ -220,16 +145,6 @@ export default function CarWashBookingsPage() {
 
   const filtered = bookings.filter(
     (b) => !statusFilter || b.status === statusFilter,
-  );
-
-  const customerOptions = useMemo(
-    () =>
-      customers.map((c: any) => ({
-        value: String(c.id),
-        label: c.name,
-        searchText: `${c.name ?? ""} ${c.phone ?? ""}`,
-      })),
-    [customers],
   );
 
   return (
@@ -321,91 +236,25 @@ export default function CarWashBookingsPage() {
       </div>
 
       <Modal isOpen={open} onClose={() => setOpen(false)} title={t("carwash.newBooking")}>
-        <form onSubmit={submit} className="space-y-3">
-          <label className="block text-sm text-gray-600">{t("carwash.when")}
-            <input value={form.startsAt} onChange={(e) => setForm({ ...form, startsAt: e.target.value })} type="datetime-local" className="border border-gray-300 rounded p-2 text-sm w-full mt-1" required />
-          </label>
-          <label className="block text-sm text-gray-600">{t("carwash.customer")}
-            <SearchableSelect
-              value={form.customerId}
-              onChange={(v) => {
-                setForm({ ...form, customerId: v });
-                setItems([]);
-                loadVehiclesForCustomer(v);
-              }}
-              options={customerOptions}
-              placeholder={t("carwash.customerOptional")}
-            />
-          </label>
-          <label className="block text-sm text-gray-600">{t("carwash.washer")}
-            <SearchableSelect value={form.washerId} onChange={(v) => setForm({ ...form, washerId: v })} options={washers.map((w) => ({ value: String(w.id), label: w.name }))} placeholder={t("carwash.washer")} />
-          </label>
-
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm text-gray-600">{t("carwash.vehicles")}</span>
-              <button type="button" onClick={addItem} className="text-xs text-blue-600 hover:underline">
-                + {t("carwash.addVehicle")}
-              </button>
-            </div>
-            <div className="space-y-2">
-              {items.map((it, idx) => (
-                <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-                  <div className="col-span-5">
-                    <SearchableSelect
-                      value={it.vehicleId}
-                      onChange={(v) => updateItem(idx, { vehicleId: v })}
-                      options={customerVehicles.map((v) => ({ value: String(v.id), label: `${v.plateNumber} (${v.vehicleType})` }))}
-                      placeholder={t("carwash.vehicles")}
-                    />
-                  </div>
-                  <div className="col-span-4">
-                    <select
-                      value={it.washTypeId}
-                      onChange={(e) => updateItem(idx, { washTypeId: e.target.value })}
-                      className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
-                    >
-                      <option value="">{t("carwash.washType")}</option>
-                      {washTypes.map((w: any) => (
-                        <option key={w.id} value={w.id}>{w.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="col-span-2">
-                    <input value={it.amount} readOnly placeholder={t("carwash.price")} className="border border-gray-300 rounded p-2 text-sm w-full bg-gray-50" />
-                  </div>
-                  <div className="col-span-1 text-right">
-                    <button type="button" onClick={() => removeItem(idx)} className="text-red-500">✕</button>
-                  </div>
-                </div>
-              ))}
-              {items.length === 0 && (
-                <p className="text-xs text-gray-400">{t("carwash.needVehicle")}</p>
-              )}
-            </div>
-            <p className="text-sm text-gray-700 mt-2">
-              {t("carwash.amount")}: <strong>{totalAmount.toLocaleString()}</strong>
-            </p>
-          </div>
-
-          {availability !== null && (
-            <div className={`text-sm px-3 py-2 rounded ${availability ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>
-              {availability ? t("carwash.available") : t("carwash.notAvailable")}
-            </div>
-          )}
-          <button type="button" onClick={checkAvailability} className="text-xs text-blue-600 hover:underline">{t("carwash.availability")}</button>
-          <label className="flex items-center gap-2 text-sm text-gray-600">
-            <input type="checkbox" checked={form.isTimeSlotBooking} onChange={(e) => setForm({ ...form, isTimeSlotBooking: e.target.checked })} />
-            {t("carwash.timeSlotBooking")}
-          </label>
-          <label className="block text-sm text-gray-600">{t("carwash.notes")}
-            <input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder={t("carwash.notes")} className="border border-gray-300 rounded p-2 text-sm w-full mt-1" />
-          </label>
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={() => setOpen(false)} className="px-3 py-2 text-sm text-gray-600">{t("carwash.cancel")}</button>
-            <Button type="submit" loading={saving} shape="rounded">{t("carwash.newBooking")}</Button>
-          </div>
-        </form>
+        <CarWashBookingForm
+          mode="staff"
+          vehicleTypes={[]}
+          washTypes={washTypes.map((w: any) => ({ id: w.id, name: w.name }))}
+          prices={prices}
+          washers={washers.map((w: any) => ({ id: w.id, name: w.name }))}
+          slotMinutes={slotMinutes}
+          showPrices
+          customers={customers.map((c: any) => ({ id: c.id, name: c.name }))}
+          vehicles={vehicles.map((v: any) => ({
+            id: v.id,
+            plateNumber: v.plateNumber,
+            vehicleType: v.vehicleType,
+            customerId: v.customerId,
+          }))}
+          onCheckAvailability={checkAvailability}
+          onSubmit={submitBooking}
+          submitting={saving}
+        />
       </Modal>
     </div>
   );

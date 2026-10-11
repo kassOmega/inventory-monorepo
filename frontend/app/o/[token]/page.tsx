@@ -9,6 +9,7 @@ import api from "@/lib/api";
 import Loading from "@/app/components/Loading";
 import Button from "@/app/components/Button";
 import Modal from "@/app/components/Modal";
+import CarWashBookingForm from "@/app/components/CarWashBookingForm";
 
 interface PublicItem {
   ref: string;
@@ -56,12 +57,19 @@ export default function PublicOrderPage() {
   const [tab, setTab] = useState<string>("");
   // Checkout step: collect name/phone AFTER the guest picks their items.
   const [profileOpen, setProfileOpen] = useState(false);
+  const [carwashOptions, setCarwashOptions] = useState<any>(null);
+  const [bookingSubmitting, setBookingSubmitting] = useState(false);
+  const [bookingDone, setBookingDone] = useState<any>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
     try {
       const r = await api.get(`/public/entry/${token}`);
       setEntry(r.data);
+      if (r.data?.kind === "CARWASH_BAY") {
+        const cw = await api.get(`/public/entry/${token}/carwash-options`);
+        setCarwashOptions(cw.data);
+      }
     } catch (e: any) {
       setError(e?.response?.data?.message ?? "This link is not available");
     } finally {
@@ -159,6 +167,33 @@ export default function PublicOrderPage() {
     submit();
   };
 
+  const checkCarwashAvailability = async (
+    washerId: string,
+    startsAt: string,
+    slotMinutes: number,
+  ) => {
+    const r = await api.get(
+      `/public/entry/${token}/carwash-availability?washerId=${washerId}&startsAt=${encodeURIComponent(startsAt)}&slotMinutes=${slotMinutes}`,
+    );
+    return { available: !!r.data?.available };
+  };
+
+  const submitCarwashBooking = async (payload: any) => {
+    setBookingSubmitting(true);
+    setError("");
+    try {
+      const r = await api.post(
+        `/public/entry/${token}/carwash-bookings`,
+        payload,
+      );
+      setBookingDone(r.data);
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? "Could not submit booking");
+    } finally {
+      setBookingSubmitting(false);
+    }
+  };
+
   // Poll the order status after submit.
   useEffect(() => {
     if (!orderToken) return;
@@ -220,6 +255,18 @@ export default function PublicOrderPage() {
     );
   }
 
+  if (bookingDone) {
+    return (
+      <div className="min-h-screen bg-gray-100 p-6">
+        <div className="mx-auto max-w-md bg-white rounded-xl border p-6 text-center space-y-3">
+          <p className="text-3xl">✅</p>
+          <p className="font-semibold text-gray-800">{t("carwash.bookingSent")}</p>
+          <p className="text-sm text-gray-500">{t("carwash.bookingWaitHint")}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-100 pb-32">
       <header className="bg-white border-b px-4 py-3 sticky top-0 z-10">
@@ -245,6 +292,36 @@ export default function PublicOrderPage() {
         </div>
       )}
 
+      {entry?.kind === "CARWASH_BAY" && (
+        <div className="mx-auto max-w-md p-4">
+          <div className="bg-white rounded-xl border p-4">
+            {carwashOptions ? (
+              <CarWashBookingForm
+                mode="public"
+                vehicleTypes={carwashOptions.vehicleTypes ?? []}
+                washTypes={(carwashOptions.washTypes ?? []).map((w: any) => ({
+                  id: w.id,
+                  name: w.name,
+                }))}
+                prices={carwashOptions.prices ?? []}
+                washers={(carwashOptions.washers ?? []).map((w: any) => ({
+                  id: w.id,
+                  name: w.name,
+                }))}
+                slotMinutes={carwashOptions.slotMinutes ?? 30}
+                showPrices={carwashOptions.showPrices}
+                onCheckAvailability={checkCarwashAvailability}
+                onSubmit={submitCarwashBooking}
+                submitting={bookingSubmitting}
+              />
+            ) : (
+              <Loading className="py-12" />
+            )}
+          </div>
+        </div>
+      )}
+
+      {entry?.kind !== "CARWASH_BAY" && (
       <div className="mx-auto max-w-md p-4 space-y-2">
         {/* Service tabs (multi-service hospitality). */}
         {entry?.services && entry.services.length > 1 && (
@@ -303,8 +380,9 @@ export default function PublicOrderPage() {
           className="border border-gray-300 rounded-lg p-2 text-sm w-full bg-white"
         />
       </div>
+      )}
 
-      {/* Checkout: collect the guest's profile before confirming the order. */}
+      {entry?.kind !== "CARWASH_BAY" && (
       <Modal isOpen={profileOpen} onClose={() => setProfileOpen(false)} title={t("public.profileTitle")} size="sm">
         <div className="space-y-3">
           <p className="text-sm text-gray-500">{t("public.profileHint")}</p>
@@ -337,8 +415,9 @@ export default function PublicOrderPage() {
           </div>
         </div>
       </Modal>
+      )}
 
-      {cartLines.length > 0 && (
+      {entry?.kind !== "CARWASH_BAY" && cartLines.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-3">
           <div className="mx-auto max-w-md space-y-2">
             {/* Read-only summary so guests see each selected line (incl. variants). */}
