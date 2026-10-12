@@ -6,3 +6,11 @@ dist/
 .env.local
 # Local scratch env file: holds live secrets (JWT, VAPID, Gemini) — never commit.
 env.txt
+
+# Planning / working notes — not part of the shipped product.
+docs/plan-*.md
+
+# Generated status report + AI-agent instruction files (dev-only clutter).
+LOCALE_STATUS.md
+frontend/AGENTS.md
+frontend/CLAUDE.md
