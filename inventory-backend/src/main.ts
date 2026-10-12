@@ -1,4 +1,18 @@
-import 'dotenv/config';
+import { config as loadEnv } from 'dotenv';
+import { resolve } from 'path';
+
+// Load the backend .env even when the server is launched from the monorepo
+// root (or a different cwd). `nest start --watch` does NOT reload .env on
+// change, so after editing .env the backend must be restarted for new values
+// to be picked up.
+for (const envPath of [
+  resolve(process.cwd(), '.env'),
+  resolve(process.cwd(), 'inventory-backend/.env'),
+  resolve(__dirname, '../../.env'),
+  resolve(__dirname, '../.env'),
+]) {
+  loadEnv({ path: envPath });
+}
 
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
