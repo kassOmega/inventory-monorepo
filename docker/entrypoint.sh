@@ -203,10 +203,11 @@ start_frontend() {
 }
 
 wait_for_backend() {
-  # Nest has no /health route; hitting / is enough to know the server is bound.
+  # Nest now exposes GET /health (app.controller.ts). Hitting it means the server
+  # is bound and accepting connections, independent of DB / upstream services.
   node -e '
     const port = process.env.BACKEND_PORT || 3000;
-    const url = `http://127.0.0.1:${port}/`;
+    const url = `http://127.0.0.1:${port}/health`;
     const deadline = Date.now() + 10_000;
     const tick = async () => {
       if (Date.now() > deadline) {
