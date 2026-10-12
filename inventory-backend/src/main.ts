@@ -1,5 +1,6 @@
 import { config as loadEnv } from 'dotenv';
-import { resolve } from 'path';
+import { mkdirSync, writeFileSync } from 'fs';
+import { dirname, resolve } from 'path';
 
 // Load the backend .env even when the server is launched from the monorepo
 // root (or a different cwd). `nest start --watch` does NOT reload .env on
@@ -36,12 +37,47 @@ function resolveCorsOrigins(): string[] {
     .filter(Boolean);
 }
 
+function writeBootFailure(error: unknown): void {
+  const file = process.env.STATUS_FILE;
+  if (!file) return;
+  try {
+    const message = error instanceof Error ? error.message : String(error);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(
+      file,
+      JSON.stringify(
+        {
+          stage: 'backend',
+          ok: false,
+          error: message,
+          time: new Date().toISOString(),
+        },
+        null,
+        2,
+      ) + '\n',
+    );
+  } catch {
+    // The status file must never mask the real boot failure.
+  }
+}
+
 async function bootstrap() {
   const jwtSecret = process.env.JWT_SECRET;
-  if (!jwtSecret || jwtSecret.length < 64) {
-    throw new Error(
-      'JWT_SECRET must be set to a strong random value of at least 64 ' +
-        'characters (generate one with: openssl rand -hex 64).',
+  // 32 characters (~128 bits of hex) is the hard floor. The security hardening
+  // recommends 64+, but enforcing that as a hard failure took prod down because
+  // the owner cannot change the host env var. Warn loudly instead of crashing so
+  // an existing 32+ char secret keeps working; rotate when convenient.
+  if (!jwtSecret || jwtSecret.length < 32) {
+    const message =
+      'JWT_SECRET must be set to a strong random value of at least 32 ' +
+      'characters (generate one with: openssl rand -hex 64).';
+    writeBootFailure(new Error(message));
+    throw new Error(message);
+  }
+  if (jwtSecret.length < 64) {
+    console.warn(
+      '[backend] JWT_SECRET is shorter than the recommended 64 characters; ' +
+        'rotate it with `openssl rand -hex 64` when convenient.',
     );
   }
 
@@ -134,4 +170,8 @@ async function bootstrap() {
   const url = await app.getUrl();
   console.log(`[backend] listening on ${url} (PORT=${port})`);
 }
-bootstrap();
+bootstrap().catch((err) => {
+  writeBootFailure(err);
+  console.error('[backend] fatal boot error:', err);
+  process.exit(1);
+});

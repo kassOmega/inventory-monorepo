@@ -136,7 +136,7 @@ EXPOSE 3001
 # database can take a while, so give the start period enough headroom. Failures
 # during --start-period do not count against --retries.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3001)+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3001)+'/status').then(async r=>{if(!r.ok)return process.exit(1);const t=await r.text();process.exit(t.includes('data-startup-ok=\"true\"')?0:1)}).catch(()=>process.exit(1))"
 
 WORKDIR /app/backend
 CMD ["/usr/local/bin/entrypoint.sh"]

@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+import { Public } from './common/decorators/public.decorator';
 import { AppService } from './app.service';
 
 @Controller()
@@ -15,6 +16,7 @@ export class AppController {
    * the Nest server is bound and accepting connections, independent of the DB or
    * any upstream AI service.
    */
+  @Public()
   @Get('health')
   getHealth(): { ok: boolean; uptime: number } {
     return { ok: true, uptime: process.uptime() };
