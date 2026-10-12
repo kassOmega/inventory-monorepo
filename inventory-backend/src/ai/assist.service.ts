@@ -1,4 +1,5 @@
 // src/ai/assist.service.ts
+import { createHmac } from 'node:crypto';
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -12,9 +13,10 @@ export interface AssistStatus {
 }
 
 /**
- * Daily quota (5 chats / guest device / UTC day) for the PUBLIC onboarding
- * assistant. Not tied to a signed-in User — quota key is a per-browser uuid
- * stored in localStorage, so a reset is one new guestId (same as "new day").
+ * Daily quota (5 chats / client IP / UTC day) for the PUBLIC onboarding
+ * assistant. The quota is bound to the real client IP seen by the server and
+ * stored under an HMAC digest, so rotating the client-supplied `guestId` can
+ * never reset the daily allowance. The raw IP is never persisted.
  */
 @Injectable()
 export class AssistService {
@@ -26,7 +28,17 @@ export class AssistService {
     return new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
   }
 
-  async status(guestId: string): Promise<AssistStatus> {
+  /** Non-reversible per-IP quota key (HMAC-SHA256, truncated for storage). */
+  private quotaKey(clientIp: string): string {
+    const secret = process.env.JWT_SECRET ?? 'kass-assist-quota-salt';
+    return createHmac('sha256', secret)
+      .update(clientIp ?? 'unknown')
+      .digest('hex')
+      .slice(0, 40);
+  }
+
+  async status(clientIp: string): Promise<AssistStatus> {
+    const guestId = this.quotaKey(clientIp);
     const rec = await this.prisma.aiAssistGuest.findUnique({
       where: { guestId_date: { guestId, date: this.todayKey() } },
     });
@@ -39,11 +51,11 @@ export class AssistService {
   }
 
   /**
-   * Reserve one chat for the guest. Throws 429 (HTTP, standard JSON) when the
-   * daily allowance is used up — call BEFORE opening the SSE stream.
+   * Reserve one chat for the client IP. Throws 429 (HTTP, standard JSON) when
+   * the daily allowance is used up — call BEFORE opening the SSE stream.
    */
-  async consume(guestId: string): Promise<AssistStatus> {
-    const current = await this.status(guestId);
+  async consume(clientIp: string): Promise<AssistStatus> {
+    const current = await this.status(clientIp);
     if (current.remaining <= 0) {
       throw new HttpException(
         {
@@ -55,6 +67,7 @@ export class AssistService {
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
+    const guestId = this.quotaKey(clientIp);
     await this.prisma.aiAssistGuest.upsert({
       where: { guestId_date: { guestId, date: this.todayKey() } },
       create: { guestId, date: this.todayKey(), count: 1 },

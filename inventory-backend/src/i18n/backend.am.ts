@@ -7,6 +7,7 @@ export const amMessages: Record<string, any> = {
     unauthorized: 'ያልተፈቀደ',
     forbidden: 'የተከለከለ ሀብት',
     notFound: 'አልተገኘም',
+    internalServerError: 'የውስጥ ሰርቨር ስህተት',
     noActiveOrganization: 'ንቁ ድርጅት የለም',
     roleNotFound: 'ሚና አልተገኘም',
     userNotFound: 'ተጠቃሚ አልተገኘም',
@@ -229,6 +230,8 @@ export const amMessages: Record<string, any> = {
     // ስለማይችል እያንዳንዱ በ tr('errors.<key>', {...}) ይነሳል።
     aiTrialEnded:
       '⚠️ የ AI ነፃ ሙከራው በ{{date}} አብቅቷል። ለማራዘም ወይም የ AI ባህሪውን ለማንቃት አስተዳዳሪውን ያግኙ።',
+    aiDataSharingDisabled:
+      'የዚህ ንግድ AI መረጃ መጋራት ተሰናክሏል። ባለቤቱ በ AI ቅንብሮች ውስጥ እንዲያነቃው ይጠይቁ።',
     aiDailyLimitReached:
       '⚠️ የቀኑ ገደብ ደርሷል፦ {{quota}}/{{quota}} የ AI ጥያቄዎችን ተጠቅመዋል። ገደቡ እኩለ ሌሊት ይታደሳል።',
     creditPaymentExceedsRemaining:

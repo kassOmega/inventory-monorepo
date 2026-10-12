@@ -104,10 +104,21 @@ export default function LoginPage() {
   const { login } = useAuth();
 
   // Show a one-time success banner when redirected from the signup page.
+  // The update is deferred out of the effect body so it is not a synchronous
+  // setState (which would trigger React's cascading-render warning).
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setJustCreated(new URLSearchParams(window.location.search).has("created"));
-    }
+    let active = true;
+    const id = setTimeout(() => {
+      if (active) {
+        setJustCreated(
+          new URLSearchParams(window.location.search).has("created"),
+        );
+      }
+    }, 0);
+    return () => {
+      active = false;
+      clearTimeout(id);
+    };
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -116,7 +127,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res = await api.post("/auth/login", { identifier: email, password });
-      login(res.data.access_token, res.data.user);
+      login(res.data.user);
     } catch (err: any) {
       if (err?.response?.status === 401) {
         setError(t("auth.invalidCredentials"));

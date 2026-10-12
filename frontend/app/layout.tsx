@@ -44,7 +44,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>
+      {/* suppressHydrationWarning: browser extensions (e.g. Grammarly) inject
+          attributes onto <body> after SSR, which is not an app bug. */}
+      <body suppressHydrationWarning>
         <AuthProvider>
           <LanguageProvider>
             <LoadingBar />

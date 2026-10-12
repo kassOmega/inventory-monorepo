@@ -8,8 +8,22 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { UserStatus } from '@prisma/client';
-import { Prisma } from '@prisma/client';
+import { Prisma, UserStatus } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
+import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
+import { looksLikeEmail, normalizePhone } from '../common/phone.util';
+import { getCurrentTenantId } from '../common/tenant/tenant.context';
+import {
+  buildTokenClaims,
+  buildUserPayload,
+} from '../common/user-payload.util';
+import { tr } from '../i18n/i18n.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { TenantsService } from '../tenants/tenants.service';
+import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
+import { SignupDto } from './dto/signup.dto';
 
 /** The relation set loaded for login / payload building (shared shape). */
 const AUTH_USER_INCLUDE = {
@@ -26,31 +40,12 @@ const AUTH_USER_INCLUDE = {
     },
   },
 } satisfies Prisma.UserInclude;
-import * as bcrypt from 'bcrypt';
-import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
-import { NotificationsService } from '../notifications/notifications.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { TenantsService } from '../tenants/tenants.service';
-import { getCurrentTenantId } from '../common/tenant/tenant.context';
-import { buildTokenClaims, buildUserPayload } from '../common/user-payload.util';
-import { looksLikeEmail, normalizePhone } from '../common/phone.util';
-import { tr } from '../i18n/i18n.service';
-import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
-import { SignupDto } from './dto/signup.dto';
 
 const MAX_FAILED_ATTEMPTS = 5;
 const BLOCK_MS = 15 * 60 * 1000;
 
-interface FailedAttempt {
-  count: number;
-  blockedUntil: number;
-}
-
 @Injectable()
 export class AuthService {
-  private readonly failedLogins = new Map<string, FailedAttempt>();
-
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -93,26 +88,41 @@ export class AuthService {
     return matched.length === 1 ? matched[0] : null;
   }
 
-  private isBlocked(key: string): boolean {
-    const entry = this.failedLogins.get(key);
-    if (!entry) return false;
-    if (entry.blockedUntil > Date.now()) return true;
-    this.failedLogins.delete(key);
+  /**
+   * Lockout state is persisted in the `LoginAttempt` table so it survives
+   * restarts and is shared across horizontally scaled backend instances.
+   */
+  private async isBlocked(key: string): Promise<boolean> {
+    const row = await this.prisma.loginAttempt.findUnique({ where: { key } });
+    if (!row) return false;
+    if (row.blockedUntil && row.blockedUntil.getTime() > Date.now()) {
+      return true;
+    }
+    // Expired lockout — clear it so a fresh failure count can start cleanly.
+    await this.prisma.loginAttempt.delete({ where: { key } }).catch(() => {});
     return false;
   }
 
-  private recordFailure(key: string) {
-    const entry = this.failedLogins.get(key) ?? { count: 0, blockedUntil: 0 };
-    entry.count += 1;
-    if (entry.count >= MAX_FAILED_ATTEMPTS) {
-      entry.blockedUntil = Date.now() + BLOCK_MS;
-      entry.count = 0;
-    }
-    this.failedLogins.set(key, entry);
+  private async recordFailure(key: string): Promise<void> {
+    await this.prisma.loginAttempt.upsert({
+      where: { key },
+      create: { key, attempts: 1 },
+      update: { attempts: { increment: 1 } },
+    });
+    // Once the threshold is reached, replace the counter with a lockout window
+    // (attempts reset to 0 so the next window starts clean after it expires).
+    await this.prisma.loginAttempt.updateMany({
+      where: {
+        key,
+        attempts: { gte: MAX_FAILED_ATTEMPTS },
+        blockedUntil: null,
+      },
+      data: { attempts: 0, blockedUntil: new Date(Date.now() + BLOCK_MS) },
+    });
   }
 
-  private clearFailures(key: string) {
-    this.failedLogins.delete(key);
+  private async clearFailures(key: string): Promise<void> {
+    await this.prisma.loginAttempt.deleteMany({ where: { key } });
   }
 
   /**
@@ -164,16 +174,15 @@ export class AuthService {
     });
     if (!role) throw new BadRequestException(tr('errors.roleNotFound'));
     if (role.isSystem && !caller.isSuperuser) {
-      throw new ForbiddenException(
-        tr('errors.onlyOwnerCanAssignSystemRoles'),
-      );
+      throw new ForbiddenException(tr('errors.onlyOwnerCanAssignSystemRoles'));
     }
 
     if (dto.locationId != null) {
       const location = await this.prisma.location.findUnique({
         where: { id: dto.locationId },
       });
-      if (!location) throw new BadRequestException(tr('errors.locationNotFound'));
+      if (!location)
+        throw new BadRequestException(tr('errors.locationNotFound'));
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
@@ -193,13 +202,30 @@ export class AuthService {
     // Link the new staff member to the active organization via a membership.
     if (tenantId != null) {
       await this.prisma.membership.create({
-        data: { userId: user.id, organizationId: tenantId, roleId: dto.roleId, status: UserStatus.ACTIVE },
+        data: {
+          userId: user.id,
+          organizationId: tenantId,
+          roleId: dto.roleId,
+          status: UserStatus.ACTIVE,
+        },
       });
       // Every user is also a worker in the organization's employee roster.
       await this.prisma.worker.upsert({
         where: { userId: user.id },
-        update: { organizationId: tenantId, name: dto.name, locationId: dto.locationId ?? null, status: UserStatus.ACTIVE },
-        create: { organizationId: tenantId, userId: user.id, name: dto.name, title: null, locationId: dto.locationId ?? null, status: UserStatus.ACTIVE },
+        update: {
+          organizationId: tenantId,
+          name: dto.name,
+          locationId: dto.locationId ?? null,
+          status: UserStatus.ACTIVE,
+        },
+        create: {
+          organizationId: tenantId,
+          userId: user.id,
+          name: dto.name,
+          title: null,
+          locationId: dto.locationId ?? null,
+          status: UserStatus.ACTIVE,
+        },
       });
     }
     await this.audit(
@@ -279,7 +305,9 @@ export class AuthService {
         memberships: {
           include: {
             organization: true,
-            role: { include: { permissions: { include: { permission: true } } } },
+            role: {
+              include: { permissions: { include: { permission: true } } },
+            },
           },
         },
       },
@@ -319,26 +347,26 @@ export class AuthService {
     // preferred field; `email` is kept as a fallback for older clients.
     const rawIdentifier = (dto.identifier ?? dto.email ?? '').trim();
     const key = this.lockoutKey(rawIdentifier, ip);
-    if (this.isBlocked(key)) {
+    if (await this.isBlocked(key)) {
       throw new HttpException(
         tr('errors.tooManyAttempts'),
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
 
-    const user = await this.findUserByIdentifier(rawIdentifier, AUTH_USER_INCLUDE);
+    const user = await this.findUserByIdentifier(
+      rawIdentifier,
+      AUTH_USER_INCLUDE,
+    );
 
     if (!user) {
-      this.recordFailure(key);
+      await this.recordFailure(key);
       throw new UnauthorizedException(tr('errors.invalidCredentials'));
     }
 
-    const isPasswordValid = await bcrypt.compare(
-      dto.password,
-      user.password,
-    );
+    const isPasswordValid = await bcrypt.compare(dto.password, user.password);
     if (!isPasswordValid) {
-      this.recordFailure(key);
+      await this.recordFailure(key);
       await this.audit(
         user.id,
         'LOGIN_FAILED',
@@ -351,7 +379,7 @@ export class AuthService {
       throw new ForbiddenException(tr('errors.accountInactive'));
     }
 
-    this.clearFailures(key);
+    await this.clearFailures(key);
 
     const payload = await this.enrichStaffCounts(buildUserPayload(user));
 
@@ -418,7 +446,9 @@ export class AuthService {
         memberships: {
           include: {
             organization: true,
-            role: { include: { permissions: { include: { permission: true } } } },
+            role: {
+              include: { permissions: { include: { permission: true } } },
+            },
           },
         },
       },

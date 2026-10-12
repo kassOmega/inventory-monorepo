@@ -120,6 +120,7 @@ export default function AdminBusinessesPage() {
     businessType: "RETAIL",
     standalone: false,
     aiEnabled: true,
+    aiDataSharingEnabled: false,
     aiTrialEndsAt: addDays(15),
   });
   const [tradeLicense, setTradeLicense] = useState<File | null>(null);
@@ -134,6 +135,7 @@ export default function AdminBusinessesPage() {
     ownerPassword: "",
     newOwnerUserId: "",
     aiEnabled: true,
+    aiDataSharingEnabled: false,
     aiTrialEndsAt: "",
   });
   // Pending verification-status selection per business (applied on "Apply").
@@ -169,6 +171,7 @@ export default function AdminBusinessesPage() {
         businessType: form.businessType,
         standalone: form.standalone,
         aiEnabled: form.aiEnabled,
+        aiDataSharingEnabled: form.aiDataSharingEnabled,
         aiTrialEndsAt: form.aiTrialEndsAt,
       });
       const orgId = res.data.id;
@@ -186,7 +189,7 @@ export default function AdminBusinessesPage() {
       if (tradeLicense) await uploadDoc("TRADE_LICENSE", tradeLicense);
       if (tinCertificate) await uploadDoc("TIN_CERTIFICATE", tinCertificate);
 
-      setForm({ ownerUserId: "", name: "", businessType: "RETAIL", standalone: false, aiEnabled: true, aiTrialEndsAt: addDays(15) });
+      setForm({ ownerUserId: "", name: "", businessType: "RETAIL", standalone: false, aiEnabled: true, aiDataSharingEnabled: false, aiTrialEndsAt: addDays(15) });
       setTradeLicense(null);
       setTinCertificate(null);
       await load();
@@ -242,6 +245,7 @@ export default function AdminBusinessesPage() {
       ownerPassword: "",
       newOwnerUserId: owner?.id ? String(owner.id) : "",
       aiEnabled: o.aiEnabled !== false,
+      aiDataSharingEnabled: o.aiDataSharingEnabled === true,
       aiTrialEndsAt: o.aiTrialEndsAt ? String(o.aiTrialEndsAt).slice(0, 10) : "",
     });
   };
@@ -255,6 +259,7 @@ export default function AdminBusinessesPage() {
         name: editForm.name,
         businessType: editForm.businessType,
         aiEnabled: editForm.aiEnabled,
+        aiDataSharingEnabled: editForm.aiDataSharingEnabled,
         aiTrialEndsAt: editForm.aiTrialEndsAt || null,
       });
       // Reassign the owner if a different user was picked via the dropdown.
@@ -366,6 +371,15 @@ export default function AdminBusinessesPage() {
                 className="rounded"
               />
               {t("biz.aiEnabled")}
+            </label>
+            <label className="flex items-center gap-2 text-xs text-gray-600">
+              <input
+                type="checkbox"
+                checked={form.aiDataSharingEnabled}
+                onChange={(e) => setForm({ ...form, aiDataSharingEnabled: e.target.checked })}
+                className="rounded"
+              />
+              {t("adm.biz.aiDataSharing")}
             </label>
             <div className="text-xs text-gray-600">
               <span className="block mb-1">{t("adm.biz.aiWindow")}</span>
@@ -525,6 +539,15 @@ export default function AdminBusinessesPage() {
                     className="rounded"
                   />
                   {t("adm.biz.aiEnabledOnDemand")}
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-700 mb-2">
+                  <input
+                    type="checkbox"
+                    checked={editForm.aiDataSharingEnabled}
+                    onChange={(e) => setEditForm({ ...editForm, aiDataSharingEnabled: e.target.checked })}
+                    className="rounded"
+                  />
+                  {t("adm.biz.aiDataSharing")}
                 </label>
                 <label className="block text-xs text-gray-500 mb-1">
                   {t("adm.biz.aiWindowLabel")}

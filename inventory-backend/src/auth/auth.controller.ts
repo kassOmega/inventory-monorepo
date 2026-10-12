@@ -61,8 +61,16 @@ export class AuthController {
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('signup')
-  signup(@Body() dto: SignupDto) {
-    return this.authService.signup(dto);
+  async signup(
+    @Body() dto: SignupDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.signup(dto);
+    // Signup returns a fresh JWT so the client can immediately upload its
+    // verification documents. Deliver it as the same HttpOnly cookie as login
+    // (the browser transport) instead of relying on localStorage.
+    res.cookie(AUTH_COOKIE_NAME, result.access_token, authCookieOptions());
+    return result;
   }
 
   @Permissions('users.manage')

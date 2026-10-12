@@ -58,7 +58,6 @@ export default function SignupPage() {
   // is not repeated, and remember which documents already uploaded successfully
   // so a retry never creates duplicate document rows.
   const createdRef = useRef<{
-    token: string;
     user: any;
     orgId?: number;
   } | null>(null);
@@ -110,16 +109,15 @@ export default function SignupPage() {
 
         if (res.data?.access_token) {
           createdRef.current = {
-            token: res.data.access_token,
             user: res.data.user,
             orgId: res.data?.business?.id,
           };
           uploadedRef.current.clear();
-          // Put the session into localStorage so the uploads below are
-          // authorized, but do NOT call login() yet — login() navigates to the
-          // dashboard, and we must not leave this form until every document has
-          // actually been uploaded.
-          localStorage.setItem("token", res.data.access_token);
+          // The backend sets the HttpOnly session cookie on signup, so the
+          // uploads below are authorized via the cookie. Cache the non-secret
+          // user snapshot for the active-tenant selector, but do NOT call
+          // login() yet — login() navigates to the dashboard, and we must not
+          // leave this form until every document has actually been uploaded.
           localStorage.setItem("user", JSON.stringify(res.data.user));
           // Adopt the new business as the active tenant (or clear a stale id from
           // a previous account) so the verification uploads below are not
@@ -197,7 +195,7 @@ export default function SignupPage() {
       // All documents uploaded (or none were selected). Only now finalize the
       // session and navigate — so a failed upload can never redirect the user
       // into thinking their document was accepted.
-      login(createdRef.current.token, createdRef.current.user);
+      login(createdRef.current!.user);
     } catch (err: any) {
       markHandled(err);
       setError(

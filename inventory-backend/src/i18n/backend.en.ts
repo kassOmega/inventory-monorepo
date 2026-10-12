@@ -8,6 +8,7 @@ export const enMessages: Record<string, any> = {
     unauthorized: 'Unauthorized',
     forbidden: 'Forbidden resource',
     notFound: 'Not found',
+    internalServerError: 'Internal server error',
     noActiveOrganization: 'No active organization',
     roleNotFound: 'Role not found',
     userNotFound: 'User not found',
@@ -237,6 +238,8 @@ export const enMessages: Record<string, any> = {
     // reverse-map, so each of these is raised through tr('errors.<key>', {...}).
     aiTrialEnded:
       '⚠️ The AI free trial ended on {{date}}. Contact the admin to extend or enable the AI feature.',
+    aiDataSharingDisabled:
+      'AI data sharing is disabled for this business. Ask the owner to enable it in AI settings.',
     aiDailyLimitReached:
       '⚠️ Daily limit reached: You have used {{quota}}/{{quota}} daily AI queries. Quota resets at midnight.',
     creditPaymentExceedsRemaining:

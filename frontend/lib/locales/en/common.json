@@ -3329,6 +3329,7 @@
       "aiNoDate": "AI on — set an access date",
       "aiFeature": "AI Feature",
       "aiEnabledOnDemand": "AI enabled (on-demand)",
+      "aiDataSharing": "Share business data with external AI providers (consent)",
       "aiHint": "AI is usable only while an access end date is set. Pick 15 days / 1 month / 3 months or set a custom date. Leave empty to disable AI for this business.",
       "accessEnds": "Access ends:",
       "day15": "15 days",

@@ -58,7 +58,7 @@ interface AuthContextType {
   user: User | null;
   activeOrganizationId: number | null;
   activeMembership: Membership | null;
-  login: (token: string, userData: User) => void;
+  login: (userData: User) => void;
   logout: () => void;
   isLoading: boolean;
   hasPermission: (key: string) => boolean;
@@ -97,11 +97,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           );
         } else {
           localStorage.removeItem("user");
-          localStorage.removeItem("token");
         }
       } catch {
         localStorage.removeItem("user");
-        localStorage.removeItem("token");
       }
     }
     // Refresh the current user + permissions from the server so role/permission
@@ -129,7 +127,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const status = err?.response?.status;
         if (status === 401 || status === 403) {
           localStorage.removeItem("user");
-          localStorage.removeItem("token");
           localStorage.removeItem(ORG_STORAGE_KEY);
           setUser(null);
           setActiveOrganizationId(null);
@@ -138,8 +135,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setIsLoading(false));
   }, []);
 
-  const login = (token: string, userData: User) => {
-    localStorage.setItem("token", token);
+  const login = (userData: User) => {
+    // The JWT is delivered as an HttpOnly cookie by the backend and is never
+    // stored in localStorage; only the non-secret UI snapshot is cached.
     localStorage.setItem("user", JSON.stringify(userData));
     setUser(userData);
     const orgId =
@@ -157,11 +155,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    // JwtStrategy prefers the HttpOnly access_token cookie over the Bearer
-    // header, so clear it server-side as well (best-effort — the redirect below
-    // navigates immediately).
+    // Clear the HttpOnly session cookie server-side (best-effort — the redirect
+    // below navigates immediately).
     api.post("/auth/logout").catch(() => undefined);
-    localStorage.removeItem("token");
     localStorage.removeItem("user");
     localStorage.removeItem(ORG_STORAGE_KEY);
     setUser(null);

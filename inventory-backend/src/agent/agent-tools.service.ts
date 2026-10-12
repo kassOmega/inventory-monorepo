@@ -12,6 +12,11 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PushService } from '../push/push.service';
+import {
+  sanitizeAgentString,
+  toSafeAmount,
+  toSafeInteger,
+} from './agent-sanitize.util';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -85,7 +90,7 @@ export class AgentToolsService {
       catMap.set(key, row);
     }
     const categoryEconomics = [...catMap.values()].map((c) => ({
-      category: c.category,
+      category: sanitizeAgentString(c.category, 120),
       revenue: round2(c.revenue),
       cost: round2(c.cost),
       profit: round2(c.revenue - c.cost),
@@ -102,7 +107,10 @@ export class AgentToolsService {
         status: r.status,
         items: r.items.map((i) => ({
           productId: i.productId,
-          product: `${i.product.brand} ${i.product.baseName}`,
+          product: sanitizeAgentString(
+            `${i.product.brand} ${i.product.baseName}`,
+            160,
+          ),
           quantityRequested: i.quantityRequested ?? 0,
           unitBuyPrice: i.product.currentBuyPrice,
         })),
@@ -116,7 +124,7 @@ export class AgentToolsService {
       })),
       lowStockItems: lowStockCount,
       recentSales: recentSales.map((s) => ({
-        invoice: s.invoiceNumber,
+        invoice: sanitizeAgentString(s.invoiceNumber, 80),
         amount: s.totalAmount,
         date: s.saleDate.toISOString().slice(0, 10),
       })),
@@ -137,8 +145,12 @@ export class AgentToolsService {
     orgId: number,
     requestId: number,
   ): Promise<Record<string, unknown>> {
+    const safeRequestId = toSafeInteger(requestId);
+    if (safeRequestId == null) {
+      return { ok: false, error: 'Invalid stock request id' };
+    }
     const request = await this.prisma.stockRequest.findFirst({
-      where: { id: requestId, tenantId: orgId },
+      where: { id: safeRequestId, tenantId: orgId },
       include: { items: { include: { product: true } } },
     });
     if (!request) return { ok: false, error: 'Stock request not found' };
@@ -157,24 +169,24 @@ export class AgentToolsService {
     const withinBudget = totalCost <= config.maxAutoSpend;
 
     if (withinBudget) {
-      await this.markRequestApproved(orgId, requestId);
+      await this.markRequestApproved(orgId, safeRequestId);
       await this.logAction(orgId, {
         actionType: 'APPROVE_RESTOCK',
-        targetEntity: `StockRequest:${requestId}`,
-        description: `Auto-approved restock request #${requestId} (${request.items.length} item(s)) costing ${totalCost} — within maxAutoSpend ${config.maxAutoSpend}.`,
+        targetEntity: `StockRequest:${safeRequestId}`,
+        description: `Auto-approved restock request #${safeRequestId} (${request.items.length} item(s)) costing ${totalCost} — within maxAutoSpend ${config.maxAutoSpend}.`,
         status: ActionStatus.EXECUTED,
-        payload: { requestId, totalCost, withinBudget: true },
+        payload: { requestId: safeRequestId, totalCost, withinBudget: true },
       });
-      return { ok: true, action: 'approved', requestId, totalCost };
+      return { ok: true, action: 'approved', requestId: safeRequestId, totalCost };
     }
 
     const staged = await this.stageAction(orgId, {
       actionType: 'APPROVE_RESTOCK',
-      targetEntity: `StockRequest:${requestId}`,
-      description: `Staged restock approval for request #${requestId} costing ${totalCost} (exceeds maxAutoSpend ${config.maxAutoSpend}).`,
-      payload: { requestId, totalCost, withinBudget: false },
+      targetEntity: `StockRequest:${safeRequestId}`,
+      description: `Staged restock approval for request #${safeRequestId} costing ${totalCost} (exceeds maxAutoSpend ${config.maxAutoSpend}).`,
+      payload: { requestId: safeRequestId, totalCost, withinBudget: false },
     });
-    return { ok: true, action: 'staged_for_approval', requestId, totalCost, approvalId: staged.id };
+    return { ok: true, action: 'staged_for_approval', requestId: safeRequestId, totalCost, approvalId: staged.id };
   }
 
   /** Log a cash variance at a cashier station and alert the owner. */
@@ -184,13 +196,27 @@ export class AgentToolsService {
     missingAmount: number,
     notes?: string,
   ): Promise<Record<string, unknown>> {
-    const description = `Cash variance of ${round2(missingAmount)} at cashier User:${cashierUserId} — ${notes || 'no notes'}`;
+    const safeCashierId = toSafeInteger(cashierUserId);
+    const safeAmount = toSafeAmount(missingAmount);
+    if (safeCashierId == null || safeAmount == null) {
+      return { ok: false, error: 'Invalid discrepancy arguments' };
+    }
+    // The flagged cashier must actually belong to this organization.
+    const member = await this.prisma.membership.findFirst({
+      where: { userId: safeCashierId, organizationId: orgId },
+      select: { userId: true },
+    });
+    if (!member) {
+      return { ok: false, error: 'Cashier not found in this organization' };
+    }
+    const safeNotes = notes ? sanitizeAgentString(notes, 300) : undefined;
+    const description = `Cash variance of ${round2(safeAmount)} at cashier User:${safeCashierId} — ${safeNotes || 'no notes'}`;
     await this.logAction(orgId, {
       actionType: 'FLAG_DISCREPANCY',
-      targetEntity: `User:${cashierUserId}`,
+      targetEntity: `User:${safeCashierId}`,
       description,
       status: ActionStatus.EXECUTED,
-      payload: { cashierUserId, missingAmount, notes },
+      payload: { cashierUserId: safeCashierId, missingAmount: safeAmount, notes: safeNotes },
     });
     await this.notifyOwner(orgId, '⚠️ Financial discrepancy flagged', description);
     return { ok: true, logged: true };
@@ -203,13 +229,20 @@ export class AgentToolsService {
     details: string,
     requiredApproval: string,
   ): Promise<Record<string, unknown>> {
+    const safeActionType = sanitizeAgentString(actionType, 120);
+    const safeDetails = sanitizeAgentString(details, 500);
+    const safeApproval = sanitizeAgentString(requiredApproval, 60) || 'OWNER';
     const staged = await this.stageAction(orgId, {
       actionType: 'STAGE_HIGH_RISK',
       targetEntity: null,
-      description: details,
-      payload: { actionType, details, requiredApproval },
+      description: safeDetails,
+      payload: {
+        actionType: safeActionType,
+        details: safeDetails,
+        requiredApproval: safeApproval,
+      },
     });
-    return { ok: true, staged: staged.id, requiredApproval };
+    return { ok: true, staged: staged.id, requiredApproval: safeApproval };
   }
 
   // =========================================================================

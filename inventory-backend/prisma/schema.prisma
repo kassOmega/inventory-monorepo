@@ -279,6 +279,10 @@ model Organization {
   enabledHospitalityServices String[]     @default([])
   aiEnabled                  Boolean      @default(true) // AI feature enabled (on-demand, admin-controlled)
   aiTrialEndsAt              DateTime? // null = unlimited (paid); otherwise the 15-day trial / granted window
+  // Opt-in consent for sending this organization's business data to external AI
+  // providers (Gemini). Defaults OFF; AI/agent features are blocked until the
+  // owner enables it explicitly.
+  aiDataSharingEnabled       Boolean      @default(false)
   createdAt                  DateTime     @default(now())
   updatedAt                  DateTime     @updatedAt
 
@@ -484,7 +488,13 @@ model SubscriptionPlan {
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
-  @@unique([businessType, term])
+  // NOTE: no `@@unique([businessType, term])` here. Postgres treats NULLs as
+  // distinct, so the DB enforces uniqueness with two PARTIAL unique indexes
+  // (see migration 20261016000000_tenant_subscriptions):
+  //   SubscriptionPlan_businessType_term_key (WHERE businessType IS NOT NULL)
+  //   SubscriptionPlan_global_term_key        (WHERE businessType IS NULL)
+  // Prisma cannot model partial indexes, so they are managed by that migration
+  // and must not be re-declared (db push would otherwise collide on the name).
 }
 
 /// The live subscription state of one tenant (1:1 with Organization).
@@ -2398,17 +2408,30 @@ model UserDailyAiUsage {
   @@index([userId])
 }
 
-// Public AI onboarding assistant — anonymous per-device/guest daily quota
-// (5 free chats per device per UTC day). Public routes only; no User relation.
+// Public AI onboarding assistant — anonymous per-client-IP daily quota
+// (5 free chats per IP per UTC day). Public routes only; no User relation.
 model AiAssistGuest {
   id        Int      @id @default(autoincrement())
-  guestId   String // stable per-device browser id (uuid persisted in localStorage)
+  guestId   String // HMAC digest of the server-observed client IP (raw IP never stored)
   date      String // ISO date "YYYY-MM-DD" (UTC)
   count     Int      @default(0)
   updatedAt DateTime @updatedAt
 
   @@unique([guestId, date])
   @@index([guestId])
+}
+
+// Persistent login-failure lockout state. Survives backend restarts and is
+// shared across horizontally scaled instances (unlike an in-memory Map).
+// `key` is the normalized `identifier|ip` lockout key.
+model LoginAttempt {
+  id           Int       @id @default(autoincrement())
+  key          String    @unique
+  attempts     Int       @default(0)
+  blockedUntil DateTime?
+  updatedAt    DateTime  @updatedAt
+
+  @@index([blockedUntil])
 }
 
 // --- Autonomous Owner Agent ---

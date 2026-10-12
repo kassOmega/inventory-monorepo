@@ -39,6 +39,8 @@ export class CreateOrgForOwnerDto {
   /** AI entitlement overrides for the new business (admin-only path). */
   @IsBoolean() @IsOptional() aiEnabled?: boolean;
   @IsDateString() @IsOptional() aiTrialEndsAt?: string | null;
+  /** Opt-in consent to send this org's business data to external AI providers. */
+  @IsBoolean() @IsOptional() aiDataSharingEnabled?: boolean;
 
   /** Standalone = a single shop that manages its own inventory (no store). */
   @IsBoolean() @IsOptional() standalone?: boolean;
@@ -68,6 +70,8 @@ export class UpdateOrganizationDto {
   @IsBoolean() @IsOptional() aiEnabled?: boolean;
   /** ISO date for the AI window; null = unlimited (paid). */
   @IsDateString() @IsOptional() aiTrialEndsAt?: string | null;
+  /** Opt-in consent to send this org's business data to external AI providers. */
+  @IsBoolean() @IsOptional() aiDataSharingEnabled?: boolean;
 }
 
 export class AssignOwnerDto {

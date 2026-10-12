@@ -21,6 +21,13 @@ function makeService(users: any[]) {
     },
     auditLog: { create: jest.fn(() => Promise.resolve({})) },
     membership: { groupBy: jest.fn(() => Promise.resolve([])) },
+    loginAttempt: {
+      findUnique: jest.fn(() => Promise.resolve(null)),
+      upsert: jest.fn(() => Promise.resolve({})),
+      updateMany: jest.fn(() => Promise.resolve({ count: 0 })),
+      delete: jest.fn(() => Promise.resolve({})),
+      deleteMany: jest.fn(() => Promise.resolve({ count: 0 })),
+    },
   };
   const jwt = { sign: jest.fn(() => 'token') };
   const notifications = {};

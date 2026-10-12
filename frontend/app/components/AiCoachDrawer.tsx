@@ -157,11 +157,11 @@ export default function AiCoachDrawer({
 
     const controller = new AbortController();
     abortRef.current = controller;
-    const token = localStorage.getItem("token");
     const orgId = localStorage.getItem("activeOrganizationId");
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      // Cookie-authenticated POSTs must carry this header for CsrfGuard.
+      "X-Requested-With": "XMLHttpRequest",
       ...(orgId ? { "X-Tenant-Id": orgId } : {}),
     };
 
@@ -169,6 +169,8 @@ export default function AiCoachDrawer({
       const res = await fetch(`${API_BASE}/ai/chat`, {
         method: "POST",
         headers,
+        // Include the HttpOnly session cookie (the JWT is no longer in storage).
+        credentials: "include",
         body: JSON.stringify({
           message: text,
           sessionId: sessionId ?? undefined,

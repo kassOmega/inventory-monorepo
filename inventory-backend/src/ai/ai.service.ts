@@ -2,10 +2,16 @@
 // Orchestrates the AI Business Advisor: collects business metrics, calls
 // Gemini (forecast reports + streaming chat), and persists insights and chat
 // history to the database.
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InsightType, MessageSender, Prisma, PoDraftStatus } from '@prisma/client';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
+import { tr } from '../i18n/i18n.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PushService } from '../push/push.service';
 import { AiDataCollectorService } from './ai-data-collector.service';
@@ -245,6 +251,22 @@ export class AiService {
     private readonly gemini: GeminiService,
     private readonly push: PushService,
   ) {}
+
+  /**
+   * Scheduled/sweep paths do not pass through the controller's
+   * `AiUsageService.assertAiEnabled`, so they must check the organization's
+   * external-AI data-sharing consent explicitly before calling Gemini.
+   */
+  private async assertAiDataSharing(tenantId: number | null): Promise<void> {
+    if (tenantId == null) return;
+    const org = await this.prisma.organization.findUnique({
+      where: { id: tenantId },
+      select: { aiDataSharingEnabled: true },
+    });
+    if (!org?.aiDataSharingEnabled) {
+      throw new ForbiddenException(tr('errors.aiDataSharingDisabled'));
+    }
+  }
 
   // =========================================================================
   // Forecast & action plan
@@ -529,13 +551,27 @@ export class AiService {
     const inputs = await this.collector.collectChurnMetrics({ tenantId });
     const language = dto.language?.trim() || 'English';
 
+    // NEVER send customer PII (name/phone) to the external model. The prompt
+    // gets a reversible pseudonym; real names are re-attached to the report
+    // for the signed-in owner AFTER the Gemini call.
+    const promptInputs = inputs.map(({ name, phone, ...rest }) => ({
+      ...rest,
+      label: `Customer #${rest.customerId}`,
+    }));
+
     const report = await this.gemini.generateJson<ChurnReport>({
       systemInstruction: this.churnSystemInstruction(language),
-      prompt: this.buildChurnPrompt(inputs),
+      prompt: this.buildChurnPrompt(promptInputs),
       schema: CHURN_SCHEMA,
       kind: 'pro',
       temperature: 0.4,
     });
+
+    const nameById = new Map(inputs.map((c) => [c.customerId, c.name]));
+    report.atRisk = (report.atRisk ?? []).map((item) => ({
+      ...item,
+      name: nameById.get(item.customerId) ?? item.name,
+    }));
 
     const insight = await this.prisma.businessInsight.create({
       data: {
@@ -566,9 +602,9 @@ export class AiService {
     ].join('\n');
   }
 
-  private buildChurnPrompt(inputs: ChurnInputCustomer[]): string {
+  private buildChurnPrompt(inputs: unknown[]): string {
     return [
-      'Customer activity snapshot:',
+      'Customer activity snapshot (pseudonymized):',
       JSON.stringify(inputs),
       'Produce the churn-risk JSON exactly matching the requested schema.',
     ].join('\n');
@@ -720,11 +756,12 @@ export class AiService {
     if (process.env.PO_DRAFT_AUTOGEN_ENABLED !== 'true') return;
 
     const orgs = await this.prisma.organization.findMany({
-      select: { id: true },
+      select: { id: true, aiDataSharingEnabled: true },
     });
     this.logger.log(`Auto PO-draft sweep: checking ${orgs.length} org(s)`);
 
     for (const org of orgs) {
+      if (!org.aiDataSharingEnabled) continue;
       try {
         const reorder = await this.collector.collectReorderInput({
           tenantId: org.id,
@@ -1176,11 +1213,12 @@ export class AiService {
 
     try {
       const orgs = await this.prisma.organization.findMany({
-        select: { id: true, businessType: true },
+        select: { id: true, businessType: true, aiDataSharingEnabled: true },
       });
       this.logger.log(`Generating weekly AI insights for ${orgs.length} organization(s)`);
 
       for (const org of orgs) {
+        if (!org.aiDataSharingEnabled) continue;
         try {
           const metrics = await this.collector.collectMetrics({
             tenantId: org.id,

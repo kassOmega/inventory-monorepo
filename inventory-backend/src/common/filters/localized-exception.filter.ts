@@ -21,7 +21,7 @@ import {
 import { Response } from 'express';
 import { enMessages } from '../../i18n/backend.en';
 import { getCurrentLocale, Locale } from '../../i18n/i18n.context';
-import { translate } from '../../i18n/i18n.service';
+import { tr, translate } from '../../i18n/i18n.service';
 
 function collect(node: Record<string, any>, path: string, out: Map<string, string>): void {
   for (const [k, v] of Object.entries(node)) {
@@ -100,9 +100,21 @@ export class LocalizedExceptionFilter implements ExceptionFilter {
       }
       handled = true;
     } else {
-      status = HttpStatus.INTERNAL_SERVER_ERROR;
-      message =
-        exception instanceof Error ? exception.message : 'Internal server error';
+      // Non-HttpException errors (Prisma engine errors, unexpected exceptions)
+      // must never leak schema/constraint/stack details to the client. The full
+      // error is still logged below; the response carries a generic message and
+      // known Prisma codes are mapped to safe HTTP statuses.
+      const code = (exception as { code?: string } | null)?.code;
+      if (code === 'P2025') {
+        status = HttpStatus.NOT_FOUND;
+        message = tr('errors.notFound');
+      } else if (code === 'P2002') {
+        status = HttpStatus.CONFLICT;
+        message = tr('errors.recordExists');
+      } else {
+        status = HttpStatus.INTERNAL_SERVER_ERROR;
+        message = tr('errors.internalServerError');
+      }
     }
 
     const payload: Record<string, unknown> = {

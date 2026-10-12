@@ -93,6 +93,7 @@ export class TenantsService {
       bypassBusinessLimit?: boolean;
       aiEnabled?: boolean;
       aiTrialEndsAt?: Date | null;
+      aiDataSharingEnabled?: boolean;
     },
   ) {
     const slug = (dto.slug ?? this.slugify(dto.name)).toLowerCase();
@@ -139,6 +140,7 @@ export class TenantsService {
           standalone: dto.standalone ?? false,
           defaultLanguage: dto.defaultLanguage ?? 'en',
           aiEnabled: opts?.aiEnabled ?? true,
+          aiDataSharingEnabled: opts?.aiDataSharingEnabled ?? false,
           aiTrialEndsAt:
             opts?.aiTrialEndsAt !== undefined
               ? opts.aiTrialEndsAt

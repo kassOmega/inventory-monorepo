@@ -103,12 +103,16 @@ export class AgentRunnerService {
       return { skipped: true, reason: 'agent not in AUTONOMOUS mode' };
     }
 
-    const context = await this.tools.getBusinessContext(orgId);
     const org = await this.prisma.organization.findUnique({
       where: { id: orgId },
-      select: { businessType: true },
+      select: { businessType: true, aiDataSharingEnabled: true },
     });
-    const labels = getVerticalLabels(org?.businessType ?? BusinessType.HOSPITALITY);
+    if (!org?.aiDataSharingEnabled) {
+      return { skipped: true, reason: 'AI data sharing disabled for this organization' };
+    }
+
+    const context = await this.tools.getBusinessContext(orgId);
+    const labels = getVerticalLabels(org.businessType ?? BusinessType.HOSPITALITY);
     const terminology = Object.entries(labels)
       .map(([key, value]) => `- The business calls a "${key}" a "${value}".`)
       .join('\n');

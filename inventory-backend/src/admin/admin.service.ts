@@ -189,6 +189,7 @@ export class AdminService {
       {
         bypassBusinessLimit: true,
         aiEnabled: dto.aiEnabled,
+        aiDataSharingEnabled: dto.aiDataSharingEnabled,
         aiTrialEndsAt: dto.aiTrialEndsAt === undefined
           ? undefined
           : dto.aiTrialEndsAt === null
@@ -213,18 +214,35 @@ export class AdminService {
     const org = await this.prisma.organization.findUnique({ where: { id } });
     if (!org) throw new BadRequestException(tr('errors.orgNotFound'));
 
-    const data: { name?: string; businessType?: BusinessType; aiEnabled?: boolean; aiTrialEndsAt?: Date | null } = {};
+    const data: {
+      name?: string;
+      businessType?: BusinessType;
+      aiEnabled?: boolean;
+      aiTrialEndsAt?: Date | null;
+      aiDataSharingEnabled?: boolean;
+    } = {};
     if (dto.name) data.name = dto.name;
     if (dto.businessType) data.businessType = dto.businessType;
     if (dto.aiEnabled !== undefined) data.aiEnabled = dto.aiEnabled;
     if ('aiTrialEndsAt' in dto) {
       data.aiTrialEndsAt = dto.aiTrialEndsAt ? new Date(dto.aiTrialEndsAt) : null;
     }
+    if (dto.aiDataSharingEnabled !== undefined) {
+      data.aiDataSharingEnabled = dto.aiDataSharingEnabled;
+    }
 
     return this.prisma.organization.update({
       where: { id },
       data,
-      select: { id: true, name: true, businessType: true, status: true, aiEnabled: true, aiTrialEndsAt: true },
+      select: {
+        id: true,
+        name: true,
+        businessType: true,
+        status: true,
+        aiEnabled: true,
+        aiTrialEndsAt: true,
+        aiDataSharingEnabled: true,
+      },
     });
   }
 

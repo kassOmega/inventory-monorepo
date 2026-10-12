@@ -83,6 +83,13 @@ export const PERMISSIONS: PermissionDefinition[] = [
   // archiving, adding timeline entries and adjusting loyalty are writes.
   { key: 'customers.view', label: 'View Customers', group: 'Customers' },
   { key: 'customers.manage', label: 'Manage Customers', group: 'Customers' },
+  // Public QR guest ordering inbox + QR/public-link management.
+  { key: 'guest-orders.view', label: 'View Guest Orders', group: 'Guest Orders' },
+  {
+    key: 'guest-orders.manage',
+    label: 'Manage Guest Orders & QR Entries',
+    group: 'Guest Orders',
+  },
   { key: 'reports.view', label: 'View Reports', group: 'Reports' },
   { key: 'reports.full', label: 'Full Reports & Exports', group: 'Reports' },
   {
@@ -448,6 +455,7 @@ export const PERMISSION_GROUPS_BY_BUSINESS_TYPE: Record<
     'Restock',
     'Credits',
     'Customers',
+    'Guest Orders',
     'Reports',
     'Price History',
     'Users',
@@ -474,6 +482,7 @@ export const PERMISSION_GROUPS_BY_BUSINESS_TYPE: Record<
     // catalog keys for its service page — keep them assignable here.
     'Service',
     'Customers',
+    'Guest Orders',
     'Reports',
     'Users',
     'Deductions',
@@ -489,6 +498,7 @@ export const PERMISSION_GROUPS_BY_BUSINESS_TYPE: Record<
     'Categories',
     'Manufacturing',
     'Customers',
+    'Guest Orders',
     'Reports',
     'Users',
     'Deductions',
@@ -503,6 +513,7 @@ export const PERMISSION_GROUPS_BY_BUSINESS_TYPE: Record<
     'Service',
     'Cashier',
     'Customers',
+    'Guest Orders',
     'Reports',
     'Users',
     'Deductions',
@@ -525,6 +536,7 @@ export const PERMISSION_GROUPS_BY_BUSINESS_TYPE: Record<
     'Car Wash - Reports',
     'Car Wash - Settings',
     'Customers',
+    'Guest Orders',
     'Users',
     'Deductions',
     'Roles',

@@ -5,6 +5,9 @@ import { STORAGE_KEY_GLOBAL, normalizeLocale } from "./locale";
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000",
   headers: { "Content-Type": "application/json" },
+  // The session now lives in the backend's HttpOnly `access_token` cookie, so
+  // cross-origin calls must carry cookies (the JWT is never read from storage).
+  withCredentials: true,
   timeout: 30000,
 });
 
@@ -51,8 +54,6 @@ function activeOrgIdForRequest(): string | null {
 
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
-    const token = localStorage.getItem("token");
-    if (token) config.headers.Authorization = `Bearer ${token}`;
     const orgId = activeOrgIdForRequest();
     if (orgId) config.headers["X-Tenant-Id"] = orgId;
     // Advertise the active UI locale so the backend can (a) resolve localized
@@ -66,6 +67,13 @@ api.interceptors.request.use((config) => {
     const lang = normalizeLocale(locale);
     config.headers["Accept-Language"] = lang;
     config.headers["x-locale"] = lang;
+  }
+  // Cookie-authenticated mutating requests must carry this header so the
+  // backend's CsrfGuard accepts them (the JWT is no longer sent as a Bearer
+  // token from browser code).
+  const method = (config.method ?? "get").toLowerCase();
+  if (!["get", "head", "options"].includes(method)) {
+    config.headers["X-Requested-With"] = "XMLHttpRequest";
   }
   updatePending(1);
   return config;

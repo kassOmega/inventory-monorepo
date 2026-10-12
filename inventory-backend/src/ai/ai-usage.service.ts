@@ -32,6 +32,8 @@ export interface AiEntitlement {
   expired: boolean;
   /** True when AI is switched on but no access end date is set (no active window). */
   requiresDate?: boolean;
+  /** True when the org opted in to sending business data to external AI providers. */
+  dataSharingEnabled: boolean;
 }
 
 @Injectable()
@@ -75,16 +77,32 @@ export class AiUsageService {
 
   async getEntitlement(tenantId: number | null): Promise<AiEntitlement> {
     if (tenantId == null) {
-      return { enabled: false, trialEndsAt: null, inTrial: false, expired: false };
+      return {
+        enabled: false,
+        trialEndsAt: null,
+        inTrial: false,
+        expired: false,
+        dataSharingEnabled: false,
+      };
     }
     const org = await this.prisma.organization.findUnique({
       where: { id: tenantId },
-      select: { aiEnabled: true, aiTrialEndsAt: true },
+      select: { aiEnabled: true, aiTrialEndsAt: true, aiDataSharingEnabled: true },
     });
     if (!org) {
-      return { enabled: false, trialEndsAt: null, inTrial: false, expired: false };
+      return {
+        enabled: false,
+        trialEndsAt: null,
+        inTrial: false,
+        expired: false,
+        dataSharingEnabled: false,
+      };
     }
-    return this.buildEntitlement(org.aiEnabled, org.aiTrialEndsAt);
+    return this.buildEntitlement(
+      org.aiEnabled,
+      org.aiTrialEndsAt,
+      org.aiDataSharingEnabled,
+    );
   }
 
   /** Throws 403 when the tenant's AI feature is disabled or the trial expired. */
@@ -105,12 +123,16 @@ export class AiUsageService {
         '🤖 The AI feature is not enabled for this business. Contact the admin to enable it.',
       );
     }
+    if (!entitlement.dataSharingEnabled) {
+      throw new ForbiddenException(tr('errors.aiDataSharingDisabled'));
+    }
     return entitlement;
   }
 
   private buildEntitlement(
     aiEnabled: boolean,
     aiTrialEndsAt: Date | null,
+    aiDataSharingEnabled: boolean,
   ): AiEntitlement {
     const now = new Date();
     const hasDate = aiTrialEndsAt != null;
@@ -123,6 +145,7 @@ export class AiUsageService {
       inTrial: aiEnabled && inWindow,
       expired: aiEnabled && hasDate && aiTrialEndsAt! < now,
       requiresDate: aiEnabled && !hasDate,
+      dataSharingEnabled: aiDataSharingEnabled,
     };
   }
 

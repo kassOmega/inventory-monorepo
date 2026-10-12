@@ -112,14 +112,14 @@ export class SubscriptionsService {
     currency?: string;
     active?: boolean;
   }) {
-    const where = input.businessType
-      ? { businessType_term: { businessType: input.businessType, term: input.term } }
-      : undefined;
-    const existing = where
-      ? await this.prisma.subscriptionPlan.findUnique({ where })
-      : await this.prisma.subscriptionPlan.findFirst({
-          where: { businessType: null, term: input.term },
-        });
+    // The DB enforces uniqueness via partial indexes (see SubscriptionPlan in
+    // schema.prisma), so a findFirst on the same columns is equivalent to the
+    // old composite-unique lookup.
+    const existing = await this.prisma.subscriptionPlan.findFirst({
+      where: input.businessType
+        ? { businessType: input.businessType, term: input.term }
+        : { businessType: null, term: input.term },
+    });
 
     if (existing) {
       return this.prisma.subscriptionPlan.update({

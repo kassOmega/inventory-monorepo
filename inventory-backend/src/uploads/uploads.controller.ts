@@ -18,6 +18,7 @@ import {
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { existsSync, createReadStream } from 'node:fs';
@@ -47,6 +48,7 @@ export class UploadsController {
   @Get('public/image/:file')
   @Public()
   @AllowUnverified()
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   serveCatalogImage(
     @Param('file') file: string,
     @Res({ passthrough: true }) res: Response,

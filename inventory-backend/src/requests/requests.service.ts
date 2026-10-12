@@ -460,6 +460,11 @@ export class RequestsService {
     const conditions: string[] = [];
     const values: any[] = [];
 
+    // The raw ranking query bypasses the Prisma tenant middleware, so pin it to
+    // the active tenant explicitly (parameterized, never string-interpolated).
+    conditions.push(`"tenantId" = $${values.length + 1}`);
+    values.push(getCurrentTenantId());
+
     if (user.locationId) {
       if (user.locationType === 'SHOP') {
         // A shop appears as `shopId` on SHOP_TO_STORE requests, but on

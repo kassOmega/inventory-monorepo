@@ -7,8 +7,9 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "npx prisma generate && nest build",
-    "db:reset:prod": "npx prisma generate && npx prisma db push --force-reset && npx ts-node prisma/seed-prod.ts",
+    "db:deploy": "prisma migrate deploy",
     "db:push": "prisma db push",
+    "db:reset:local": "node scripts/db-guard.js && npx prisma generate && npx prisma db push --force-reset && npx ts-node prisma/seed-prod.ts",
     "build:prisma-scripts": "tsc -p tsconfig.scripts.json",
     "seed": "ts-node prisma/seed.ts",
     "seed:prod": "ts-node prisma/seed-prod.ts",
@@ -47,6 +48,7 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pdfkit": "^0.19.1",
+    "proxy-addr": "^2.0.7",
     "prisma": "^5.22.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",

@@ -331,26 +331,24 @@ export class AiController {
     return getPlatformFacts();
   }
 
-  /** GET /ai/assist/status — free onboarding-chat counter for a visitor device. */
+  /** GET /ai/assist/status — free onboarding-chat counter for the visitor IP. */
   @Get('assist/status')
   @Public()
-  @Throttle({ default: { limit: 120, ttl: 60000 } })
-  async assistStatus(
-    @Req() req: Request,
-    @Query('guestId') guestId?: string,
-  ) {
-    const key = (guestId ?? '').trim() || `ip-${req.ip ?? 'unknown'}`;
-    return this.assistService.status(key);
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
+  async assistStatus(@Req() req: Request) {
+    // The quota is bound to the server-observed client IP, never the
+    // client-supplied guestId (which an attacker can rotate freely).
+    return this.assistService.status(req.ip ?? 'unknown');
   }
 
   /**
    * POST /ai/assist — PUBLIC onboarding assistant (SSE). No login required.
-   * Guests get ASSIST_DAILY_LIMIT chats per device per day; an IP throttle is
-   * applied on top. body: { guestId, message, lang?, history? }
+   * The daily quota is keyed by the server-observed client IP; a tight per-IP
+   * throttle is applied on top. body: { guestId, message, lang?, history? }
    */
   @Post('assist')
   @Public()
-  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   async assist(
     @Body() dto: AssistDto,
     @Req() req: Request,
@@ -358,8 +356,7 @@ export class AiController {
   ) {
     // Reserve a free chat BEFORE streaming headers so an exhausted quota is a
     // normal JSON 429 response.
-    const guestKey = dto.guestId.trim() || `ip-${req.ip ?? 'unknown'}`;
-    const status = await this.assistService.consume(guestKey);
+    const status = await this.assistService.consume(req.ip ?? 'unknown');
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');

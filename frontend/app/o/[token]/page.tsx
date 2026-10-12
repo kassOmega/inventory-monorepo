@@ -452,6 +452,46 @@ export default function PublicOrderPage() {
   );
 }
 
+/** Item thumbnail (module-scope so it is not re-created on every render). */
+function Thumb({ src }: { src?: string | null }) {
+  return src ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={src} alt="" className="w-12 h-12 rounded-lg object-cover bg-gray-100 shrink-0" />
+  ) : (
+    <div className="w-12 h-12 rounded-lg bg-gray-100 shrink-0" />
+  );
+}
+
+/** Add/remove quantity control (module-scope; `code` is the item/variant ref). */
+function Qty({
+  code,
+  cart,
+  add,
+  sub,
+  t,
+}: {
+  code: string;
+  cart: Cart;
+  add: (ref: string) => void;
+  sub: (ref: string) => void;
+  t: (k: string, o?: Record<string, unknown>) => string;
+}) {
+  if (cart[code]) {
+    return (
+      <div className="flex items-center gap-2">
+        <button onClick={() => sub(code)} className="w-7 h-7 rounded-full border text-gray-600">−</button>
+        <span className="w-5 text-center text-sm">{cart[code]}</span>
+        <button onClick={() => add(code)} className="w-7 h-7 rounded-full bg-blue-600 text-white">+</button>
+      </div>
+    );
+  }
+  return (
+    <button onClick={() => add(code)} className="bg-blue-600 text-white rounded-lg px-3 py-1.5 text-sm">
+      {t("public.add")}
+    </button>
+  );
+}
+
 /** One catalog line: image + name/price; products with variants expand. */
 function ItemCard({
   item,
@@ -471,30 +511,25 @@ function ItemCard({
   const [open, setOpen] = useState(false);
   const hasVariants = (item.variants?.length ?? 0) > 0;
 
-  const Thumb = ({ src }: { src?: string | null }) =>
-    src ? (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img src={src} alt="" className="w-12 h-12 rounded-lg object-cover bg-gray-100 shrink-0" />
-    ) : (
-      <div className="w-12 h-12 rounded-lg bg-gray-100 shrink-0" />
-    );
-
-  const Qty = ({ ref: r }: { ref: string }) =>
-    cart[r] ? (
-      <div className="flex items-center gap-2">
-        <button onClick={() => sub(r)} className="w-7 h-7 rounded-full border text-gray-600">−</button>
-        <span className="w-5 text-center text-sm">{cart[r]}</span>
-        <button onClick={() => add(r)} className="w-7 h-7 rounded-full bg-blue-600 text-white">+</button>
-      </div>
-    ) : (
-      <button onClick={() => add(r)} className="bg-blue-600 text-white rounded-lg px-3 py-1.5 text-sm">
-        {t("public.add")}
-      </button>
-    );
-
   return (
     <div className="bg-white rounded-xl border p-3">
-      <div className="flex items-center gap-3">
+      <div
+        className={"flex items-center gap-3" + (hasVariants ? " cursor-pointer" : "")}
+        onClick={hasVariants ? () => setOpen((v) => !v) : undefined}
+        role={hasVariants ? "button" : undefined}
+        tabIndex={hasVariants ? 0 : undefined}
+        aria-expanded={hasVariants ? open : undefined}
+        onKeyDown={
+          hasVariants
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setOpen((v) => !v);
+                }
+              }
+            : undefined
+        }
+      >
         <Thumb src={item.image} />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-gray-800 truncate">{item.name}</p>
@@ -515,13 +550,16 @@ function ItemCard({
         </div>
         {hasVariants ? (
           <button
-            onClick={() => setOpen((v) => !v)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen((v) => !v);
+            }}
             className="text-sm text-blue-600 whitespace-nowrap"
           >
             {open ? t("public.hideVariants") : t("public.variants")}
           </button>
         ) : (
-          <Qty ref={item.ref} />
+          <Qty code={item.ref} cart={cart} add={add} sub={sub} t={t} />
         )}
       </div>
 
@@ -532,7 +570,7 @@ function ItemCard({
               <Thumb src={v.image} />
               <span className="min-w-0 flex-1 text-sm text-gray-700 truncate">{v.name}</span>
               {showPrices && <span className="text-sm text-gray-600">{v.price.toLocaleString()}</span>}
-              <Qty ref={v.ref} />
+              <Qty code={v.ref} cart={cart} add={add} sub={sub} t={t} />
             </li>
           ))}
         </ul>

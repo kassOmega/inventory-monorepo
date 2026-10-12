@@ -6,6 +6,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import express from 'express';
 import helmet from 'helmet';
+import proxyaddr from 'proxy-addr';
 import { AppModule } from './app.module';
 import { LocalizedExceptionFilter } from './common/filters/localized-exception.filter';
 import { localeMiddleware } from './i18n/i18n.middleware';
@@ -23,10 +24,10 @@ function resolveCorsOrigins(): string[] {
 
 async function bootstrap() {
   const jwtSecret = process.env.JWT_SECRET;
-  if (!jwtSecret || jwtSecret.length < 32) {
+  if (!jwtSecret || jwtSecret.length < 64) {
     throw new Error(
-      'JWT_SECRET must be set to a strong value ' +
-        '(at least 32 characters) in the backend .env file.',
+      'JWT_SECRET must be set to a strong random value of at least 64 ' +
+        'characters (generate one with: openssl rand -hex 64).',
     );
   }
 
@@ -34,10 +35,20 @@ async function bootstrap() {
     bodyParser: false,
   });
 
-  // Trust the load balancer / proxy hop (Render) so rate limiting keys each
-  // client's real IP (via X-Forwarded-For) instead of lumping every device
-  // into one shared bucket behind the proxy.
-  app.set('trust proxy', 1);
+  // Only trust X-Forwarded-For when the deployment is actually behind a known
+  // proxy AND the immediate peer matches a configured proxy hop. With the flag
+  // off (default) Express ignores X-Forwarded-For entirely, so a direct client
+  // cannot spoof its IP to evade login lockout or rate limits.
+  const trustProxy = process.env.TRUST_PROXY === 'true';
+  const trustedProxyCidrs = (
+    process.env.TRUSTED_PROXY_CIDRS ?? 'loopback'
+  )
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (trustProxy) {
+    app.set('trust proxy', proxyaddr.compile(trustedProxyCidrs));
+  }
 
   // Body parsers with a larger JSON limit so the AI product assistant can send
   // a base64 product photo (~1000px JPEG) in the request body. The default

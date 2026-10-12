@@ -455,6 +455,13 @@ export default function GuestOrdersPage() {
                     {t("guestOrders.acceptReview")}
                   </Button>
                   <Button
+                    variant="danger"
+                    loading={busy}
+                    onClick={() => act(() => api.post(`/guest-orders/${detail.id}/reject`))}
+                  >
+                    {t("guestOrders.reject")}
+                  </Button>
+                  <Button
                     variant="secondary"
                     disabled={shareRowsFor(detail).length === 0}
                     onClick={openShare}
@@ -583,7 +590,9 @@ export default function GuestOrdersPage() {
               </div>
             )}
 
-            {canManage && !["COMPLETED", "REJECTED", "DROPPED"].includes(detail.status) && (
+            {/* Reject stays available only while the order has not yet been
+                accepted (ROUTED has no accept/review row above). */}
+            {canManage && detail.status === "ROUTED" && (
               <div className="flex justify-end gap-2 pt-2 border-t">
                 <Button
                   variant="danger"

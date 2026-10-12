@@ -1,6 +1,10 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { getCurrentTenantId } from '../common/tenant/tenant.context';
+import {
+  getCurrentTenantId,
+  tenantContext,
+} from '../common/tenant/tenant.context';
+import { tr } from '../i18n/i18n.service';
 
 /** Models that carry a `tenantId` column and should be auto-scoped. */
 const TENANT_MODELS = new Set([
@@ -176,33 +180,82 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
       const args: any = params.args;
 
       const field = TENANT_FIELD_BY_MODEL[params.model] ?? 'tenantId';
+      // Prisma's `params.model` is the PascalCase model name while the client
+      // exposes delegates in lowerCamelCase (product, productVariant, …).
+      const delegateName =
+        params.model.charAt(0).toLowerCase() + params.model.slice(1);
+      const modelDelegate: any = (this as any)[delegateName];
+
+      const addTenantFilter = () => {
+        if (!args.where) args.where = {};
+        if (typeof args.where === 'object' && args.where[field] === undefined) {
+          args.where[field] = tenantId;
+        }
+      };
+
+      /** True when a row matching `where` exists inside the CURRENT tenant. */
+      const existsInTenant = async (where: unknown): Promise<boolean> => {
+        const row = await modelDelegate?.findFirst({
+          where: { ...(where as object), [field]: tenantId },
+          select: { [field]: true },
+        });
+        return row != null;
+      };
 
       if (action === 'create') {
-        if (args.data && typeof args.data === 'object' && args.data[field] === undefined) {
+        if (args.data && typeof args.data === 'object') {
           args.data[field] = tenantId;
         }
       } else if (action === 'createMany') {
         if (Array.isArray(args.data)) {
           for (const d of args.data) {
-            if (d && typeof d === 'object' && d[field] === undefined) d[field] = tenantId;
+            if (d && typeof d === 'object') d[field] = tenantId;
           }
         }
       } else if (action === 'upsert') {
-        if (args.create && typeof args.create === 'object' && args.create[field] === undefined) {
+        // Reject an upsert whose unique selector already resolves to a row in a
+        // DIFFERENT tenant — otherwise `update` below would overwrite it. The
+        // lookup runs with the tenant context cleared so it is not auto-scoped.
+        const existingAny = await tenantContext.run(null, () =>
+          modelDelegate?.findFirst({
+            where: args.where,
+            select: { [field]: true },
+          }),
+        );
+        if (existingAny && existingAny[field] !== tenantId) {
+          throw new NotFoundException(tr('errors.notFound'));
+        }
+        if (args.create && typeof args.create === 'object') {
           args.create[field] = tenantId;
+        }
+        if (args.update && typeof args.update === 'object') {
+          args.update[field] = tenantId;
+        }
+      } else if (action === 'findUnique' || action === 'findUniqueOrThrow') {
+        // Singular reads by a unique selector (usually a numeric id) must be
+        // scoped like every other read. Rewriting to findFirst keeps the return
+        // shape identical while adding the tenant predicate.
+        params.action =
+          action === 'findUnique' ? 'findFirst' : 'findFirstOrThrow';
+        addTenantFilter();
+      } else if (action === 'update' || action === 'delete') {
+        // Mutations take a unique selector, not a general filter — verify the
+        // target belongs to the active tenant before touching it. A row owned by
+        // another tenant (or missing) surfaces as a 404 so existence is never
+        // leaked.
+        if (!(await existsInTenant(args.where))) {
+          throw new NotFoundException(tr('errors.notFound'));
+        }
+        if (action === 'update' && args.data && typeof args.data === 'object') {
+          args.data[field] = tenantId;
         }
       } else if (
         ['findMany', 'findFirst', 'findFirstOrThrow', 'count', 'updateMany', 'deleteMany', 'aggregate', 'groupBy'].includes(
           action,
         )
       ) {
-        if (!args.where) args.where = {};
-        if (typeof args.where === 'object' && args.where[field] === undefined) {
-          args.where[field] = tenantId;
-        }
+        addTenantFilter();
       }
-      // Note: findUnique / update / delete (singular) use unique selectors and are
-      // left untouched; callers obtain ids from tenant-scoped list queries.
 
       return next(params);
     });
@@ -218,13 +271,16 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
    * (Prisma has no native cross-key JSON filter).
    */
   async findProductIdsByAttributes(search: string): Promise<number[]> {
+    const tenantId = getCurrentTenantId();
+    if (tenantId == null) return [];
     const escaped = search.replace(/[\\%_]/g, (m) => `\\${m}`);
     const rows = await this.$queryRaw<{ id: number }[]>`
       SELECT DISTINCT p."id"
       FROM "Product" p
       LEFT JOIN "ProductVariant" pv ON pv."productId" = p."id"
-      WHERE CAST(p."attributes" AS TEXT) ILIKE ${`%${escaped}%`}
-         OR CAST(pv."attributes" AS TEXT) ILIKE ${`%${escaped}%`}
+      WHERE p."tenantId" = ${tenantId}
+        AND (CAST(p."attributes" AS TEXT) ILIKE ${`%${escaped}%`}
+             OR CAST(pv."attributes" AS TEXT) ILIKE ${`%${escaped}%`})
     `;
     return rows.map((r) => r.id);
   }

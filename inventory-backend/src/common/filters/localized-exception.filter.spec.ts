@@ -109,14 +109,54 @@ describe('LocalizedExceptionFilter', () => {
     expect(captured.body.error).toBe('Weird');
   });
 
-  it('turns a non-HTTP exception into a 500 with its own message', () => {
+  it('masks a non-HTTP exception with a generic 500 message', () => {
     const { res, captured } = capture();
     const spy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
 
     filter.catch(new Error('boom'), hostWith(res));
 
     expect(captured.status).toBe(500);
-    expect(captured.body).toEqual({ statusCode: 500, message: 'boom' });
+    expect(captured.body).toEqual({
+      statusCode: 500,
+      message: 'Internal server error',
+    });
+    expect(spy).toHaveBeenCalled(); // the real cause is still logged server-side
+    spy.mockRestore();
+  });
+
+  it('maps Prisma P2025 (record not found) to a safe 404', () => {
+    const { res, captured } = capture();
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    filter.catch(
+      Object.assign(new Error('An operation failed because it depends on one or more records'), {
+        code: 'P2025',
+      }),
+      hostWith(res),
+    );
+
+    expect(captured.status).toBe(404);
+    expect(captured.body).toEqual({ statusCode: 404, message: 'Not found' });
+    spy.mockRestore();
+  });
+
+  it('maps Prisma P2002 (unique constraint) to a safe 409 without field details', () => {
+    const { res, captured } = capture();
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    filter.catch(
+      Object.assign(new Error('Unique constraint failed on the fields: (`email`)'), {
+        code: 'P2002',
+      }),
+      hostWith(res),
+    );
+
+    expect(captured.status).toBe(409);
+    expect(captured.body).toEqual({
+      statusCode: 409,
+      message: 'This record already exists.',
+    });
+    expect(JSON.stringify(captured.body)).not.toContain('email');
     spy.mockRestore();
   });
 });
