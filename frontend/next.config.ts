@@ -81,11 +81,17 @@ const nextConfig = {
   output: process.env.NEXT_OUTPUT_STANDALONE === "true" ? "standalone" : undefined,
   outputFileTracingRoot: __dirname,
   async rewrites() {
-    if (!apiProxyTarget) return [];
+    // In dev the Next.js app runs on 3001 while the API runs on 3000, so
+    // browser-loaded assets such as `/api/public/image/<file>` must be proxied
+    // to the backend. The backend controllers are mounted at the root (no
+    // `/api` prefix), so `/api/*` is stripped in the destination.
+    const target =
+      apiProxyTarget || (/^https?:\/\//i.test(apiBaseUrl) ? apiBaseUrl : null);
+    if (!target) return [];
     return [
       {
         source: "/api/:path*",
-        destination: `${apiProxyTarget.replace(/\/$/, "")}/:path*`,
+        destination: `${target.replace(/\/$/, "")}/:path*`,
       },
     ];
   },
