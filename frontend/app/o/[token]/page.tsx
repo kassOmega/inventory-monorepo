@@ -10,6 +10,8 @@ import Loading from "@/app/components/Loading";
 import Button from "@/app/components/Button";
 import Modal from "@/app/components/Modal";
 import CarWashBookingForm from "@/app/components/CarWashBookingForm";
+import RoomReservationForm from "@/app/components/RoomReservationForm";
+import ServiceBookingForm from "@/app/components/ServiceBookingForm";
 
 interface PublicItem {
   ref: string;
@@ -23,6 +25,7 @@ interface PublicItem {
 }
 interface EntryView {
   kind: string;
+  serviceType: string | null;
   label: string;
   businessName: string;
   state: "LIVE" | "HELD" | "DROPPED";
@@ -46,6 +49,7 @@ export default function PublicOrderPage() {
   const [error, setError] = useState("");
   const [entry, setEntry] = useState<EntryView | null>(null);
   const [cart, setCart] = useState<Cart>({});
+  const [identityMode, setIdentityMode] = useState<"TABLE" | "PHONE">("TABLE");
   const [tableNumber, setTableNumber] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -59,7 +63,10 @@ export default function PublicOrderPage() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [carwashOptions, setCarwashOptions] = useState<any>(null);
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
-  const [bookingDone, setBookingDone] = useState<any>(null);
+  const [bookingDone, setBookingDone] = useState<{
+    kind: "CARWASH" | "ROOM" | "SERVICE";
+    data: any;
+  } | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -87,9 +94,9 @@ export default function PublicOrderPage() {
     if (entry?.services?.length && !tab) setTab(entry.services[0].key);
   }, [entry, tab]);
 
-  // Phone autofill (skipped for F&B on a table).
+  // Phone autofill (best-effort; works for take-away and other profile flows).
   const autofill = async () => {
-    if (!entry?.requiresProfile || !phone || phone.length < 7) return;
+    if (!phone || phone.length < 7) return;
     try {
       const r = await api.post(`/public/entry/${token}/customer-lookup`, { phone });
       if (r.data?.name && !name) setName(r.data.name);
@@ -125,6 +132,15 @@ export default function PublicOrderPage() {
     }
     return entry?.items ?? [];
   }, [entry, tab]);
+
+  const isCarwash = entry?.kind === "CARWASH_BAY";
+  const isAccommodation =
+    entry?.kind === "HOTEL" || entry?.serviceType === "ACCOMMODATION";
+  const isService = entry?.kind === "SERVICE";
+  const isFnb =
+    entry?.kind === "TABLE" || entry?.serviceType === "FOOD_AND_BEVERAGE";
+  const isCart = !isCarwash && !isAccommodation && !isService;
+
   const cartLines = Object.entries(cart)
     .filter(([, q]) => q > 0)
     .map(([ref, q]) => ({ item: itemsByRef.get(ref), qty: q }))
@@ -137,14 +153,34 @@ export default function PublicOrderPage() {
 
   const submit = async () => {
     if (cartLines.length === 0) return;
+    if (isFnb && identityMode === "TABLE" && !tableNumber.trim()) {
+      setError(t("public.tableRequired"));
+      return;
+    }
+    if (isFnb && identityMode === "PHONE" && !phone.trim()) {
+      setError(t("public.phoneRequired"));
+      return;
+    }
     setSubmitting(true);
     setError("");
     try {
       const r = await api.post(`/public/entry/${token}/orders`, {
         items: cartLines.map((l) => ({ ref: l.item!.ref, quantity: l.qty })),
-        customerName: entry?.requiresProfile ? name : undefined,
-        customerPhone: entry?.requiresProfile ? phone : undefined,
-        note: note || (entry?.kind === "TABLE" && tableNumber ? `${t("public.table")} ${tableNumber}` : undefined),
+        ...(isFnb
+          ? {
+              identityMode,
+              tableNumber:
+                identityMode === "TABLE" ? tableNumber.trim() || undefined : undefined,
+              customerName:
+                identityMode === "PHONE" ? name.trim() || undefined : undefined,
+              customerPhone:
+                identityMode === "PHONE" ? phone.trim() || undefined : undefined,
+            }
+          : {
+              customerName: entry?.requiresProfile ? name.trim() || undefined : undefined,
+              customerPhone: entry?.requiresProfile ? phone.trim() || undefined : undefined,
+            }),
+        note: note.trim() || undefined,
       });
       setOrderToken(r.data.token);
       setOrderStatus(r.data.status);
@@ -156,10 +192,14 @@ export default function PublicOrderPage() {
     }
   };
 
-  // "Place order" opens the profile step for entries that need a name/phone;
-  // F&B-on-a-table goes straight through (the table number is the identity).
+  // F&B captures identity inline (table or phone); other cart entries open the
+  // profile step when they require a name/phone.
   const requestSubmit = () => {
     if (cartLines.length === 0) return;
+    if (isFnb) {
+      submit();
+      return;
+    }
     if (entry?.requiresProfile) {
       setProfileOpen(true);
       return;
@@ -186,7 +226,33 @@ export default function PublicOrderPage() {
         `/public/entry/${token}/carwash-bookings`,
         payload,
       );
-      setBookingDone(r.data);
+      setBookingDone({ kind: "CARWASH", data: r.data });
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? "Could not submit booking");
+    } finally {
+      setBookingSubmitting(false);
+    }
+  };
+
+  const submitRoomReservation = async (payload: any) => {
+    setBookingSubmitting(true);
+    setError("");
+    try {
+      const r = await api.post(`/public/entry/${token}/reservations`, payload);
+      setBookingDone({ kind: "ROOM", data: r.data });
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? "Could not submit reservation");
+    } finally {
+      setBookingSubmitting(false);
+    }
+  };
+
+  const submitServiceBooking = async (payload: any) => {
+    setBookingSubmitting(true);
+    setError("");
+    try {
+      const r = await api.post(`/public/entry/${token}/service-bookings`, payload);
+      setBookingDone({ kind: "SERVICE", data: r.data });
     } catch (e: any) {
       setError(e?.response?.data?.message ?? "Could not submit booking");
     } finally {
@@ -256,12 +322,21 @@ export default function PublicOrderPage() {
   }
 
   if (bookingDone) {
+    const isCarwashBooking = bookingDone.kind === "CARWASH";
     return (
       <div className="min-h-screen bg-gray-100 p-6">
         <div className="mx-auto max-w-md bg-white rounded-xl border p-6 text-center space-y-3">
           <p className="text-3xl">✅</p>
-          <p className="font-semibold text-gray-800">{t("carwash.bookingSent")}</p>
-          <p className="text-sm text-gray-500">{t("carwash.bookingWaitHint")}</p>
+          <p className="font-semibold text-gray-800">
+            {isCarwashBooking
+              ? t("carwash.bookingSent")
+              : t("public.bookingSent")}
+          </p>
+          <p className="text-sm text-gray-500">
+            {isCarwashBooking
+              ? t("carwash.bookingWaitHint")
+              : t("public.bookingWaitHint")}
+          </p>
         </div>
       </div>
     );
@@ -292,7 +367,7 @@ export default function PublicOrderPage() {
         </div>
       )}
 
-      {entry?.kind === "CARWASH_BAY" && (
+      {isCarwash && (
         <div className="mx-auto max-w-md p-4">
           <div className="bg-white rounded-xl border p-4">
             {carwashOptions ? (
@@ -321,109 +396,201 @@ export default function PublicOrderPage() {
         </div>
       )}
 
-      {entry?.kind !== "CARWASH_BAY" && (
-      <div className="mx-auto max-w-md p-4 space-y-2">
-        {/* Service tabs (multi-service hospitality). */}
-        {entry?.services && entry.services.length > 1 && (
-          <div className="flex gap-1 overflow-x-auto pb-1">
-            {entry.services.map((s) => (
-              <button
-                key={s.key}
-                onClick={() => setTab(s.key)}
-                className={
-                  "px-3 py-1.5 rounded-full text-sm whitespace-nowrap " +
-                  (tab === s.key
-                    ? "bg-blue-600 text-white"
-                    : "bg-white text-gray-600 border")
-                }
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Table number (F&B at a table): prefilled, confirmable. */}
-        {entry?.kind === "TABLE" && (
-          <div className="bg-white rounded-xl border p-3">
-            <label className="block text-xs font-medium text-gray-500">
-              {t("public.table")}
-              <input
-                value={tableNumber}
-                onChange={(e) => setTableNumber(e.target.value)}
-                placeholder={t("public.table")}
-                className="mt-1 border border-gray-300 rounded-lg p-2 text-sm w-full"
-              />
-            </label>
-          </div>
-        )}
-
-        {visibleItems.map((it) => (
-          <ItemCard
-            key={it.ref}
-            item={it}
-            cart={cart}
-            add={add}
-            sub={sub}
-            t={t}
-            showPrices={entry?.showPrices ?? false}
-          />
-        ))}
-        {visibleItems.length === 0 && (
-          <p className="text-center text-gray-400 text-sm py-10">{t("public.empty")}</p>
-        )}
-
-        <input
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder={t("public.note")}
-          className="border border-gray-300 rounded-lg p-2 text-sm w-full bg-white"
-        />
-      </div>
-      )}
-
-      {entry?.kind !== "CARWASH_BAY" && (
-      <Modal isOpen={profileOpen} onClose={() => setProfileOpen(false)} title={t("public.profileTitle")} size="sm">
-        <div className="space-y-3">
-          <p className="text-sm text-gray-500">{t("public.profileHint")}</p>
-          <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            onBlur={autofill}
-            placeholder={t("public.phone")}
-            className="border border-gray-300 rounded-lg p-2 text-sm w-full"
-            inputMode="tel"
-          />
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={t("public.name")}
-            className="border border-gray-300 rounded-lg p-2 text-sm w-full"
-          />
-          {error && <p className="text-red-600 text-sm">{error}</p>}
-          <div className="flex justify-end gap-2">
-            <button onClick={() => setProfileOpen(false)} className="px-3 py-2 text-sm text-gray-600">
-              {t("common.cancel")}
-            </button>
-            <Button
-              loading={submitting}
-              disabled={!phone.trim() && !name.trim()}
-              onClick={submit}
-            >
-              {t("public.confirmOrder")}
-            </Button>
+      {isAccommodation && (
+        <div className="mx-auto max-w-md p-4">
+          <div className="bg-white rounded-xl border p-4">
+            <RoomReservationForm
+              roomTypes={visibleItems.map((it) => ({
+                ref: it.ref,
+                name: it.name,
+                price: it.price,
+                description: it.description,
+                image: it.image ?? null,
+                meta: it.meta,
+              }))}
+              onSubmit={submitRoomReservation}
+              submitting={bookingSubmitting}
+            />
           </div>
         </div>
-      </Modal>
       )}
 
-      {entry?.kind !== "CARWASH_BAY" && cartLines.length > 0 && (
+      {isService && (
+        <div className="mx-auto max-w-md p-4">
+          <div className="bg-white rounded-xl border p-4">
+            <ServiceBookingForm
+              mode="public"
+              items={visibleItems.map((it) => ({
+                ref: it.ref,
+                name: it.name,
+                price: it.price,
+                description: it.description,
+              }))}
+              onSubmit={submitServiceBooking}
+              submitting={bookingSubmitting}
+            />
+          </div>
+        </div>
+      )}
+
+      {isCart && (
+        <div className="mx-auto max-w-md p-4 space-y-2">
+          {/* Service tabs (legacy multi-service hospitality). */}
+          {entry?.services && entry.services.length > 1 && (
+            <div className="flex gap-1 overflow-x-auto pb-1">
+              {entry.services.map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => setTab(s.key)}
+                  className={
+                    "px-3 py-1.5 rounded-full text-sm whitespace-nowrap " +
+                    (tab === s.key
+                      ? "bg-blue-600 text-white"
+                      : "bg-white text-gray-600 border")
+                  }
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* F&B identity: dine-in (table) or take-away (phone). */}
+          {isFnb && (
+            <div className="bg-white rounded-xl border p-3 space-y-3">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setIdentityMode("TABLE")}
+                  className={
+                    "px-3 py-1.5 rounded-full text-sm " +
+                    (identityMode === "TABLE"
+                      ? "bg-blue-600 text-white"
+                      : "bg-white text-gray-600 border")
+                  }
+                >
+                  {t("public.dineIn")}
+                </button>
+                <button
+                  onClick={() => setIdentityMode("PHONE")}
+                  className={
+                    "px-3 py-1.5 rounded-full text-sm " +
+                    (identityMode === "PHONE"
+                      ? "bg-blue-600 text-white"
+                      : "bg-white text-gray-600 border")
+                  }
+                >
+                  {t("public.takeAway")}
+                </button>
+              </div>
+
+              {identityMode === "TABLE" ? (
+                <label className="block text-xs font-medium text-gray-500">
+                  {t("public.tableNumber")}
+                  <input
+                    value={tableNumber}
+                    onChange={(e) => setTableNumber(e.target.value)}
+                    placeholder={t("public.tableNumber")}
+                    className="mt-1 border border-gray-300 rounded-lg p-2 text-sm w-full"
+                  />
+                </label>
+              ) : (
+                <>
+                  <input
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    onBlur={autofill}
+                    placeholder={t("public.phone")}
+                    className="border border-gray-300 rounded-lg p-2 text-sm w-full"
+                    inputMode="tel"
+                  />
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder={t("public.name")}
+                    className="border border-gray-300 rounded-lg p-2 text-sm w-full"
+                  />
+                </>
+              )}
+            </div>
+          )}
+
+          {visibleItems.map((it) => (
+            <ItemCard
+              key={it.ref}
+              item={it}
+              cart={cart}
+              add={add}
+              sub={sub}
+              t={t}
+              showPrices={entry?.showPrices ?? false}
+            />
+          ))}
+          {visibleItems.length === 0 && (
+            <p className="text-center text-gray-400 text-sm py-10">{t("public.empty")}</p>
+          )}
+
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder={t("public.note")}
+            className="border border-gray-300 rounded-lg p-2 text-sm w-full bg-white"
+          />
+        </div>
+      )}
+
+      {entry?.kind === "SHOP" && (
+        <Modal
+          isOpen={profileOpen}
+          onClose={() => setProfileOpen(false)}
+          title={t("public.profileTitle")}
+          size="sm"
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-gray-500">{t("public.profileHint")}</p>
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              onBlur={autofill}
+              placeholder={t("public.phone")}
+              className="border border-gray-300 rounded-lg p-2 text-sm w-full"
+              inputMode="tel"
+            />
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t("public.name")}
+              className="border border-gray-300 rounded-lg p-2 text-sm w-full"
+            />
+            {error && <p className="text-red-600 text-sm">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setProfileOpen(false)}
+                className="px-3 py-2 text-sm text-gray-600"
+              >
+                {t("common.cancel")}
+              </button>
+              <Button
+                loading={submitting}
+                disabled={!phone.trim() && !name.trim()}
+                onClick={submit}
+              >
+                {t("public.confirmOrder")}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {isCart && cartLines.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-3">
           <div className="mx-auto max-w-md space-y-2">
             {/* Read-only summary so guests see each selected line (incl. variants). */}
             <div className="max-h-40 overflow-y-auto space-y-1">
               {cartLines.map((l) => (
-                <div key={l.item!.ref} className="flex items-center justify-between gap-3 text-sm text-gray-700">
+                <div
+                  key={l.item!.ref}
+                  className="flex items-center justify-between gap-3 text-sm text-gray-700"
+                >
                   <span className="min-w-0 truncate">
                     {l.item!.name} <span className="text-gray-400">× {l.qty}</span>
                   </span>

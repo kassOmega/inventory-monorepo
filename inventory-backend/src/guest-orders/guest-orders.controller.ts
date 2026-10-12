@@ -168,6 +168,7 @@ export class GuestOrdersController {
       label: string;
       tableId?: number | null;
       locationId?: number | null;
+      serviceType?: 'FOOD_AND_BEVERAGE' | 'ACCOMMODATION' | 'SPA_AND_WELLNESS' | 'GYM_AND_FITNESS' | 'SWIMMING_POOL' | 'EVENT_AND_HALL_RENTAL' | 'CUSTOM' | null;
     },
   ) {
     return this.guestOrders.createEntry(body);

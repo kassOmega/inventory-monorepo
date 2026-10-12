@@ -3155,6 +3155,9 @@ model PublicEntry {
   tenantId   Int
   organization Organization  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   kind       PublicEntryKind
+  /// For hospitality entries, the service line this QR is scoped to
+  /// (null for non-hospitality entries and legacy hotel-wide entries).
+  serviceType HospitalityServiceType?
   /// Human label shown on the print sheet (table name, branch, room area…).
   label      String
   /// Optional target: dining table id (TABLE) — other kinds are shop/hotel wide.
@@ -3212,6 +3215,13 @@ model GuestOrder {
   customer      Customer?        @relation("GuestOrderCustomer", fields: [customerId], references: [id], onDelete: SetNull)
   customerName  String?
   customerPhone String?
+  /// F&B dine-in: the table the guest is seated at (take-away leaves this null).
+  tableNumber   String?
+  /// Service bookings: the guest-chosen start time.
+  startsAt      DateTime?
+  /// Room reservations: the guest-chosen stay window.
+  checkIn       DateTime?
+  checkOut      DateTime?
   note          String?
   /// Retail/manufacturing: the branch(es) the central desk forwarded to.
   routes        GuestOrderRoute[]

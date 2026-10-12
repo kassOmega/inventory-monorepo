@@ -54,12 +54,27 @@ export default function AiPhotoPicker({
       reader.readAsDataURL(file);
     });
 
+  // HEIC/HEIF photos are sent through as-is (Gemini accepts them); other
+  // formats are downscaled to JPEG so the base64 payload stays small.
+  const RAW_MIME = new Set(["image/heic", "image/heif"]);
+  const readRawDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Could not read the image"));
+      reader.onload = () => resolve(reader.result as string);
+      reader.readAsDataURL(file);
+    });
+
   const handleFiles = async (list: FileList | null) => {
     if (busy) return;
     const files = Array.from(list ?? []).slice(0, 2);
     if (files.length === 0) return;
     try {
-      const images = await Promise.all(files.map((f) => downscaleToJpegBase64(f)));
+      const images = await Promise.all(
+        files.map((f) =>
+          RAW_MIME.has(f.type) ? readRawDataUrl(f) : downscaleToJpegBase64(f),
+        ),
+      );
       onImages(images);
     } catch {
       // consumer shows the toast
@@ -76,7 +91,7 @@ export default function AiPhotoPicker({
         <input
           ref={galleryRef}
           type="file"
-          accept="image/*"
+          accept="image/*,.heic,.heif"
           multiple
           capture={capture ? "environment" : undefined}
           className="hidden"
@@ -101,7 +116,7 @@ export default function AiPhotoPicker({
       <input
         ref={galleryRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.heic,.heif"
         multiple
         capture={capture ? "environment" : undefined}
         className="hidden"

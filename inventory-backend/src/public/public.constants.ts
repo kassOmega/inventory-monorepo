@@ -16,9 +16,9 @@ export function catalogsForKind(kind: PublicEntryKind): ItemKind[] {
     case 'TABLE':
       return ['MENU_ITEM'];
     case 'HOTEL':
-      // Rooms are resolved dynamically (availability); F&B/service catalogs may
-      // also be published at a hotel-wide entry.
-      return ['ROOM_TYPE', 'SERVICE_ITEM', 'MENU_ITEM'];
+      // A hotel/rooms entry publishes room types only. F&B and other service
+      // lines now have their own per-service QRs (see kindForHospitalityService).
+      return ['ROOM_TYPE'];
     case 'SHOP':
       return ['PRODUCT'];
     case 'SERVICE':
@@ -28,6 +28,19 @@ export function catalogsForKind(kind: PublicEntryKind): ItemKind[] {
     default:
       return [];
   }
+}
+
+/**
+ * Resolve the catalog item kinds for an entry. Service-scoped hospitality
+ * entries use their serviceType (the source of truth); everything else falls
+ * back to the entry kind.
+ */
+export function itemKindsForEntry(
+  kind: PublicEntryKind,
+  serviceType?: string | null,
+): ItemKind[] {
+  if (serviceType) return catalogsForKind(kindForHospitalityService(serviceType));
+  return catalogsForKind(kind);
 }
 
 /**
@@ -85,4 +98,36 @@ export function publicKindFor(
     default:
       return 'SHOP';
   }
+}
+
+/**
+ * The public entry kind for one hospitality service line. F&B is table-based,
+ * accommodation is room-based, and every other line (spa/gym/pool/events/custom)
+ * renders as a SERVICE booking entry.
+ */
+export function kindForHospitalityService(service: string): PublicEntryKind {
+  switch (service) {
+    case 'FOOD_AND_BEVERAGE':
+      return 'TABLE';
+    case 'ACCOMMODATION':
+      return 'HOTEL';
+    default:
+      return 'SERVICE';
+  }
+}
+
+/** Human-friendly display names for the hospitality service lines. */
+export const HOSPITALITY_SERVICE_LABELS: Record<string, string> = {
+  FOOD_AND_BEVERAGE: 'Food & Beverage',
+  ACCOMMODATION: 'Rooms',
+  SPA_AND_WELLNESS: 'Spa',
+  GYM_AND_FITNESS: 'Gym',
+  SWIMMING_POOL: 'Pool',
+  EVENT_AND_HALL_RENTAL: 'Events',
+  CUSTOM: 'Custom',
+};
+
+/** The display label for a hospitality service line (falls back to the key). */
+export function hospitalityServiceLabel(service: string): string {
+  return HOSPITALITY_SERVICE_LABELS[service] ?? service;
 }

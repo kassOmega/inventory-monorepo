@@ -1934,7 +1934,10 @@
       "cancelled": "ተሰርዟል",
       "no_show": "አልመጣም",
       "pending": "በመጠባበቅ ላይ"
-    }
+    },
+    "aiScanId": "📷 መታወቂያ ይቃኙ",
+    "aiScanIdHint": "የእንግዳውን መታወቂያ ፎቶ ያንሱ — የመግቢያ ቅጹ በራስ-ሰር ይሞላል። ፎቶው ከቆይታው ጋር ይቀመጣል።",
+    "aiScanIdError": "መታወቂያውን ማንበብ አልተቻለም። ግልጽ ፎቶ ያንሱና እንደገና ይሞክሩ።"
   },
   "taxes": {
     "title": "ታክሶች",
@@ -4688,7 +4691,22 @@
     "variants": "ዓይነቶች",
     "hideVariants": "ደብቅ",
     "orderHere": "እዚህ ያዙ",
-    "contactUs": "ያግኙን"
+    "contactUs": "ያግኙን",
+    "dineIn": "በቦታው መብላት",
+    "takeAway": "ተሸክመው መውሰድ",
+    "tableNumber": "የጠረጴዛ ቁጥር",
+    "tableRequired": "እባክዎ የጠረጴዛ ቁጥር ያስገቡ",
+    "phoneRequired": "እባክዎ ስልክ ቁጥርዎን ያስገቡ",
+    "bookingSent": "ቀጠሮዎ ተልኳል!",
+    "bookingWaitHint": "ቡድናችን በቅርቡ ያረጋግጣል። ይህን ገጽ ክፍት ያድርጉ።",
+    "bookingSubmit": "አሁን ያስይዙ",
+    "bookingService": "አገልግሎት",
+    "bookingSelectService": "አገልግሎት ይምረጡ",
+    "bookingWhen": "መቼ",
+    "roomType": "የክፍል አይነት",
+    "bookingSelectRoom": "የክፍል አይነት ይምረጡ",
+    "checkIn": "መግቢያ ቀን",
+    "checkOut": "መውጫ ቀን"
   },
   "guestOrders": {
     "title": "የእንግዳ ትዕዛዞች",
@@ -4762,7 +4780,16 @@
     "noCatalog": "ይህ ዓይነት ካታሎጉን በራስሰር ያትማል።",
     "scanHint": "ለመዘዝ / ለመያዝ ስካን ያድርጉ",
     "autoHint": "አገናኞች ለጠረጴዛዎችዎ፣ ቅርንጫፎችዎ እና አገልግሎቶችዎ በራስሰር ይፈጠራሉ።",
-    "autoApprove": "በራስሰር አጽድቅ"
+    "autoApprove": "በራስሰር አጽድቅ",
+    "serviceType": {
+      "FOOD_AND_BEVERAGE": "ምግብ እና መጠጥ",
+      "ACCOMMODATION": "ክፍሎች",
+      "SPA_AND_WELLNESS": "ስፓ",
+      "GYM_AND_FITNESS": "ጂም",
+      "SWIMMING_POOL": "መዋኛ ገንዳ",
+      "EVENT_AND_HALL_RENTAL": "ዝግጅቶች",
+      "CUSTOM": "ብጁ"
+    }
   },
   "catalog": {
     "image": "ምስል",

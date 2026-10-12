@@ -30,6 +30,7 @@ import { PoDraftDto } from './dto/po-draft.dto';
 import { PricingDto } from './dto/pricing.dto';
 import { AnalyzeProductPhotoDto } from './dto/analyze-product-photo.dto';
 import { AnalyzeVehiclePhotoDto } from './dto/analyze-vehicle-photo.dto';
+import { AnalyzeGuestIdDto } from './dto/analyze-guest-id.dto';
 import { SuggestVariantsDto } from './dto/suggest-variants.dto';
 
 @Controller('ai')
@@ -94,6 +95,27 @@ export class AiController {
     return this.aiProductService.analyzeVehiclePhoto(
       dto.base64Image,
       this.resolveTenant(req),
+    );
+  }
+
+  /**
+   * POST /ai/hotel/analyze-guest-id — AI front-desk check-in assistant.
+   * body: { base64Image, base64Image2? }.
+   * Returns guest registration/ID fields ready to autofill the check-in form.
+   */
+  @Post('hotel/analyze-guest-id')
+  @Permissions('hotel.reception', 'ai.product-assist')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  async analyzeGuestId(
+    @Body() dto: AnalyzeGuestIdDto,
+    @Req() req: RequestWithUser,
+  ) {
+    await this.usageService.assertAiEnabled(this.resolveTenant(req));
+    await this.usageService.checkAndIncrement(req.user.sub);
+    return this.aiProductService.analyzeGuestIdPhoto(
+      dto.base64Image,
+      this.resolveTenant(req),
+      dto.base64Image2,
     );
   }
 

@@ -37,10 +37,47 @@ export class PublicController {
       items: Array<{ ref: string; quantity: number; notes?: string }>;
       customerName?: string;
       customerPhone?: string;
+      tableNumber?: string;
+      identityMode?: 'TABLE' | 'PHONE';
       note?: string;
     },
   ) {
     return this.publicSvc.submit(token, body);
+  }
+
+  /** Submit a public room reservation (no auth, scoped by the entry token). */
+  @Post('entry/:token/reservations')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  reserve(
+    @Param('token') token: string,
+    @Body()
+    body: {
+      roomTypeRef?: string;
+      checkIn?: string;
+      checkOut?: string;
+      guestName?: string;
+      phone?: string;
+      notes?: string;
+    },
+  ) {
+    return this.publicSvc.reserve(token, body);
+  }
+
+  /** Submit a public service booking (no auth, scoped by the entry token). */
+  @Post('entry/:token/service-bookings')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  serviceBooking(
+    @Param('token') token: string,
+    @Body()
+    body: {
+      serviceItemRef?: string;
+      startsAt?: string;
+      guestName?: string;
+      phone?: string;
+      notes?: string;
+    },
+  ) {
+    return this.publicSvc.serviceBooking(token, body);
   }
 
   /** The guest's own order status (by its opaque order token). */

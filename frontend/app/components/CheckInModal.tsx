@@ -12,6 +12,7 @@
 
 import api from "@/lib/api";
 import Modal from "@/app/components/Modal";
+import AiAutofillCapture from "@/app/components/AiAutofillCapture";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -26,9 +27,20 @@ const money = (n: number | undefined | null) =>
 const inputClass = "border border-gray-300 rounded p-2 text-sm w-full";
 const labelClass = "block text-xs text-gray-500 mb-1";
 
+/** Convert an AI-captured data URL into a File for the ID-document upload. */
+function dataUrlToFile(dataUrl: string, name = "guest-id.jpg"): File {
+  const [header, base64] = dataUrl.split(",");
+  const mime = /data:([^;]+)/.exec(header)?.[1] ?? "image/jpeg";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new File([bytes], name, { type: mime });
+}
+
 export default function CheckInModal({
   reservation,
   idTypes,
+  canUseAi = false,
   onClose,
   onDone,
   onError,
@@ -36,6 +48,7 @@ export default function CheckInModal({
   reservation: any;
   /** Active ID types from GET /hotel/settings/id-types?active=true. */
   idTypes: any[];
+  canUseAi?: boolean;
   onClose: () => void;
   onDone?: (result: any) => void;
   onError?: (message: string) => void;
@@ -55,6 +68,7 @@ export default function CheckInModal({
     emergencyContactPhone: reservation?.emergencyContactPhone ?? "",
   });
   const [file, setFile] = useState<File | null>(null);
+  const [filePreview, setFilePreview] = useState<string | null>(null);
   const [roomId, setRoomId] = useState<string>(
     String(reservation?.roomId ?? ""),
   );
@@ -70,6 +84,18 @@ export default function CheckInModal({
     () => idTypes.find((x) => String(x.id) === form.idTypeId),
     [idTypes, form.idTypeId],
   );
+
+  // Preview the selected / AI-captured ID document. Revoke object URLs so the
+  // preview never leaks memory while the modal is open.
+  useEffect(() => {
+    if (!file) {
+      setFilePreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setFilePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
 
   const loadRooms = useCallback(async () => {
     if (!reservation?.checkIn || !reservation?.checkOut) return;
@@ -114,6 +140,29 @@ export default function CheckInModal({
       return;
     }
     setStep(2);
+  };
+
+  /** Apply the AI-extracted guest-ID fields to the check-in form. */
+  const applyIdSuggestion = (data: any) => {
+    setForm((f) => ({
+      ...f,
+      ...(data.guestName ? { guestName: data.guestName } : {}),
+      ...(data.phone ? { phone: data.phone } : {}),
+      ...(data.email ? { email: data.email } : {}),
+      ...(data.address ? { address: data.address } : {}),
+      ...(data.nationality ? { nationality: data.nationality } : {}),
+      ...(data.idTypeId ? { idTypeId: String(data.idTypeId) } : {}),
+      ...(data.idNumber ? { idNumber: data.idNumber } : {}),
+      ...(data.idExpiryDate
+        ? { idExpiryDate: String(data.idExpiryDate).slice(0, 10) }
+        : {}),
+      ...(data.emergencyContactName
+        ? { emergencyContactName: data.emergencyContactName }
+        : {}),
+      ...(data.emergencyContactPhone
+        ? { emergencyContactPhone: data.emergencyContactPhone }
+        : {}),
+    }));
   };
 
   const submit = async () => {
@@ -208,6 +257,28 @@ export default function CheckInModal({
 
         {step === 1 && (
           <div className="space-y-3">
+            {canUseAi && (
+              <AiAutofillCapture
+                analyze={async (images) => {
+                  // Keep the captured ID picture for the upload on submit.
+                  if (images[0]) setFile(dataUrlToFile(images[0]));
+                  const res = await api.post(
+                    "/ai/hotel/analyze-guest-id",
+                    {
+                      base64Image: images[0],
+                      ...(images[1] ? { base64Image2: images[1] } : {}),
+                    },
+                    { timeout: 60000 },
+                  );
+                  return res.data;
+                }}
+                onResult={applyIdSuggestion}
+                buttonLabel={t("hotel.aiScanId")}
+                banner={t("hotel.aiScanIdHint")}
+                errorMessage={t("hotel.aiScanIdError")}
+              />
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className={labelClass}>{t("hotel.guestName")}</label>
@@ -306,6 +377,29 @@ export default function CheckInModal({
                   onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                   className="text-sm"
                 />
+                {file && (
+                  <div className="mt-2 flex items-start gap-2">
+                    {filePreview && file.type.startsWith("image/") ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={filePreview}
+                        alt={file.name}
+                        className="h-20 w-28 rounded-lg border object-cover"
+                      />
+                    ) : (
+                      <div className="h-20 w-28 rounded-lg border bg-gray-50 flex items-center justify-center text-[11px] text-gray-500 px-1 text-center">
+                        {file.name}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setFile(null)}
+                      className="text-xs text-red-600 hover:underline"
+                    >
+                      {t("common.remove")}
+                    </button>
+                  </div>
+                )}
                 <p className="text-[11px] text-gray-400 mt-1">
                   {t("hotel.idScanHint")}
                 </p>

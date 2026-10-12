@@ -188,14 +188,37 @@ export class GuestOrderConversionService {
   private async toReservation(order: any, actor: JwtPayload) {
     const roomType = order.items.find((i: any) => i.itemKind === 'ROOM_TYPE');
     if (!roomType) throw new BadRequestException('No room selected');
+
+    // Guest-chosen stay window; legacy rows fall back to now/+1 day.
+    const checkIn = order.checkIn ? new Date(order.checkIn) : new Date();
+    const checkOut = order.checkOut
+      ? new Date(order.checkOut)
+      : new Date(checkIn.getTime() + 24 * 60 * 60 * 1000);
+    if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime()) || !(checkOut > checkIn)) {
+      throw new BadRequestException('Invalid stay dates');
+    }
+
     // Pick a free room of that type for the requested window.
+    const busy = await this.prisma.hotelReservation.findMany({
+      where: {
+        tenantId: order.tenantId,
+        status: { in: ['CONFIRMED', 'CHECKED_IN'] },
+        checkIn: { lt: checkOut },
+        checkOut: { gt: checkIn },
+      },
+      select: { roomId: true },
+    });
+    const busyIds = new Set(busy.map((b) => b.roomId));
     const room = await this.prisma.room.findFirst({
-      where: { tenantId: order.tenantId, roomTypeId: roomType.itemId },
+      where: {
+        tenantId: order.tenantId,
+        roomTypeId: roomType.itemId,
+        id: { notIn: [...busyIds] },
+      },
       orderBy: { number: 'asc' },
     });
     if (!room) throw new BadRequestException('No room available');
-    const checkIn = new Date();
-    const checkOut = new Date(checkIn.getTime() + 24 * 60 * 60 * 1000);
+
     const created = await this.hotel.createReservation(
       {
         roomId: room.id,
@@ -217,10 +240,15 @@ export class GuestOrderConversionService {
   private async toBooking(order: any, actor: JwtPayload) {
     const serviceItem = order.items.find((i: any) => i.itemKind === 'SERVICE_ITEM');
     if (!serviceItem) throw new BadRequestException('No service selected');
+    // Guest-chosen start time; legacy rows fall back to now.
+    const startsAt = order.startsAt ? new Date(order.startsAt) : new Date();
+    if (Number.isNaN(startsAt.getTime())) {
+      throw new BadRequestException('Invalid booking time');
+    }
     const created = await this.service.createBooking({
       clientId: order.customerId ?? null,
       serviceItemId: serviceItem.itemId ?? null,
-      startsAt: new Date().toISOString(),
+      startsAt: startsAt.toISOString(),
       notes: order.note ?? undefined,
     } as any);
     await this.prisma.guestOrder.update({

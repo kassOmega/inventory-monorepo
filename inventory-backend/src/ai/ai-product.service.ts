@@ -333,6 +333,55 @@ function vehicleAiSchema(typeNames: string[]): object {
   };
 }
 
+export interface AiGuestIdSuggestion {
+  guestName: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  nationality: string | null;
+  idTypeName: string | null;
+  idTypeId: number | null;
+  idNumber: string | null;
+  idExpiryDate: string | null;
+  emergencyContactName: string | null;
+  emergencyContactPhone: string | null;
+}
+
+function guestIdAssistSystemInstruction(typeNames: string[]): string {
+  const typeLine =
+    typeNames.length > 0
+      ? `Choose the ID type as EXACTLY one of the registered types when it is visible: ${typeNames.join(', ')}. Otherwise return null.`
+      : 'Return the ID type name only when it is visible.';
+  return [
+    'You are the AI front-desk assistant for a hotel check-in.',
+    'You look at a photograph of a guest identification document (national ID, passport, driving licence, kebele ID, etc.) and extract the registration fields.',
+    'Extract ONLY what is literally legible in the photo. Never guess or hallucinate.',
+    typeLine,
+    'guestName: the full name as printed on the document.',
+    'idNumber: the document/passport/licence number.',
+    'idExpiryDate: the expiry date as YYYY-MM-DD when visible, otherwise null.',
+    'phone / email / address / nationality / emergency contact: return only when actually printed on the photographed document or form; otherwise null.',
+    'Return concise values only.',
+  ].join('\n');
+}
+
+const GUEST_ID_AI_SCHEMA = {
+  type: 'object',
+  properties: {
+    guestName: { type: ['string', 'null'] },
+    phone: { type: ['string', 'null'] },
+    email: { type: ['string', 'null'] },
+    address: { type: ['string', 'null'] },
+    nationality: { type: ['string', 'null'] },
+    idTypeName: { type: ['string', 'null'] },
+    idNumber: { type: ['string', 'null'] },
+    idExpiryDate: { type: ['string', 'null'] },
+    emergencyContactName: { type: ['string', 'null'] },
+    emergencyContactPhone: { type: ['string', 'null'] },
+  },
+  required: ['guestName'],
+};
+
 const IDENTIFY_SCHEMA = {
   type: 'object',
   properties: {
@@ -804,6 +853,76 @@ export class AiProductService {
       vehicleType,
       plateNumber: suggestion.plateNumber ?? null,
       makeModel: suggestion.makeModel ?? null,
+    };
+  }
+
+  /**
+   * AI guest-ID check-in assistant: extract registration fields from a photo of
+   * the guest's identification document and map the ID type onto the tenant's
+   * configured GuestIdType registry. The image is never stored.
+   */
+  async analyzeGuestIdPhoto(
+    base64Image: string,
+    tenantId: number | null,
+    base64Image2?: string,
+  ): Promise<AiGuestIdSuggestion> {
+    const { imageMimeType, imageBase64, extraImages } =
+      this.decodeAndValidateImages(base64Image, base64Image2);
+
+    const idTypes =
+      tenantId != null
+        ? await this.prisma.guestIdType.findMany({
+            where: { tenantId, isActive: true },
+            select: { id: true, name: true, code: true },
+            orderBy: { sortOrder: 'asc' },
+          })
+        : [];
+    const typeNames = idTypes.map((v) => v.name);
+
+    const extracted = await this.gemini.analyzeImage<{
+      guestName?: string | null;
+      phone?: string | null;
+      email?: string | null;
+      address?: string | null;
+      nationality?: string | null;
+      idTypeName?: string | null;
+      idNumber?: string | null;
+      idExpiryDate?: string | null;
+      emergencyContactName?: string | null;
+      emergencyContactPhone?: string | null;
+    }>({
+      systemInstruction: guestIdAssistSystemInstruction(typeNames),
+      prompt: 'Extract the guest registration fields from this ID photo.',
+      imageMimeType,
+      imageBase64,
+      extraImages,
+      schema: GUEST_ID_AI_SCHEMA,
+    });
+
+    const cleanTypeName = (extracted.idTypeName ?? '').trim();
+    const idTypeId =
+      idTypes.find(
+        (t) =>
+          t.name.toLowerCase() === cleanTypeName.toLowerCase() ||
+          t.code.toLowerCase() === cleanTypeName.toLowerCase(),
+      )?.id ?? null;
+
+    this.logger.log(
+      `Guest ID AI: name="${extracted.guestName ?? ''}" idType="${cleanTypeName}" mapped=${idTypeId}`,
+    );
+
+    return {
+      guestName: extracted.guestName ?? null,
+      phone: extracted.phone ?? null,
+      email: extracted.email ?? null,
+      address: extracted.address ?? null,
+      nationality: extracted.nationality ?? null,
+      idTypeName: cleanTypeName || null,
+      idTypeId,
+      idNumber: extracted.idNumber ?? null,
+      idExpiryDate: extracted.idExpiryDate ?? null,
+      emergencyContactName: extracted.emergencyContactName ?? null,
+      emergencyContactPhone: extracted.emergencyContactPhone ?? null,
     };
   }
 

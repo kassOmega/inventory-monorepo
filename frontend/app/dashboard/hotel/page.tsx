@@ -28,6 +28,8 @@ export default function HotelPage() {
     canManageRooms || hasPermission("hotel.housekeeping.update");
   const canReadFolio =
     canFrontDesk || hasPermission("folios.view") || hasPermission("folios.manage");
+  const canAiCheckinScan =
+    user?.isSuperuser || hasPermission("ai.product-assist");
   const roomSt = (s: string) =>
     (t(`hotel.st.${s.toLowerCase()}`, { defaultValue: s }) as string) ?? s;
   const resSt = (s: string) =>
@@ -43,7 +45,11 @@ export default function HotelPage() {
   const [checkInFor, setCheckInFor] = useState<any>(null);
   const [checkoutFor, setCheckoutFor] = useState<number | null>(null);
 
-  const [roomTypeForm, setRoomTypeForm] = useState({ name: "", basePrice: "" });
+  const [roomTypeForm, setRoomTypeForm] = useState({
+    name: "",
+    basePrice: "",
+    imageUrl: null as string | null,
+  });
   const [roomForm, setRoomForm] = useState({ number: "", roomTypeId: "" });
   const [resForm, setResForm] = useState({ roomId: "", guestName: "", checkIn: "", checkOut: "" });
 
@@ -146,8 +152,12 @@ export default function HotelPage() {
     e.preventDefault();
     setBusy(true);
     try {
-      await api.post("/hotel/room-types", { name: roomTypeForm.name, basePrice: Number(roomTypeForm.basePrice) });
-      setRoomTypeForm({ name: "", basePrice: "" });
+      await api.post("/hotel/room-types", {
+        name: roomTypeForm.name,
+        basePrice: Number(roomTypeForm.basePrice),
+        imageUrl: roomTypeForm.imageUrl ?? null,
+      });
+      setRoomTypeForm({ name: "", basePrice: "", imageUrl: null });
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("hotel.failedAddRoomType"));
@@ -456,24 +466,31 @@ export default function HotelPage() {
             </ul>
 
             {canManageRooms && (
-            <form onSubmit={addRoomType} className="flex gap-2">
-              <input
-                placeholder={t("hotel.roomTypeName")}
-                value={roomTypeForm.name}
-                onChange={(e) => setRoomTypeForm({ ...roomTypeForm, name: e.target.value })}
-                className="border border-gray-300 rounded p-2 text-sm flex-1"
-                required
+            <form onSubmit={addRoomType} className="space-y-2">
+              <div className="flex gap-2">
+                <input
+                  placeholder={t("hotel.roomTypeName")}
+                  value={roomTypeForm.name}
+                  onChange={(e) => setRoomTypeForm({ ...roomTypeForm, name: e.target.value })}
+                  className="border border-gray-300 rounded p-2 text-sm flex-1"
+                  required
+                />
+                <input
+                  type="number"
+                  placeholder={t("hotel.priceNight")}
+                  value={roomTypeForm.basePrice}
+                  onChange={(e) => setRoomTypeForm({ ...roomTypeForm, basePrice: e.target.value })}
+                  className="border border-gray-300 rounded p-2 text-sm w-28"
+                  required
+                />
+                <Button type="submit" loading={busy} className="!px-3 !text-sm">{t("hotel.addType")}</Button>
+              </div>
+              <CatalogImageInput
+                value={roomTypeForm.imageUrl}
+                onChange={(f) => setRoomTypeForm({ ...roomTypeForm, imageUrl: f })}
+                label={t("catalog.image")}
               />
-              <input
-                type="number"
-                placeholder={t("hotel.priceNight")}
-                value={roomTypeForm.basePrice}
-                onChange={(e) => setRoomTypeForm({ ...roomTypeForm, basePrice: e.target.value })}
-                className="border border-gray-300 rounded p-2 text-sm w-28"
-                required
-              />
-              <Button type="submit" loading={busy} className="!px-3 !text-sm">{t("hotel.addType")}</Button>
-              </form>
+            </form>
             )}
             </div>
           </div>
@@ -618,6 +635,7 @@ export default function HotelPage() {
         <CheckInModal
           reservation={checkInFor}
           idTypes={idTypes.filter((x) => x.isActive)}
+          canUseAi={canAiCheckinScan}
           onClose={() => setCheckInFor(null)}
           onDone={async () => {
             setCheckInFor(null);

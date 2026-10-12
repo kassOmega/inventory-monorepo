@@ -104,7 +104,20 @@ export default function QrCodesPage() {
                     <span className="block text-[11px] text-gray-400">{e.table.name}</span>
                   ) : null}
                 </td>
-                <td className="px-3 py-2 text-gray-500">{e.kind}</td>
+                <td className="px-3 py-2 text-gray-500">
+                  {e.serviceType ? (
+                    <>
+                      {t(`qr.serviceType.${e.serviceType}`, {
+                        defaultValue: e.serviceType,
+                      })}
+                      <span className="block text-[11px] text-gray-400">
+                        {t(`qr.kind_${e.kind}`, { defaultValue: e.kind })}
+                      </span>
+                    </>
+                  ) : (
+                    t(`qr.kind_${e.kind}`, { defaultValue: e.kind })
+                  )}
+                </td>
                 <td className="px-3 py-2">
                   <select
                     value={e.state}

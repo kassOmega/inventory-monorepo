@@ -17,7 +17,7 @@ import { GuestOrdersService } from '../guest-orders/guest-orders.service';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { tenantContext } from '../common/tenant/tenant.context';
 import { variantAttributeLabel } from '../common/variant-label.util';
-import { catalogsForKind } from './public.constants';
+import { hospitalityServiceLabel, itemKindsForEntry } from './public.constants';
 
 /** Public-safe catalog item. */
 interface PublicItem {
@@ -35,6 +35,8 @@ interface PublicItem {
 
 export interface PublicEntryView {
   kind: PublicEntryKind;
+  /** Hospitality service line this QR is scoped to (null for others). */
+  serviceType: string | null;
   label: string;
   businessName: string;
   state: 'LIVE' | 'HELD' | 'DROPPED';
@@ -107,6 +109,7 @@ export class PublicService {
       // but no catalog.
       return {
         kind: entry.kind,
+        serviceType: entry.serviceType ?? null,
         label: entry.label,
         businessName: business?.name ?? '',
         state,
@@ -123,14 +126,17 @@ export class PublicService {
 
     const enabled = business?.enabledHospitalityServices ?? [];
     const all = await this.catalog(entry);
-    // Multi-service hospitality shows tabs; everyone else a flat catalog.
+    // Multi-service hospitality shows tabs only for legacy hotel-wide entries
+    // (no serviceType). Service-scoped QRs always render their flat catalog.
+    const serviceScoped = entry.serviceType != null;
     const services =
-      businessType === 'HOSPITALITY' && enabled.length > 1
+      !serviceScoped && businessType === 'HOSPITALITY' && enabled.length > 1
         ? this.groupByService(all, enabled)
         : [];
 
     return {
       kind: entry.kind,
+      serviceType: entry.serviceType ?? null,
       label: entry.label,
       businessName: business?.name ?? '',
       state,
@@ -156,11 +162,21 @@ export class PublicService {
     const groups: Array<{ key: string; label: string; items: PublicItem[] }> = [];
     if (enabled.includes('FOOD_AND_BEVERAGE')) {
       const fb = items.filter((i) => i.kind === 'MENU_ITEM');
-      if (fb.length) groups.push({ key: 'FOOD_AND_BEVERAGE', label: 'Food & Beverage', items: fb });
+      if (fb.length)
+        groups.push({
+          key: 'FOOD_AND_BEVERAGE',
+          label: hospitalityServiceLabel('FOOD_AND_BEVERAGE'),
+          items: fb,
+        });
     }
     if (enabled.includes('ACCOMMODATION')) {
       const rooms = items.filter((i) => i.kind === 'ROOM_TYPE');
-      if (rooms.length) groups.push({ key: 'ACCOMMODATION', label: 'Rooms', items: rooms });
+      if (rooms.length)
+        groups.push({
+          key: 'ACCOMMODATION',
+          label: hospitalityServiceLabel('ACCOMMODATION'),
+          items: rooms,
+        });
     }
     const svc = items.filter((i) => i.kind === 'SERVICE_ITEM');
     if (svc.length) groups.push({ key: 'SERVICES', label: 'Services', items: svc });
@@ -210,9 +226,9 @@ export class PublicService {
     return this.autoCatalog(entry);
   }
 
-  /** Auto-publish the tenant's catalog for the entry's kind. */
+  /** Auto-publish the tenant's catalog for the entry's kind/service scope. */
   private async autoCatalog(entry: PublicEntry): Promise<PublicItem[]> {
-    const kinds = catalogsForKind(entry.kind);
+    const kinds = itemKindsForEntry(entry.kind, entry.serviceType);
     const out: PublicItem[] = [];
     if (kinds.includes('ROOM_TYPE')) out.push(...(await this.availableRooms(entry)));
     if (kinds.includes('MENU_ITEM')) out.push(...(await this.autoMenuItems(entry.tenantId)));
@@ -460,6 +476,8 @@ export class PublicService {
       items: Array<{ ref: string; quantity: number; notes?: string }>;
       customerName?: string;
       customerPhone?: string;
+      tableNumber?: string;
+      identityMode?: 'TABLE' | 'PHONE';
       note?: string;
     },
   ) {
@@ -480,10 +498,21 @@ export class PublicService {
       if (blocked) throw new ForbiddenException('Ordering is unavailable for this number');
     }
 
-    // Non-table entries identify the guest by name/phone; require at least one.
-    if (entry.kind !== 'TABLE') {
-      const name = body.customerName?.trim();
-      const phone = body.customerPhone?.trim();
+    const isFoodAndBeverage =
+      entry.serviceType === 'FOOD_AND_BEVERAGE' || entry.kind === 'TABLE';
+    const name = body.customerName?.trim();
+    const phone = body.customerPhone?.trim();
+    const tableNumber = body.tableNumber?.trim();
+
+    if (isFoodAndBeverage) {
+      // F&B guests identify themselves by table (dine-in) OR phone (take-away).
+      if (!tableNumber && !phone) {
+        throw new BadRequestException(
+          'Please provide a table number or your phone number',
+        );
+      }
+    } else {
+      // Other entries identify the guest by name/phone; require at least one.
       if (!name && !phone) {
         throw new BadRequestException('Please provide your name or phone number');
       }
@@ -523,8 +552,9 @@ export class PublicService {
         tenantId: entry.tenantId,
         status: 'SUBMITTED',
         customerId,
-        customerName: entry.kind === 'TABLE' ? null : body.customerName?.trim() || null,
-        customerPhone: entry.kind === 'TABLE' ? null : body.customerPhone?.trim() || null,
+        customerName: name || null,
+        customerPhone: phone || null,
+        tableNumber: isFoodAndBeverage ? tableNumber || null : null,
         note: body.note?.trim() || null,
         totalAmount,
         items: { create: items },
@@ -553,6 +583,228 @@ export class PublicService {
     await this.guestOrders.maybeAutoApprove(created.id, entry.tenantId).catch(() => {});
 
     return { token: created.token, status: created.status, totalAmount };
+  }
+
+  /** Reject blocklisted phone numbers for a tenant. */
+  private async assertPhoneAllowed(tenantId: number, phone?: string) {
+    if (!phone) return;
+    const blocked = await this.prisma.guestBlocklist.findFirst({
+      where: { tenantId, phone },
+      select: { id: true },
+    });
+    if (blocked) {
+      throw new ForbiddenException('Booking is unavailable for this number');
+    }
+  }
+
+  /** Shared post-submit notification + auto-approve pass. */
+  private async afterGuestOrder(
+    orderId: number,
+    tenantId: number,
+    title: string,
+    message: string,
+    type: string,
+    link: string,
+  ) {
+    await this.notifications
+      .notifyOwner(title, message, {
+        type,
+        link,
+        dedupeKey: `${type}:${orderId}`,
+      })
+      .catch(() => {});
+    await this.guestOrders.maybeAutoApprove(orderId, tenantId).catch(() => {});
+  }
+
+  /**
+   * Submit a public room reservation. Validates the room-type ref against the
+   * entry's own catalog and stores the guest-chosen check-in/check-out window.
+   */
+  async reserve(
+    token: string,
+    body: {
+      roomTypeRef?: string;
+      checkIn?: string;
+      checkOut?: string;
+      guestName?: string;
+      phone?: string;
+      notes?: string;
+    },
+  ) {
+    const entry = await this.resolveEntry(token);
+    if (this.effectiveState(entry) !== 'LIVE') {
+      throw new ForbiddenException('This link is not accepting bookings right now');
+    }
+    const name = body.guestName?.trim() ?? '';
+    const phone = body.phone?.trim() ?? '';
+    if (!name && !phone) {
+      throw new BadRequestException('Please provide your name or phone number');
+    }
+    await this.assertPhoneAllowed(entry.tenantId, phone || undefined);
+
+    if (!body.roomTypeRef) {
+      throw new BadRequestException('Please choose a room type');
+    }
+    const checkIn = new Date(body.checkIn ?? '');
+    const checkOut = new Date(body.checkOut ?? '');
+    if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) {
+      throw new BadRequestException('Please choose a check-in and check-out date');
+    }
+    if (checkOut <= checkIn) {
+      throw new BadRequestException('Check-out must be after check-in');
+    }
+
+    const catalog = await this.catalogMap(entry);
+    const item = catalog.get(body.roomTypeRef);
+    if (!item || item.kind !== 'ROOM_TYPE') {
+      throw new BadRequestException('Unknown room type');
+    }
+
+    let customerId: number | null = null;
+    if (phone) {
+      const cust = await this.prisma.customer.findFirst({
+        where: { organizationId: entry.tenantId, phone },
+        select: { id: true },
+      });
+      customerId = cust?.id ?? null;
+    }
+
+    const nights = Math.max(
+      1,
+      Math.round((checkOut.getTime() - checkIn.getTime()) / (24 * 60 * 60 * 1000)),
+    );
+    const totalAmount = item.price * nights;
+
+    const created = await this.prisma.guestOrder.create({
+      data: {
+        token: crypto.randomUUID(),
+        entryId: entry.id,
+        tenantId: entry.tenantId,
+        status: 'SUBMITTED',
+        customerId,
+        customerName: name || null,
+        customerPhone: phone || null,
+        checkIn,
+        checkOut,
+        note: body.notes?.trim() || null,
+        totalAmount,
+        items: {
+          create: [
+            {
+              itemKind: 'ROOM_TYPE',
+              itemId: Number(item.ref.split(':')[1]),
+              nameSnapshot: item.name,
+              quantity: 1,
+              unitPrice: item.price,
+              notes: null,
+            },
+          ],
+        },
+        activities: { create: { action: 'SUBMITTED', note: null } },
+      },
+      include: { items: true },
+    });
+
+    await this.afterGuestOrder(
+      created.id,
+      entry.tenantId,
+      'New room reservation',
+      `${entry.label}: ${item.name}, ${nights} night(s).`,
+      'GUEST_ORDER',
+      '/dashboard/guest-orders',
+    );
+
+    return { token: created.token, status: created.status, totalAmount };
+  }
+
+  /**
+   * Submit a public service booking (spa/gym/pool/events/custom and the SERVICE
+   * vertical). Validates the service-item ref against the entry catalog and
+   * stores the guest-chosen start time.
+   */
+  async serviceBooking(
+    token: string,
+    body: {
+      serviceItemRef?: string;
+      startsAt?: string;
+      guestName?: string;
+      phone?: string;
+      notes?: string;
+    },
+  ) {
+    const entry = await this.resolveEntry(token);
+    if (this.effectiveState(entry) !== 'LIVE') {
+      throw new ForbiddenException('This link is not accepting bookings right now');
+    }
+    const name = body.guestName?.trim() ?? '';
+    const phone = body.phone?.trim() ?? '';
+    if (!name && !phone) {
+      throw new BadRequestException('Please provide your name or phone number');
+    }
+    await this.assertPhoneAllowed(entry.tenantId, phone || undefined);
+
+    if (!body.serviceItemRef) {
+      throw new BadRequestException('Please choose a service');
+    }
+    const startsAt = new Date(body.startsAt ?? '');
+    if (Number.isNaN(startsAt.getTime())) {
+      throw new BadRequestException('Please choose a booking time');
+    }
+
+    const catalog = await this.catalogMap(entry);
+    const item = catalog.get(body.serviceItemRef);
+    if (!item || item.kind !== 'SERVICE_ITEM') {
+      throw new BadRequestException('Unknown service');
+    }
+
+    let customerId: number | null = null;
+    if (phone) {
+      const cust = await this.prisma.customer.findFirst({
+        where: { organizationId: entry.tenantId, phone },
+        select: { id: true },
+      });
+      customerId = cust?.id ?? null;
+    }
+
+    const created = await this.prisma.guestOrder.create({
+      data: {
+        token: crypto.randomUUID(),
+        entryId: entry.id,
+        tenantId: entry.tenantId,
+        status: 'SUBMITTED',
+        customerId,
+        customerName: name || null,
+        customerPhone: phone || null,
+        startsAt,
+        note: body.notes?.trim() || null,
+        totalAmount: item.price,
+        items: {
+          create: [
+            {
+              itemKind: 'SERVICE_ITEM',
+              itemId: Number(item.ref.split(':')[1]),
+              nameSnapshot: item.name,
+              quantity: 1,
+              unitPrice: item.price,
+              notes: null,
+            },
+          ],
+        },
+        activities: { create: { action: 'SUBMITTED', note: null } },
+      },
+      include: { items: true },
+    });
+
+    await this.afterGuestOrder(
+      created.id,
+      entry.tenantId,
+      'New service booking',
+      `${entry.label}: ${item.name}, ${startsAt.toLocaleString()}.`,
+      'GUEST_ORDER',
+      '/dashboard/guest-orders',
+    );
+
+    return { token: created.token, status: created.status, totalAmount: item.price };
   }
 
   /** The guest's own order status (by its opaque token). */

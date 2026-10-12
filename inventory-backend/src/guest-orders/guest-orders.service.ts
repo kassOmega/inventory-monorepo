@@ -13,7 +13,13 @@ import { GuestOrderConversionService } from './guest-order-conversion.service';
 import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import { auditBestEffort } from '../common/audit.util';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
-import { entryKindsFor, publicKindFor } from '../public/public.constants';
+import {
+  entryKindsFor,
+  hospitalityServiceLabel,
+  kindForHospitalityService,
+  publicKindFor,
+} from '../public/public.constants';
+import type { HospitalityServiceType } from '@prisma/client';
 
 @Injectable()
 export class GuestOrdersService {
@@ -523,6 +529,7 @@ export class GuestOrdersService {
     label: string;
     tableId?: number | null;
     locationId?: number | null;
+    serviceType?: HospitalityServiceType | null;
   }) {
     const tenantId = this.tenantId();
     return this.prisma.publicEntry.create({
@@ -534,6 +541,7 @@ export class GuestOrdersService {
         label: input.label,
         tableId: input.tableId ?? null,
         locationId: input.locationId ?? null,
+        serviceType: input.serviceType ?? null,
       },
     });
   }
@@ -551,26 +559,39 @@ export class GuestOrdersService {
   }
 
   /**
-   * Auto-prepare (idempotently) the business's public QRs — **one central entry
-   * per tenant**, plus **one per branch when the business has branches**. Every
-   * entry shows the SAME tenant-wide catalog; the only difference is where the
-   * order routes (central → the central desk routes; branch → straight to that
-   * branch). No table/service/hotel-per-item entries.
+   * Auto-prepare (idempotently) the business's public QRs.
+   *
+   * Hospitality businesses get **one central entry per enabled service line**,
+   * each labeled and scoped to the right catalog (F&B → TABLE/menu, Rooms →
+   * HOTEL/room types, Spa/Gym/Pool/Events/Custom → SERVICE/service items).
+   * Non-hospitality businesses keep a single SHOP / CARWASH_BAY / SERVICE
+   * entry; retail/manufacturing also gets one entry per branch.
    */
   async ensurePublicEntries() {
     const tenantId = this.tenantId();
     const org = await this.prisma.organization.findUnique({
       where: { id: tenantId },
-      select: { businessType: true },
+      select: { businessType: true, enabledHospitalityServices: true },
     });
-    const kind = publicKindFor(org?.businessType ?? 'RETAIL');
+    const businessType = org?.businessType ?? 'RETAIL';
+    const enabled = org?.enabledHospitalityServices ?? [];
+
     const existing = await this.prisma.publicEntry.findMany({
       where: { tenantId },
-      select: { locationId: true },
+      select: { locationId: true, serviceType: true },
     });
-    const hasLocation = (locationId: number | null) =>
-      existing.some((e) => e.locationId === locationId);
-    const make = (label: string, locationId: number | null) =>
+    const has = (locationId: number | null, serviceType: string | null) =>
+      existing.some(
+        (e) =>
+          e.locationId === locationId &&
+          (e.serviceType ?? null) === serviceType,
+      );
+    const make = (
+      kind: 'TABLE' | 'HOTEL' | 'SHOP' | 'CARWASH_BAY' | 'SERVICE',
+      label: string,
+      locationId: number | null,
+      serviceType: string | null,
+    ) =>
       this.prisma.publicEntry.create({
         data: {
           token: crypto.randomUUID().replace(/-/g, ''),
@@ -578,19 +599,36 @@ export class GuestOrdersService {
           kind,
           label,
           locationId,
+          serviceType: (serviceType as HospitalityServiceType) ?? null,
         },
       });
 
-    // Central entry (always).
-    if (!hasLocation(null)) await make('Order here', null);
+    if (businessType === 'HOSPITALITY' && enabled.length > 0) {
+      // One central QR per enabled service line (no branch duplication).
+      for (const service of enabled) {
+        if (has(null, service)) continue;
+        await make(
+          kindForHospitalityService(service),
+          hospitalityServiceLabel(service),
+          null,
+          service,
+        );
+      }
+    } else {
+      const kind = publicKindFor(businessType);
+      // Central entry (always).
+      if (!has(null, null)) await make(kind, 'Order here', null, null);
 
-    // One per branch (only when branches exist).
-    const branches = await this.prisma.location.findMany({
-      where: { tenantId },
-      select: { id: true, name: true },
-    });
-    for (const b of branches) {
-      if (!hasLocation(b.id)) await make(b.name, b.id);
+      // One per branch — only retail/manufacturing route branch-specific QRs.
+      if (kind === 'SHOP') {
+        const branches = await this.prisma.location.findMany({
+          where: { tenantId },
+          select: { id: true, name: true },
+        });
+        for (const b of branches) {
+          if (!has(b.id, null)) await make(kind, b.name, b.id, null);
+        }
+      }
     }
 
     return this.listEntries();

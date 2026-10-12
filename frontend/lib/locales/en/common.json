@@ -1934,7 +1934,10 @@
       "cancelled": "Cancelled",
       "no_show": "No-show",
       "pending": "Pending"
-    }
+    },
+    "aiScanId": "📷 Scan ID",
+    "aiScanIdHint": "Take a photo of the guest's ID to autofill the check-in fields. The photo is kept with the stay.",
+    "aiScanIdError": "Could not read the ID. Please try again with a clearer photo."
   },
   "taxes": {
     "title": "Taxes",
@@ -4688,7 +4691,22 @@
     "variants": "Variants",
     "hideVariants": "Hide",
     "orderHere": "Order here",
-    "contactUs": "Contact us"
+    "contactUs": "Contact us",
+    "dineIn": "Dine-in",
+    "takeAway": "Take-away",
+    "tableNumber": "Table number",
+    "tableRequired": "Please enter your table number",
+    "phoneRequired": "Please enter your phone number",
+    "bookingSent": "Your booking was sent!",
+    "bookingWaitHint": "Our team will confirm shortly. Keep this page open.",
+    "bookingSubmit": "Book now",
+    "bookingService": "Service",
+    "bookingSelectService": "Select a service",
+    "bookingWhen": "When",
+    "roomType": "Room type",
+    "bookingSelectRoom": "Select a room type",
+    "checkIn": "Check-in",
+    "checkOut": "Check-out"
   },
   "guestOrders": {
     "title": "Guest Orders",
@@ -4762,7 +4780,16 @@
     "noCatalog": "This type publishes its catalog automatically.",
     "scanHint": "Scan to order / book",
     "autoHint": "Links are generated automatically for your tables, branches and services.",
-    "autoApprove": "Auto-approve"
+    "autoApprove": "Auto-approve",
+    "serviceType": {
+      "FOOD_AND_BEVERAGE": "Food & Beverage",
+      "ACCOMMODATION": "Rooms",
+      "SPA_AND_WELLNESS": "Spa",
+      "GYM_AND_FITNESS": "Gym",
+      "SWIMMING_POOL": "Pool",
+      "EVENT_AND_HALL_RENTAL": "Events",
+      "CUSTOM": "Custom"
+    }
   },
   "catalog": {
     "image": "Image",
