@@ -64,11 +64,11 @@ async function bootstrap() {
     app.set('trust proxy', proxyaddr.compile(trustedProxyCidrs));
   }
 
-  // Body parsers with a larger JSON limit so the AI product assistant can send
-  // a base64 product photo (~1000px JPEG) in the request body. The default
-  // 100kb Nest body limit is far too small for that payload.
-  app.use(express.json({ limit: '3mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '3mb' }));
+  // Body parsers with a larger JSON limit so the AI assistants can send base64
+  // photos (JPEG/PNG/HEIC) in the request body. HEIC files are passed through
+  // without client-side downscaling, so allow up to the 15MB DTO cap.
+  app.use(express.json({ limit: '15mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
   app.useGlobalPipes(
     new ValidationPipe({
