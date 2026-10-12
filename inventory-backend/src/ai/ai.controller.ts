@@ -110,7 +110,10 @@ export class AiController {
     @Body() dto: AnalyzeGuestIdDto,
     @Req() req: RequestWithUser,
   ) {
-    await this.usageService.assertAiEnabled(this.resolveTenant(req));
+    // Guest-ID extraction only reads an ID photo and does not send business
+    // data to an external provider, so it works for any AI-enabled business
+    // (the owner's data-sharing consent is not required here).
+    await this.usageService.assertAiEnabled(this.resolveTenant(req), false);
     await this.usageService.checkAndIncrement(req.user.sub);
     return this.aiProductService.analyzeGuestIdPhoto(
       dto.base64Image,

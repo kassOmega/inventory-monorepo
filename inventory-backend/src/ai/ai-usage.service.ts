@@ -105,8 +105,16 @@ export class AiUsageService {
     );
   }
 
-  /** Throws 403 when the tenant's AI feature is disabled or the trial expired. */
-  async assertAiEnabled(tenantId: number | null): Promise<AiEntitlement> {
+  /**
+   * Throws 403 when the tenant's AI feature is disabled or the trial expired.
+   * `requireDataSharing` keeps the external data-sharing consent gate for
+   * endpoints that send business data to AI providers; document/image
+   * extraction endpoints pass `false`.
+   */
+  async assertAiEnabled(
+    tenantId: number | null,
+    requireDataSharing = true,
+  ): Promise<AiEntitlement> {
     const entitlement = await this.getEntitlement(tenantId);
     if (entitlement.expired) {
       throw new ForbiddenException(
@@ -123,7 +131,7 @@ export class AiUsageService {
         '🤖 The AI feature is not enabled for this business. Contact the admin to enable it.',
       );
     }
-    if (!entitlement.dataSharingEnabled) {
+    if (requireDataSharing && !entitlement.dataSharingEnabled) {
       throw new ForbiddenException(tr('errors.aiDataSharingDisabled'));
     }
     return entitlement;
