@@ -4,6 +4,7 @@
 // printed QR: /o/<token>. It talks ONLY to the /public/* API, scoped by the token.
 import Button from "@/app/components/Button";
 import CarWashBookingForm from "@/app/components/CarWashBookingForm";
+import LanguageSwitcher from "@/app/components/LanguageSwitcher";
 import Loading from "@/app/components/Loading";
 import Modal from "@/app/components/Modal";
 import PublicFooter from "@/app/components/PublicFooter";
@@ -386,6 +387,9 @@ export default function PublicOrderPage() {
     const isCarwashBooking = bookingDone.kind === "CARWASH";
     return (
       <div className="min-h-screen bg-gray-100">
+        <header className="bg-white border-b px-4 py-3 flex justify-end">
+          <LanguageSwitcher variant="light" />
+        </header>
         <div className="mx-auto max-w-md px-4 pt-6">
           <div className="bg-white rounded-xl border p-6 text-center space-y-3">
             <p className="text-3xl">✅</p>
@@ -409,20 +413,35 @@ export default function PublicOrderPage() {
   return (
     <div className="min-h-screen bg-gray-100">
       <header className="bg-white border-b px-4 py-3 sticky top-0 z-10">
-        {entry?.showBusinessInfo ? (
-          <>
-            <p className="font-semibold text-gray-800">{entry?.businessName}</p>
-            {entry?.businessAddress && (
-              <p className="text-xs text-gray-500">{entry.businessAddress}</p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            {entry?.showBusinessInfo ? (
+              <>
+                <p className="font-semibold text-gray-800">
+                  {entry?.businessName}
+                </p>
+                {entry?.businessAddress && (
+                  <p className="text-xs text-gray-500">
+                    {entry.businessAddress}
+                  </p>
+                )}
+                {entry?.businessPhone && (
+                  <p className="text-xs text-gray-500">
+                    {entry.businessPhone}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="font-semibold text-gray-800">
+                {t("public.orderHere")}
+              </p>
             )}
-            {entry?.businessPhone && (
-              <p className="text-xs text-gray-500">{entry.businessPhone}</p>
+            {entry?.label && (
+              <p className="text-xs text-gray-400">{entry.label}</p>
             )}
-          </>
-        ) : (
-          <p className="font-semibold text-gray-800">{t("public.orderHere")}</p>
-        )}
-        {entry?.label && <p className="text-xs text-gray-400">{entry.label}</p>}
+          </div>
+          <LanguageSwitcher variant="light" className="shrink-0" />
+        </div>
       </header>
 
       {error && (
