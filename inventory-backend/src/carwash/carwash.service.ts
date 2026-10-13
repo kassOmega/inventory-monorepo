@@ -769,6 +769,24 @@ export class CarWashService {
       positionInQueue = (last?.positionInQueue ?? 0) + 1;
     }
 
+    // The washer chosen for each line is enforced before persisting: resolve
+    // the line's wash duration and reject the booking when that washer is
+    // already committed to an overlapping slot. Lines without a washer stay
+    // optional (they can be assigned later at serve time).
+    for (const item of items) {
+      if (item.washerId == null) continue;
+      const lineStart = item.startsAt ? new Date(item.startsAt) : startsAt;
+      const duration = await this.slotForPrice(
+        tenantId,
+        item.vehicleType,
+        item.washTypeId,
+      );
+      const lineEnd = new Date(lineStart.getTime() + duration * 60 * 1000);
+      if (await this.washerBusy(tenantId, item.washerId, lineStart, lineEnd)) {
+        throw new BadRequestException(tr('errors.carWashWasherBusy'));
+      }
+    }
+
     const booking = await this.prisma.carWashBooking.create({
       data: {
         tenantId,
@@ -843,7 +861,7 @@ export class CarWashService {
     const tenantId = this.tenantId();
     const booking = await this.prisma.carWashBooking.findFirst({
       where: { id, tenantId },
-      include: { items: { include: { vehicle: true } } },
+      include: { items: { include: { vehicle: true, washer: true } } },
     });
     if (!booking) throw new NotFoundException('Booking not found');
     if (
@@ -856,11 +874,14 @@ export class CarWashService {
       throw new BadRequestException('This booking has no vehicles to serve');
     }
 
-    // A washer is required for the wash. Resolve each vehicle line from the
-    // line's washer, else the booking header, else the explicit serve choice.
-    const lineWashers = booking.items.map(
-      (it) => it.washerId ?? booking.washerId ?? opts?.washerId ?? null,
-    );
+    // A washer is required for the wash. The line's own booked washer is the
+    // source of truth: the body `washerId` only fills in for lines that have
+    // none (and the booking header is the legacy default for those lines) — it
+    // must never overwrite a line that already carries a washer.
+    const lineWashers = booking.items.map((it) => {
+      if (it.washerId != null) return it.washerId;
+      return booking.washerId ?? opts?.washerId ?? null;
+    });
     if (lineWashers.some((w) => w == null)) {
       throw new BadRequestException(
         'Assign a washer before serving this booking',
@@ -887,6 +908,38 @@ export class CarWashService {
 
     for (const [index, item] of booking.items.entries()) {
       nextQueue += 1;
+
+      // Re-check the booked washer at serve time (the booking was created
+      // earlier, so another booking may have claimed the washer since). The
+      // current booking is excluded so its own lines never conflict with
+      // themselves.
+      const lineStart = item.startsAt ?? booking.startsAt;
+      const duration = await this.slotForPrice(
+        tenantId,
+        item.vehicleType,
+        item.washTypeId,
+      );
+      const lineEnd = new Date(lineStart.getTime() + duration * 60 * 1000);
+      if (
+        await this.washerBusy(
+          tenantId,
+          lineWashers[index] as number,
+          new Date(lineStart),
+          lineEnd,
+          booking.id,
+        )
+      ) {
+        throw new BadRequestException(
+          tr('errors.carWashWasherBusyAtServe', {
+            vehicle:
+              item.vehicle?.plateNumber ??
+              item.vehicleType ??
+              `vehicle #${item.id}`,
+            washer: item.washer?.name ?? String(lineWashers[index]),
+          }),
+        );
+      }
+
       const washHelpers = helperIds.filter((hid) => hid !== lineWashers[index]);
       const wash = await this.prisma.carWash.create({
         data: {
@@ -1799,6 +1852,7 @@ export class CarWashService {
     washerId: number,
     start: Date,
     end: Date,
+    excludeBookingId?: number,
   ): Promise<boolean> {
     const active = [
       CarWashBookingStatus.PENDING,
@@ -1809,6 +1863,8 @@ export class CarWashService {
       where: {
         tenantId,
         status: { in: active },
+        // The booking being served must not conflict with itself.
+        ...(excludeBookingId != null ? { id: { not: excludeBookingId } } : {}),
         OR: [
           { washerId },
           { items: { some: { washerId } } },

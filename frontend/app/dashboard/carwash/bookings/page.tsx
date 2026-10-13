@@ -163,18 +163,19 @@ export default function CarWashBookingsPage() {
     }
   };
 
-  // A washer must be assigned before a booking can be served. When the booking
-  // (or a vehicle line) has none, ask for one first.
-  const needsWasher = (b: any) =>
-    !b?.washerId && (b?.items ?? []).some((it: any) => !it.washerId);
+  // A washer must be assigned before a booking can be served. Lines that
+  // already carry their own washer are served with it; only lines without one
+  // need a picker (the booking header washer is the legacy default for those).
+  const unassignedServeItems = (b: any) =>
+    (b?.items ?? []).filter((it: any) => !it.washerId);
 
   const startServe = (b: any) => {
-    const existing =
-      b?.washerId ??
-      (b?.items ?? []).find((it: any) => it.washerId)?.washerId ??
-      null;
+    const unassigned = unassignedServeItems(b);
     setServeTarget(b);
-    setServeWasherId(existing ? String(existing) : "");
+    // Pre-fill the picker with the legacy header washer when any line needs one.
+    setServeWasherId(
+      unassigned.length > 0 && b?.washerId ? String(b.washerId) : "",
+    );
     setServeHelperIds([]);
   };
 
@@ -247,6 +248,14 @@ export default function CarWashBookingsPage() {
     if (statusFilter === "BOOKED") return isBooked(b);
     return b.status === statusFilter;
   });
+
+  // Serve modal: each line's booked washer is shown read-only; only lines
+  // without a washer share the single picker below (matching the backend API).
+  const serveItems = (serveTarget?.items ?? []) as any[];
+  const serveUnassigned = serveItems.filter((it: any) => !it.washerId);
+  const serveNeedsWasher = serveUnassigned.length > 0;
+  const washerName = (id: any) =>
+    washers.find((w: any) => String(w.id) === String(id))?.name ?? "—";
 
   return (
     <div className="space-y-6">
@@ -324,6 +333,7 @@ export default function CarWashBookingsPage() {
                       <li key={it.id}>
                         · {it.vehicle?.plateNumber ?? it.vehicleType}
                         {it.washType?.name ? ` · ${it.washType.name}` : ""}
+                        {it.washer?.name ? ` · ${it.washer.name}` : ""}
                       </li>
                     ))
                   : (
@@ -586,7 +596,7 @@ export default function CarWashBookingsPage() {
         )}
       </Modal>
 
-      {/* Serve: a washer is required before the vehicles enter the washing list. */}
+      {/* Serve: each booked washer is read-only; only lines without one ask for a picker. */}
       <Modal
         isOpen={!!serveTarget}
         onClose={() => setServeTarget(null)}
@@ -599,24 +609,56 @@ export default function CarWashBookingsPage() {
             </p>
             <div className="rounded-lg bg-gray-50 p-2 text-xs text-gray-600">
               {serveTarget.customer?.name ?? serveTarget.customerName ?? "—"}
-              {serveTarget.items?.length
-                ? ` · ${serveTarget.items
+              {serveItems.length
+                ? ` · ${serveItems
                     .map((it: any) => it.vehicle?.plateNumber ?? it.vehicleType)
                     .join(", ")}`
                 : ""}
             </div>
-            <label className="block text-gray-600">
-              {t("carwash.primaryWasher")}
-              <SearchableSelect
-                value={serveWasherId}
-                onChange={setServeWasherId}
-                options={washers.map((w) => ({
-                  value: String(w.id),
-                  label: w.name,
-                }))}
-                placeholder={t("carwash.primaryWasher")}
-              />
-            </label>
+
+            <ul className="divide-y divide-gray-100 border rounded-lg">
+              {serveItems.length > 0 ? (
+                serveItems.map((it: any) => (
+                  <li
+                    key={it.id}
+                    className="flex items-center justify-between px-3 py-2 gap-2"
+                  >
+                    <span className="font-medium text-gray-800">
+                      {it.vehicle?.plateNumber ?? it.vehicleType}
+                    </span>
+                    {it.washerId ? (
+                      <span className="text-xs text-gray-500">
+                        {it.washer?.name ?? washerName(it.washerId)}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-amber-600">
+                        {t("carwash.washerOptional")}
+                      </span>
+                    )}
+                  </li>
+                ))
+              ) : (
+                <li className="px-3 py-2 text-gray-400">
+                  {serveTarget.vehicle?.plateNumber ?? serveTarget.vehicleType}
+                </li>
+              )}
+            </ul>
+
+            {serveNeedsWasher && (
+              <label className="block text-gray-600">
+                {t("carwash.primaryWasher")}
+                <SearchableSelect
+                  value={serveWasherId}
+                  onChange={setServeWasherId}
+                  options={washers.map((w) => ({
+                    value: String(w.id),
+                    label: w.name,
+                  }))}
+                  placeholder={t("carwash.primaryWasher")}
+                />
+              </label>
+            )}
+
             <div>
               <p className="text-xs text-gray-500 mb-1">
                 {t("carwash.helpers")}
@@ -660,9 +702,13 @@ export default function CarWashBookingsPage() {
               </button>
               <Button
                 loading={busyKey === `serve-${serveTarget.id}`}
-                disabled={!serveWasherId && needsWasher(serveTarget)}
+                disabled={serveNeedsWasher && !serveWasherId}
                 onClick={() =>
-                  doServe(serveTarget.id, serveWasherId, serveHelperIds)
+                  doServe(
+                    serveTarget.id,
+                    serveNeedsWasher ? serveWasherId : "",
+                    serveHelperIds,
+                  )
                 }
               >
                 {t("carwash.serve")}

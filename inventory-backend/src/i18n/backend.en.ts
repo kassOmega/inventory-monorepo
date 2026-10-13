@@ -35,6 +35,10 @@ export const enMessages: Record<string, any> = {
       'This day has already been settled. The collection was recorded in full.',
     carWashExpenseAccountMissing:
       'No chart-of-accounts expense account matches "{category}". Add it in Finance → Chart of Accounts.',
+    carWashWasherBusy:
+      'The selected washer is already booked for that time — choose another washer or a different time.',
+    carWashWasherBusyAtServe:
+      '{{washer}} is already booked for {{vehicle}} at this time — reassign this vehicle or wait for the washer to be free.',
     cashMethodRequired:
       'No "Cash" payment method found. Please add one first.',
     purchaseNotFound: 'Purchase not found',

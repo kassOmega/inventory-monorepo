@@ -31,6 +31,10 @@ export const amMessages: Record<string, any> = {
       'ይህ ቀን አስቀድሞ ተሰብስቧል። ስብስቡ ሙሉ በሙሉ ተመዝግቧል።',
     carWashExpenseAccountMissing:
       'ከ"{category}" ጋር የሚዛመድ የሂሳብ ዝርዝር ወጪ ሂሳብ አልተገኘም። በፋይናንስ → የሂሳብ ዝርዝር ያክሉት።',
+    carWashWasherBusy:
+      'የተመረጠው ሰራተኛ በዚያ ሰዓት ቀድሞ ተይዟል — ሌላ ሰራተኛ ወይም ሌላ ሰዓት ይምረጡ።',
+    carWashWasherBusyAtServe:
+      '{{washer}} በዚህ ሰዓት ለ {{vehicle}} ቀድሞ ተይዟል — ይህን ተሽከርካሪ እንደገና ይመድቡ ወይም ሰራተኛው እስኪፈታ ይጠብቁ።',
     onlyShopkeepersCreatePurchases: 'ግዢ መፍጠር የሚችሉት የሱቅ ጠባቂዎች ብቻ ናቸው',
     cashMethodRequired: '«Cash» የክፍያ ዘዴ አልተገኘም። እባክዎ መጀመሪያ ያክሉ።',
     purchaseNotFound: 'ግዢ አልተገኘም',
