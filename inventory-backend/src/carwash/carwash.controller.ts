@@ -275,6 +275,22 @@ export class CarWashController {
     return this.carwash.updateBookingStatus(id, dto.status, req.user.sub);
   }
 
+  /** BOOKED → SERVED: register the booking's vehicles in the washing list. */
+  @Post('bookings/:id/serve')
+  @Permissions('carwash.bookings.edit')
+  serveBooking(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { washerId?: number; helperWasherIds?: number[] },
+    @Req() req: RequestWithUser,
+  ) {
+    return this.carwash.serveBooking(id, req.user.sub, {
+      washerId: body?.washerId ? Number(body.washerId) : undefined,
+      helperWasherIds: Array.isArray(body?.helperWasherIds)
+        ? body.helperWasherIds.map(Number)
+        : undefined,
+    });
+  }
+
   @Delete('bookings/:id')
   @Permissions('carwash.bookings.delete')
   deleteBooking(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {

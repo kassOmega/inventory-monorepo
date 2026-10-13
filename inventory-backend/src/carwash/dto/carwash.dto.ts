@@ -250,7 +250,12 @@ export class CreateBookingDto {
 export class UpdateBookingStatusDto {
   @IsString()
   @IsNotEmpty()
-  status!: 'PENDING' | 'SERVING' | 'COMPLETED' | 'CANCELLED';
+  status!:
+    | 'PENDING'
+    | 'BOOKED'
+    | 'SERVED'
+    | 'COMPLETED'
+    | 'CANCELLED';
 }
 
 export class CreateWashDto {

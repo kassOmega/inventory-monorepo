@@ -3874,7 +3874,8 @@ model MfgRejectedStock {
 
 enum CarWashBookingStatus {
   PENDING
-  SERVING
+  BOOKED
+  SERVED
   COMPLETED
   CANCELLED
 }
@@ -4086,7 +4087,7 @@ model CarWashBooking {
   startsAt          DateTime
   endsAt            DateTime?
   positionInQueue   Int?
-  status            CarWashBookingStatus @default(PENDING)
+  status            CarWashBookingStatus @default(BOOKED)
   notes             String?
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt

@@ -940,19 +940,77 @@ export class PublicService {
       slotMinutes ??
       (await this.carwashDurationFor(tenantId, vehicleType, washTypeId));
     const end = new Date(start.getTime() + mins * 60 * 1000);
-    const overlapping = await this.prisma.carWashBooking.findMany({
+    return !(await this.carwashWasherBusy(tenantId, washerId, start, end));
+  }
+
+  /**
+   * True when the washer already has an active booking job overlapping
+   * [start, end) — checking the booking header and each vehicle line's own
+   * washer/helpers with the line's start time + wash duration.
+   */
+  private async carwashWasherBusy(
+    tenantId: number,
+    washerId: number,
+    start: Date,
+    end: Date,
+  ): Promise<boolean> {
+    const active = [
+      CarWashBookingStatus.PENDING,
+      CarWashBookingStatus.BOOKED,
+      CarWashBookingStatus.SERVED,
+    ];
+    const candidates = await this.prisma.carWashBooking.findMany({
       where: {
         tenantId,
-        washerId,
-        status: {
-          in: [CarWashBookingStatus.PENDING, CarWashBookingStatus.SERVING],
-        },
-        startsAt: { lt: end },
-        OR: [{ endsAt: { gt: start } }, { endsAt: null }],
+        status: { in: active },
+        OR: [
+          { washerId },
+          { items: { some: { washerId } } },
+        ],
       },
-      select: { id: true },
+      include: {
+        items: {
+          select: {
+            washerId: true,
+            startsAt: true,
+            vehicleType: true,
+            washTypeId: true,
+          },
+        },
+      },
     });
-    return overlapping.length === 0;
+    if (candidates.length === 0) return false;
+
+    const prices = await this.prisma.carWashPrice.findMany({
+      where: { tenantId },
+      select: { vehicleType: true, washTypeId: true, durationMinutes: true },
+    });
+    const dur = (vt: string | null, wt: number | null) => {
+      const p = prices.find(
+        (x) =>
+          x.vehicleType.toLowerCase() === (vt ?? '').toLowerCase() &&
+          String(x.washTypeId ?? '') === String(wt ?? ''),
+      );
+      return p?.durationMinutes ?? 45;
+    };
+
+    for (const b of candidates) {
+      if (b.washerId === washerId) {
+        const bEnd =
+          b.endsAt ??
+          new Date(b.startsAt.getTime() + dur(b.vehicleType, null) * 60000);
+        if (b.startsAt < end && bEnd > start) return true;
+      }
+      for (const it of b.items) {
+        if (it.washerId !== washerId) continue;
+        const itStart = it.startsAt ?? b.startsAt;
+        const itEnd = new Date(
+          itStart.getTime() + dur(it.vehicleType, it.washTypeId) * 60000,
+        );
+        if (itStart < end && itEnd > start) return true;
+      }
+    }
+    return false;
   }
 
   /**

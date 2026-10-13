@@ -221,7 +221,7 @@ export class CarWashService {
       this.prisma.carWashBooking.count({
         where: {
           status: {
-            in: [CarWashBookingStatus.PENDING, CarWashBookingStatus.SERVING],
+            in: [CarWashBookingStatus.PENDING, CarWashBookingStatus.BOOKED, CarWashBookingStatus.SERVED],
           },
         },
       }),
@@ -826,6 +826,102 @@ export class CarWashService {
         userId: actorId,
         action: 'CARWASH_BOOKING_STATUS',
         details: `Booking #${id} -> ${status}`,
+      });
+    }
+    return updated;
+  }
+
+  /**
+   * BOOKED → SERVED: register each vehicle line as a wash job in the washing
+   * list (IN_PROGRESS) and link the booking lines back to their wash.
+   */
+  async serveBooking(
+    id: number,
+    actorId?: number,
+    opts?: { washerId?: number; helperWasherIds?: number[] },
+  ) {
+    const tenantId = this.tenantId();
+    const booking = await this.prisma.carWashBooking.findFirst({
+      where: { id, tenantId },
+      include: { items: { include: { vehicle: true } } },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+    if (
+      booking.status !== CarWashBookingStatus.BOOKED &&
+      booking.status !== CarWashBookingStatus.PENDING
+    ) {
+      throw new BadRequestException('Only booked bookings can be served');
+    }
+    if (booking.items.length === 0) {
+      throw new BadRequestException('This booking has no vehicles to serve');
+    }
+
+    // A washer is required for the wash. Resolve each vehicle line from the
+    // line's washer, else the booking header, else the explicit serve choice.
+    const lineWashers = booking.items.map(
+      (it) => it.washerId ?? booking.washerId ?? opts?.washerId ?? null,
+    );
+    if (lineWashers.some((w) => w == null)) {
+      throw new BadRequestException(
+        'Assign a washer before serving this booking',
+      );
+    }
+    // Helper washers chosen at serve time become the washes' participants.
+    const helperIds = [...new Set(opts?.helperWasherIds ?? [])];
+
+    // The vehicle has arrived: register the wash NOW (today) so it appears in
+    // the car-wash list immediately, in the washing (IN_PROGRESS) state.
+    const now = new Date();
+    const dayStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    );
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    const last = await this.prisma.carWash.findFirst({
+      where: { tenantId, date: { gte: dayStart, lt: dayEnd } },
+      orderBy: { queueNumber: 'desc' },
+      select: { queueNumber: true },
+    });
+    let nextQueue = last?.queueNumber ?? 0;
+
+    for (const [index, item] of booking.items.entries()) {
+      nextQueue += 1;
+      const washHelpers = helperIds.filter((hid) => hid !== lineWashers[index]);
+      const wash = await this.prisma.carWash.create({
+        data: {
+          tenantId,
+          customerId: booking.customerId,
+          vehicleId: item.vehicleId,
+          washerId: lineWashers[index],
+          participantWashers: { connect: washHelpers.map((id) => ({ id })) },
+          vehicleType: item.vehicleType,
+          washTypeId: item.washTypeId,
+          amount: item.amount,
+          date: now,
+          status: CarWashStatus.IN_PROGRESS,
+          queueNumber: nextQueue,
+          queuedAt: now,
+          startedAt: now,
+          plateNumber: item.vehicle?.plateNumber ?? null,
+          recordedById: actorId,
+        },
+      });
+      await this.prisma.carWashBookingItem.update({
+        where: { id: item.id },
+        data: { washId: wash.id },
+      });
+    }
+
+    const updated = await this.prisma.carWashBooking.update({
+      where: { id },
+      data: { status: CarWashBookingStatus.SERVED },
+    });
+    if (actorId != null) {
+      await auditBestEffort(this.prisma, {
+        userId: actorId,
+        action: 'CARWASH_BOOKING_SERVED',
+        details: `Booking #${id} served (${booking.items.length} wash job(s))`,
       });
     }
     return updated;
@@ -1689,19 +1785,78 @@ export class CarWashService {
       slotMinutes ??
       (await this.slotForPrice(tenantId, vehicleType, washTypeId));
     const end = new Date(start.getTime() + mins * 60 * 1000);
-    const overlapping = await this.prisma.carWashBooking.findMany({
+    const busy = await this.washerBusy(tenantId, washerId, start, end);
+    return { available: !busy, slotMinutes: mins };
+  }
+
+  /**
+   * True when `washerId` is already committed to a job overlapping [start, end).
+   * Checks both the booking header (legacy/single-vehicle) and each vehicle
+   * line's own washer + helpers, using the line's start time and wash duration.
+   */
+  private async washerBusy(
+    tenantId: number,
+    washerId: number,
+    start: Date,
+    end: Date,
+  ): Promise<boolean> {
+    const active = [
+      CarWashBookingStatus.PENDING,
+      CarWashBookingStatus.BOOKED,
+      CarWashBookingStatus.SERVED,
+    ];
+    const candidates = await this.prisma.carWashBooking.findMany({
       where: {
         tenantId,
-        washerId,
-        status: {
-          in: [CarWashBookingStatus.PENDING, CarWashBookingStatus.SERVING],
-        },
-        startsAt: { lt: end },
-        OR: [{ endsAt: { gt: start } }, { endsAt: null }],
+        status: { in: active },
+        OR: [
+          { washerId },
+          { items: { some: { washerId } } },
+        ],
       },
-      select: { id: true },
+      include: {
+        items: {
+          select: {
+            washerId: true,
+            startsAt: true,
+            vehicleType: true,
+            washTypeId: true,
+          },
+        },
+      },
     });
-    return { available: overlapping.length === 0, slotMinutes: mins };
+    if (candidates.length === 0) return false;
+
+    const prices = await this.prisma.carWashPrice.findMany({
+      where: { tenantId },
+      select: { vehicleType: true, washTypeId: true, durationMinutes: true },
+    });
+    const dur = (vt: string | null, wt: number | null) => {
+      const p = prices.find(
+        (x) =>
+          x.vehicleType.toLowerCase() === (vt ?? '').toLowerCase() &&
+          String(x.washTypeId ?? '') === String(wt ?? ''),
+      );
+      return p?.durationMinutes ?? 45;
+    };
+
+    for (const b of candidates) {
+      if (b.washerId === washerId) {
+        const bEnd =
+          b.endsAt ??
+          new Date(b.startsAt.getTime() + dur(b.vehicleType, null) * 60000);
+        if (b.startsAt < end && bEnd > start) return true;
+      }
+      for (const it of b.items) {
+        if (it.washerId !== washerId) continue;
+        const itStart = it.startsAt ?? b.startsAt;
+        const itEnd = new Date(
+          itStart.getTime() + dur(it.vehicleType, it.washTypeId) * 60000,
+        );
+        if (itStart < end && itEnd > start) return true;
+      }
+    }
+    return false;
   }
 
   /**

@@ -5,13 +5,30 @@ import Button from "@/app/components/Button";
 import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
 import { getDateRange, type DatePreset } from "@/app/components/DateFilter";
 import Modal from "@/app/components/Modal";
+import SearchableSelect from "@/app/components/SearchableSelect";
 import CarWashBookingForm, {
   type CarWashBookingPayload,
 } from "@/app/components/CarWashBookingForm";
 import { useAuth } from "@/context/AuthContext";
 import { fmtCurrency } from "@/lib/currency";
+import { formatDateTime } from "@/lib/datetime";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState } from "react";
+
+const BOOKING_STATUSES = [
+  "BOOKED",
+  "SERVED",
+  "COMPLETED",
+  "CANCELLED",
+] as const;
+
+const STATUS_CLASS: Record<string, string> = {
+  BOOKED: "bg-amber-100 text-amber-700",
+  PENDING: "bg-amber-100 text-amber-700",
+  SERVED: "bg-indigo-100 text-indigo-700",
+  COMPLETED: "bg-green-100 text-green-700",
+  CANCELLED: "bg-red-100 text-red-700",
+};
 
 export default function CarWashBookingsPage() {
   const { hasPermission } = useAuth();
@@ -24,14 +41,18 @@ export default function CarWashBookingsPage() {
   const [vehicleTypes, setVehicleTypes] = useState<any[]>([]);
 
   const [open, setOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("BOOKED");
+  const [detail, setDetail] = useState<any | null>(null);
+  const [serveTarget, setServeTarget] = useState<any | null>(null);
+  const [serveWasherId, setServeWasherId] = useState("");
+  const [serveHelperIds, setServeHelperIds] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const init = getDateRange("today");
-  // Default to today → +30 days so accepted public bookings (often future-dated)
-  // stay visible in the booking list without manually changing the date filter.
+  // Default to today → +30 days so future-dated bookings stay visible without
+  // manually changing the date filter.
   const in30 = new Date();
   in30.setDate(in30.getDate() + 30);
   const end30 = `${in30.getFullYear()}-${String(in30.getMonth() + 1).padStart(2, "0")}-${String(in30.getDate()).padStart(2, "0")}`;
@@ -142,11 +163,57 @@ export default function CarWashBookingsPage() {
     }
   };
 
-  const setStatus = async (id: number, status: string) => {
+  // A washer must be assigned before a booking can be served. When the booking
+  // (or a vehicle line) has none, ask for one first.
+  const needsWasher = (b: any) =>
+    !b?.washerId && (b?.items ?? []).some((it: any) => !it.washerId);
+
+  const startServe = (b: any) => {
+    const existing =
+      b?.washerId ??
+      (b?.items ?? []).find((it: any) => it.washerId)?.washerId ??
+      null;
+    setServeTarget(b);
+    setServeWasherId(existing ? String(existing) : "");
+    setServeHelperIds([]);
+  };
+
+  const doServe = async (
+    id: number,
+    washerId?: string,
+    helperIds?: string[],
+  ) => {
     setError("");
-    setBusyKey(`status-${id}`);
+    setBusyKey(`serve-${id}`);
     try {
-      await api.patch(`/carwash/bookings/${id}/status`, { status });
+      await api.post(`/carwash/bookings/${id}/serve`, {
+        ...(washerId ? { washerId: Number(washerId) } : {}),
+        ...(helperIds && helperIds.length
+          ? { helperWasherIds: helperIds.map(Number) }
+          : {}),
+      });
+      setDetail((d: any) =>
+        d && d.id === id ? { ...d, status: "SERVED" } : d,
+      );
+      setServeTarget(null);
+      await load();
+    } catch (err: any) {
+      setError(err?.response?.data?.message ?? t("carwash.failedSave"));
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const cancel = async (id: number) => {
+    setError("");
+    setBusyKey(`cancel-${id}`);
+    try {
+      await api.patch(`/carwash/bookings/${id}/status`, {
+        status: "CANCELLED",
+      });
+      setDetail((d: any) =>
+        d && d.id === id ? { ...d, status: "CANCELLED" } : d,
+      );
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedSave"));
@@ -161,6 +228,7 @@ export default function CarWashBookingsPage() {
     setBusyKey(`del-${id}`);
     try {
       await api.delete(`/carwash/bookings/${id}`);
+      setDetail((d: any) => (d && d.id === id ? null : d));
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("carwash.failedDelete"));
@@ -169,14 +237,23 @@ export default function CarWashBookingsPage() {
     }
   };
 
-  const filtered = bookings.filter(
-    (b) => !statusFilter || b.status === statusFilter,
-  );
+  const isBooked = (b: any) => b.status === "BOOKED" || b.status === "PENDING";
+  const normStatus = (s: string) => (s === "PENDING" ? "BOOKED" : s);
+  const bookingStatusLabel = (s: string) =>
+    t(`carwash.bookingStatus_${normStatus(s)}`, { defaultValue: s });
+
+  const filtered = bookings.filter((b) => {
+    if (!statusFilter) return true;
+    if (statusFilter === "BOOKED") return isBooked(b);
+    return b.status === statusFilter;
+  });
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-800">{t("carwash.bookings")}</h1>
+        <h1 className="text-2xl font-bold text-gray-800">
+          {t("carwash.bookings")}
+        </h1>
         {canCreate && (
           <button
             onClick={openNew}
@@ -186,7 +263,9 @@ export default function CarWashBookingsPage() {
           </button>
         )}
       </div>
-      {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
+      {error && (
+        <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>
+      )}
 
       <FilterPanel
         showDateFilter
@@ -205,80 +284,185 @@ export default function CarWashBookingsPage() {
             onChange={setStatusFilter}
             label={t("carwash.status")}
             allLabel={t("carwash.allStatus")}
-            options={[
-              { value: "PENDING", label: "PENDING" },
-              { value: "SERVING", label: "SERVING" },
-              { value: "COMPLETED", label: "COMPLETED" },
-              { value: "CANCELLED", label: "CANCELLED" },
-            ]}
+            options={BOOKING_STATUSES.map((s) => ({
+              value: s,
+              label: t(`carwash.bookingStatus_${s}`),
+            }))}
           />
         }
       />
 
-      <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
-        <table className="w-full text-sm min-w-[720px]">
-          <thead className="bg-gray-50 text-left text-xs text-gray-500">
-            <tr>
-              <th className="px-4 py-2 whitespace-nowrap">{t("carwash.when")}</th>
-              <th className="px-4 py-2 whitespace-nowrap">{t("carwash.customer")}</th>
-              <th className="px-4 py-2 whitespace-nowrap">{t("carwash.vehicles")}</th>
-              <th className="px-4 py-2 whitespace-nowrap">{t("carwash.washer")}</th>
-              <th className="px-4 py-2 whitespace-nowrap">{t("carwash.amount")}</th>
-              <th className="px-4 py-2 whitespace-nowrap">{t("carwash.status")}</th>
-              <th className="px-4 py-2"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {filtered.map((b) => (
-              <tr key={b.id}>
-                <td className="px-4 py-2 whitespace-nowrap">{new Date(b.startsAt).toLocaleString()}</td>
-                <td className="px-4 py-2 whitespace-nowrap">
-                  {b.customer?.name ?? b.customerName ?? "—"}
+      {statusFilter === "BOOKED" ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {filtered.map((b) => (
+            <div
+              key={b.id}
+              onClick={() => setDetail(b)}
+              className="bg-white rounded-xl border border-gray-200 p-3 space-y-2 cursor-pointer hover:border-blue-300 hover:shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">
+                    {b.customer?.name ?? b.customerName ?? "—"}
+                  </p>
                   {(b.customer?.phone ?? b.customerPhone) ? (
-                    <span className="block text-[11px] text-gray-400">
+                    <p className="text-[11px] text-gray-400">
                       {b.customer?.phone ?? b.customerPhone}
-                    </span>
+                    </p>
                   ) : null}
-                </td>
-                <td className="px-4 py-2 whitespace-nowrap">
-                  {(b.items ?? []).length > 0
-                    ? b.items
-                        .map(
-                          (it: any) =>
-                            `${it.vehicle?.plateNumber ?? it.vehicleType}${it.washType?.name ? ` · ${it.washType.name}` : ""}`,
-                        )
-                        .join(", ")
-                    : b.vehicle?.plateNumber ?? b.vehicleType}
-                </td>
-                <td className="px-4 py-2 text-gray-500 whitespace-nowrap">
-                  {(b.items ?? []).length > 0
-                    ? [
-                        ...new Set(
-                          (b.items as any[])
-                            .map((it: any) => it.washer?.name)
-                            .filter(Boolean),
-                        ),
-                      ].join(", ") || "—"
-                    : b.washer?.name ?? "—"}
-                </td>
-                <td className="px-4 py-2 whitespace-nowrap">{fmtCurrency(b.amount)}</td>
-                <td className="px-4 py-2 whitespace-nowrap">
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{b.status}</span>
-                </td>
-                <td className="px-4 py-2 text-right whitespace-nowrap">
-                  {canEdit && b.status === "PENDING" && <Button variant="ghost" size="sm" loading={busyKey === `status-${b.id}`} onClick={() => setStatus(b.id, "SERVING")} className="!px-0 text-xs text-blue-600 hover:underline mr-2">{t("carwash.start")}</Button>}
-                  {canEdit && b.status === "SERVING" && <Button variant="ghost" size="sm" loading={busyKey === `status-${b.id}`} onClick={() => setStatus(b.id, "COMPLETED")} className="!px-0 text-xs text-green-600 hover:underline mr-2">{t("carwash.complete")}</Button>}
-                  {canEdit && (b.status === "PENDING" || b.status === "SERVING") && <Button variant="ghost" size="sm" loading={busyKey === `status-${b.id}`} onClick={() => setStatus(b.id, "CANCELLED")} className="!px-0 text-xs text-red-600 hover:underline mr-2">{t("carwash.cancel")}</Button>}
-                  {canDelete && <Button variant="ghost" size="sm" loading={busyKey === `del-${b.id}`} onClick={() => remove(b.id)} className="!px-0 text-xs text-red-600 hover:underline">{t("carwash.delete")}</Button>}
-                </td>
-              </tr>
-            ))}
-            {filtered.length === 0 && <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-400">{t("carwash.noBookings")}</td></tr>}
-          </tbody>
-        </table>
-      </div>
+                </div>
+                <span
+                  className={`text-xs px-2 py-0.5 rounded-full ${STATUS_CLASS[b.status] ?? "bg-gray-100 text-gray-600"}`}
+                >
+                  {bookingStatusLabel(b.status)}
+                </span>
+              </div>
 
-      <Modal isOpen={open} onClose={() => setOpen(false)} title={t("carwash.newBooking")}>
+              <ul className="text-xs text-gray-500 space-y-0.5">
+                {(b.items ?? []).length > 0
+                  ? (b.items as any[]).map((it: any) => (
+                      <li key={it.id}>
+                        · {it.vehicle?.plateNumber ?? it.vehicleType}
+                        {it.washType?.name ? ` · ${it.washType.name}` : ""}
+                      </li>
+                    ))
+                  : (
+                    <li>· {b.vehicle?.plateNumber ?? b.vehicleType}</li>
+                  )}
+              </ul>
+
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold">
+                  {fmtCurrency(b.amount)}
+                </span>
+                <span className="text-[11px] text-gray-400">
+                  {formatDateTime(b.startsAt)}
+                </span>
+              </div>
+
+              <div
+                className="flex justify-end pt-1 border-t"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {canEdit && isBooked(b) && (
+                  <Button
+                    size="sm"
+                    loading={busyKey === `serve-${b.id}`}
+                    onClick={() => startServe(b)}
+                  >
+                    {t("carwash.serve")}
+                  </Button>
+                )}
+              </div>
+            </div>
+          ))}
+          {filtered.length === 0 && (
+            <p className="col-span-full text-center text-gray-400 py-10">
+              {t("carwash.noBookings")}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
+          <table className="w-full text-sm min-w-[720px]">
+            <thead className="bg-gray-50 text-left text-xs text-gray-500">
+              <tr>
+                <th className="px-4 py-2 whitespace-nowrap">{t("carwash.when")}</th>
+                <th className="px-4 py-2 whitespace-nowrap">{t("carwash.customer")}</th>
+                <th className="px-4 py-2 whitespace-nowrap">{t("carwash.vehicles")}</th>
+                <th className="px-4 py-2 whitespace-nowrap">{t("carwash.washer")}</th>
+                <th className="px-4 py-2 whitespace-nowrap">{t("carwash.amount")}</th>
+                <th className="px-4 py-2 whitespace-nowrap">{t("carwash.status")}</th>
+                <th className="px-4 py-2"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filtered.map((b) => (
+                <tr
+                  key={b.id}
+                  onClick={() => setDetail(b)}
+                  className="cursor-pointer hover:bg-gray-50"
+                >
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    {new Date(b.startsAt).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    {b.customer?.name ?? b.customerName ?? "—"}
+                    {(b.customer?.phone ?? b.customerPhone) ? (
+                      <span className="block text-[11px] text-gray-400">
+                        {b.customer?.phone ?? b.customerPhone}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    {(b.items ?? []).length > 0
+                      ? b.items
+                          .map(
+                            (it: any) =>
+                              `${it.vehicle?.plateNumber ?? it.vehicleType}${it.washType?.name ? ` · ${it.washType.name}` : ""}`,
+                          )
+                          .join(", ")
+                      : b.vehicle?.plateNumber ?? b.vehicleType}
+                  </td>
+                  <td className="px-4 py-2 text-gray-500 whitespace-nowrap">
+                    {(b.items ?? []).length > 0
+                      ? [
+                          ...new Set(
+                            (b.items as any[])
+                              .map((it: any) => it.washer?.name)
+                              .filter(Boolean),
+                          ),
+                        ].join(", ") || "—"
+                      : b.washer?.name ?? "—"}
+                  </td>
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    {fmtCurrency(b.amount)}
+                  </td>
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full ${STATUS_CLASS[b.status] ?? "bg-gray-100 text-gray-600"}`}
+                    >
+                      {bookingStatusLabel(b.status)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-right whitespace-nowrap">
+                    <span onClick={(e) => e.stopPropagation()}>
+                      {canDelete && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          loading={busyKey === `del-${b.id}`}
+                          onClick={() => remove(b.id)}
+                          className="!px-0 text-xs text-red-600 hover:underline"
+                        >
+                          {t("carwash.delete")}
+                        </Button>
+                      )}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="px-4 py-6 text-center text-gray-400"
+                  >
+                    {t("carwash.noBookings")}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* New booking */}
+      <Modal
+        isOpen={open}
+        onClose={() => setOpen(false)}
+        title={t("carwash.newBooking")}
+      >
         <CarWashBookingForm
           mode="staff"
           vehicleTypes={vehicleTypes}
@@ -298,6 +482,194 @@ export default function CarWashBookingsPage() {
           onSubmit={submitBooking}
           submitting={saving}
         />
+      </Modal>
+
+      {/* Booking detail */}
+      <Modal
+        isOpen={!!detail}
+        onClose={() => setDetail(null)}
+        title={detail ? `${t("carwash.bookings")} #${detail.id}` : ""}
+      >
+        {detail && (
+          <div className="space-y-3 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-gray-500">{t("carwash.status")}</span>
+              <span
+                className={`text-xs px-2.5 py-1 rounded-full ${STATUS_CLASS[detail.status] ?? "bg-gray-100 text-gray-600"}`}
+              >
+                {bookingStatusLabel(detail.status)}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-gray-500">{t("carwash.customer")}</span>
+              <span className="font-medium text-right">
+                {detail.customer?.name ?? detail.customerName ?? "—"}
+                {(detail.customer?.phone ?? detail.customerPhone)
+                  ? ` · ${detail.customer?.phone ?? detail.customerPhone}`
+                  : ""}
+              </span>
+            </div>
+
+            <ul className="divide-y divide-gray-100 border rounded-lg">
+              {(detail.items ?? []).length > 0 ? (
+                (detail.items as any[]).map((it: any) => (
+                  <li
+                    key={it.id}
+                    className="flex items-center justify-between px-3 py-2 gap-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-800 truncate">
+                        {it.vehicle?.plateNumber ?? it.vehicleType}
+                        {it.washType?.name ? ` · ${it.washType.name}` : ""}
+                      </p>
+                      <p className="text-[11px] text-gray-400">
+                        {it.washer?.name ?? "—"}
+                        {it.startsAt
+                          ? ` · ${new Date(it.startsAt).toLocaleString()}`
+                          : ""}
+                      </p>
+                    </div>
+                    <span className="text-gray-500 whitespace-nowrap">
+                      {fmtCurrency(it.amount)}
+                    </span>
+                  </li>
+                ))
+              ) : (
+                <li className="px-3 py-2 text-gray-400">
+                  {detail.vehicle?.plateNumber ?? detail.vehicleType}
+                </li>
+              )}
+            </ul>
+
+            <div className="flex items-center justify-between">
+              <span className="text-gray-500">{t("carwash.amount")}</span>
+              <span className="font-semibold">
+                {fmtCurrency(detail.amount)}
+              </span>
+            </div>
+
+            {detail.notes && (
+              <p className="text-xs text-gray-500">{detail.notes}</p>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t">
+              {canEdit && isBooked(detail) && (
+                <>
+                  <Button
+                    loading={busyKey === `serve-${detail.id}`}
+                    onClick={() => startServe(detail)}
+                  >
+                    {t("carwash.serve")}
+                  </Button>
+                  <Button
+                    variant="danger"
+                    loading={busyKey === `cancel-${detail.id}`}
+                    onClick={() => cancel(detail.id)}
+                  >
+                    {t("carwash.cancel")}
+                  </Button>
+                </>
+              )}
+              {canDelete && (
+                <Button
+                  variant="ghost"
+                  loading={busyKey === `del-${detail.id}`}
+                  onClick={() => remove(detail.id)}
+                  className="!px-0 text-red-600"
+                >
+                  {t("carwash.delete")}
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Serve: a washer is required before the vehicles enter the washing list. */}
+      <Modal
+        isOpen={!!serveTarget}
+        onClose={() => setServeTarget(null)}
+        title={t("carwash.assignWasherTitle")}
+      >
+        {serveTarget && (
+          <div className="space-y-3 text-sm">
+            <p className="text-xs text-gray-500">
+              {t("carwash.assignWasherHint")}
+            </p>
+            <div className="rounded-lg bg-gray-50 p-2 text-xs text-gray-600">
+              {serveTarget.customer?.name ?? serveTarget.customerName ?? "—"}
+              {serveTarget.items?.length
+                ? ` · ${serveTarget.items
+                    .map((it: any) => it.vehicle?.plateNumber ?? it.vehicleType)
+                    .join(", ")}`
+                : ""}
+            </div>
+            <label className="block text-gray-600">
+              {t("carwash.primaryWasher")}
+              <SearchableSelect
+                value={serveWasherId}
+                onChange={setServeWasherId}
+                options={washers.map((w) => ({
+                  value: String(w.id),
+                  label: w.name,
+                }))}
+                placeholder={t("carwash.primaryWasher")}
+              />
+            </label>
+            <div>
+              <p className="text-xs text-gray-500 mb-1">
+                {t("carwash.helpers")}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {washers
+                  .filter((w) => String(w.id) !== serveWasherId)
+                  .map((w) => {
+                    const id = String(w.id);
+                    const on = serveHelperIds.includes(id);
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() =>
+                          setServeHelperIds((prev) =>
+                            prev.includes(id)
+                              ? prev.filter((x) => x !== id)
+                              : [...prev, id],
+                          )
+                        }
+                        className={`text-xs border rounded-full px-2.5 py-0.5 ${
+                          on
+                            ? "bg-blue-600 text-white border-blue-600"
+                            : "bg-white text-gray-600 border-gray-300"
+                        }`}
+                      >
+                        {w.name}
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setServeTarget(null)}
+                className="px-3 py-2 text-sm text-gray-600"
+              >
+                {t("common.cancel")}
+              </button>
+              <Button
+                loading={busyKey === `serve-${serveTarget.id}`}
+                disabled={!serveWasherId && needsWasher(serveTarget)}
+                onClick={() =>
+                  doServe(serveTarget.id, serveWasherId, serveHelperIds)
+                }
+              >
+                {t("carwash.serve")}
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
