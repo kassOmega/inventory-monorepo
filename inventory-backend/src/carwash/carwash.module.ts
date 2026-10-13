@@ -8,5 +8,6 @@ import { CarWashService } from './carwash.service';
   imports: [FinanceModule],
   controllers: [CarWashController],
   providers: [CarWashService],
+  exports: [CarWashService],
 })
 export class CarWashModule {}

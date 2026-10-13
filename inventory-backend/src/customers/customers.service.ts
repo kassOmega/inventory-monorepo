@@ -286,6 +286,22 @@ export class CustomersService {
     return rows.map((r) => r.id);
   }
 
+  /**
+   * Exact-match lookup used to autofill the car-wash booking/vehicle forms.
+   * Returns only the minimal fields the caller needs (id + name + phone).
+   */
+  async findByPhone(
+    phone: string,
+  ): Promise<{ id: number; name: string; phone: string | null } | null> {
+    const trimmed = phone.trim();
+    if (!trimmed) return null;
+    const customer = await this.prisma.customer.findFirst({
+      where: { phone: trimmed },
+      select: { id: true, name: true, phone: true },
+    });
+    return customer ?? null;
+  }
+
   async findOne(id: number, _shopId?: number) {
     const c = await this.prisma.customer.findUnique({
       where: { id },

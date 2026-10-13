@@ -83,6 +83,12 @@ export class UpsertPriceDto {
 
   @Min(0)
   amount!: number;
+
+  /** Optional wash length for this price (null -> default slot length). */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  durationMinutes?: number | null;
 }
 
 export class CreateWashTypeDto {
@@ -159,6 +165,11 @@ export class CreateBookingItemDto {
   @IsInt()
   washTypeId?: number | null;
 
+  /** The washer assigned to THIS vehicle line. */
+  @IsOptional()
+  @IsInt()
+  washerId?: number | null;
+
   @IsOptional()
   @Min(0)
   amount?: number;
@@ -176,6 +187,18 @@ export class CreateBookingDto {
   @IsOptional()
   @IsInt()
   customerId?: number | null;
+
+  /** Snapshot of the entered name (kept even for unlinked/new customers). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  customerName?: string;
+
+  /** Snapshot of the entered phone (kept even for unlinked/new customers). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  customerPhone?: string;
 
   @IsOptional()
   @IsInt()

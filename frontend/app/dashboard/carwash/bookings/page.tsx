@@ -9,6 +9,7 @@ import CarWashBookingForm, {
   type CarWashBookingPayload,
 } from "@/app/components/CarWashBookingForm";
 import { useAuth } from "@/context/AuthContext";
+import { fmtCurrency } from "@/lib/currency";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState } from "react";
 
@@ -18,11 +19,10 @@ export default function CarWashBookingsPage() {
   const [bookings, setBookings] = useState<any[]>([]);
   const [washers, setWashers] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
-  const [customers, setCustomers] = useState<any[]>([]);
   const [washTypes, setWashTypes] = useState<any[]>([]);
   const [prices, setPrices] = useState<any[]>([]);
+  const [vehicleTypes, setVehicleTypes] = useState<any[]>([]);
 
-  const [slotMinutes, setSlotMinutes] = useState(30);
   const [open, setOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
   const [error, setError] = useState("");
@@ -30,9 +30,14 @@ export default function CarWashBookingsPage() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const init = getDateRange("today");
+  // Default to today → +30 days so accepted public bookings (often future-dated)
+  // stay visible in the booking list without manually changing the date filter.
+  const in30 = new Date();
+  in30.setDate(in30.getDate() + 30);
+  const end30 = `${in30.getFullYear()}-${String(in30.getMonth() + 1).padStart(2, "0")}-${String(in30.getDate()).padStart(2, "0")}`;
   const [datePreset, setDatePreset] = useState<DatePreset>("today");
   const [startDate, setStartDate] = useState(init.start);
-  const [endDate, setEndDate] = useState(init.end);
+  const [endDate, setEndDate] = useState(end30);
   const [search, setSearch] = useState("");
 
   const canCreate = hasPermission("carwash.bookings.create");
@@ -41,20 +46,20 @@ export default function CarWashBookingsPage() {
 
   const load = useCallback(async () => {
     try {
-      const [b, w, c, wt, pr, st] = await Promise.all([
+      const [b, w, wt, pr, vt] = await Promise.all([
         api.get(`/carwash/bookings?startDate=${startDate}&endDate=${endDate}`),
         api.get("/carwash/washers?activeOnly=1"),
-        api.get("/customers").catch(() => ({ data: [] })),
         api.get("/carwash/wash-types").catch(() => ({ data: [] })),
         api.get("/carwash/prices").catch(() => ({ data: [] })),
-        api.get("/carwash/settings").catch(() => ({ data: { slotMinutes: 30 } })),
+        api.get("/carwash/vehicle-types").catch(() => ({ data: [] })),
       ]);
       setBookings(b.data);
       setWashers(w.data);
-      setCustomers(Array.isArray(c.data) ? c.data : []);
       setWashTypes(Array.isArray(wt.data) ? wt.data : []);
       setPrices(Array.isArray(pr.data) ? pr.data : []);
-      setSlotMinutes(Number(st.data?.slotMinutes) || 30);
+      setVehicleTypes(
+        Array.isArray(vt.data) ? vt.data.map((v: any) => v.name) : [],
+      );
     } catch (e: any) {
       setError(e?.response?.data?.message ?? t("carwash.failedLoad"));
     }
@@ -78,16 +83,33 @@ export default function CarWashBookingsPage() {
   const checkAvailability = async (
     washerId: string,
     startsAt: string,
-    slotMinutes: number,
+    vehicleType: string,
+    washTypeId: string,
   ) => {
     try {
       const r = await api.get(
-        `/carwash/bookings/availability?washerId=${washerId}&startsAt=${encodeURIComponent(startsAt)}&slotMinutes=${slotMinutes}`,
+        `/carwash/bookings/availability?washerId=${washerId}&startsAt=${encodeURIComponent(startsAt)}&vehicleType=${encodeURIComponent(vehicleType)}&washTypeId=${washTypeId}`,
       );
       return { available: !!r.data?.available };
     } catch {
       return { available: false };
     }
+  };
+
+  const lookupCustomer = async (phone: string) => {
+    try {
+      const r = await api.get(
+        `/customers/by-phone?phone=${encodeURIComponent(phone)}`,
+      );
+      return r.data ? { id: r.data.id, name: r.data.name } : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const createCustomer = async (name: string, phone: string) => {
+    const r = await api.post("/customers", { name, phone });
+    return { id: r.data.id, name: r.data.name };
   };
 
   const submitBooking = async (payload: CarWashBookingPayload) => {
@@ -96,6 +118,8 @@ export default function CarWashBookingsPage() {
     try {
       await api.post("/carwash/bookings", {
         customerId: payload.customerId ? Number(payload.customerId) : null,
+        customerName: payload.customerName,
+        customerPhone: payload.customerPhone,
         washerId: payload.washerId ? Number(payload.washerId) : null,
         isTimeSlotBooking: payload.isTimeSlotBooking,
         startsAt: payload.startsAt,
@@ -104,7 +128,9 @@ export default function CarWashBookingsPage() {
           vehicleId: it.vehicleId ? Number(it.vehicleId) : null,
           vehicleType: it.vehicleType,
           washTypeId: it.washTypeId ? Number(it.washTypeId) : null,
+          washerId: it.washerId ? Number(it.washerId) : null,
           amount: Number(it.amount) || 0,
+          startsAt: it.startsAt,
         })),
       });
       setOpen(false);
@@ -206,7 +232,14 @@ export default function CarWashBookingsPage() {
             {filtered.map((b) => (
               <tr key={b.id}>
                 <td className="px-4 py-2 whitespace-nowrap">{new Date(b.startsAt).toLocaleString()}</td>
-                <td className="px-4 py-2 whitespace-nowrap">{b.customer?.name ?? "—"}</td>
+                <td className="px-4 py-2 whitespace-nowrap">
+                  {b.customer?.name ?? b.customerName ?? "—"}
+                  {(b.customer?.phone ?? b.customerPhone) ? (
+                    <span className="block text-[11px] text-gray-400">
+                      {b.customer?.phone ?? b.customerPhone}
+                    </span>
+                  ) : null}
+                </td>
                 <td className="px-4 py-2 whitespace-nowrap">
                   {(b.items ?? []).length > 0
                     ? b.items
@@ -217,8 +250,18 @@ export default function CarWashBookingsPage() {
                         .join(", ")
                     : b.vehicle?.plateNumber ?? b.vehicleType}
                 </td>
-                <td className="px-4 py-2 text-gray-500 whitespace-nowrap">{b.washer?.name ?? "—"}</td>
-                <td className="px-4 py-2 whitespace-nowrap">{b.amount}</td>
+                <td className="px-4 py-2 text-gray-500 whitespace-nowrap">
+                  {(b.items ?? []).length > 0
+                    ? [
+                        ...new Set(
+                          (b.items as any[])
+                            .map((it: any) => it.washer?.name)
+                            .filter(Boolean),
+                        ),
+                      ].join(", ") || "—"
+                    : b.washer?.name ?? "—"}
+                </td>
+                <td className="px-4 py-2 whitespace-nowrap">{fmtCurrency(b.amount)}</td>
                 <td className="px-4 py-2 whitespace-nowrap">
                   <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{b.status}</span>
                 </td>
@@ -238,19 +281,19 @@ export default function CarWashBookingsPage() {
       <Modal isOpen={open} onClose={() => setOpen(false)} title={t("carwash.newBooking")}>
         <CarWashBookingForm
           mode="staff"
-          vehicleTypes={[]}
+          vehicleTypes={vehicleTypes}
           washTypes={washTypes.map((w: any) => ({ id: w.id, name: w.name }))}
           prices={prices}
           washers={washers.map((w: any) => ({ id: w.id, name: w.name }))}
-          slotMinutes={slotMinutes}
           showPrices
-          customers={customers.map((c: any) => ({ id: c.id, name: c.name }))}
           vehicles={vehicles.map((v: any) => ({
             id: v.id,
             plateNumber: v.plateNumber,
             vehicleType: v.vehicleType,
             customerId: v.customerId,
           }))}
+          onLookupCustomer={lookupCustomer}
+          onCreateCustomer={createCustomer}
           onCheckAvailability={checkAvailability}
           onSubmit={submitBooking}
           submitting={saving}

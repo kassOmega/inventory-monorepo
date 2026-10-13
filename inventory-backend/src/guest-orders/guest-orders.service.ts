@@ -35,10 +35,29 @@ export class GuestOrdersService {
     return id;
   }
 
+  /**
+   * The branch the user is scoped to, but only when that location actually
+   * belongs to the active tenant. A stale `locationId` (e.g. pointing at a
+   * location from a previous business) must never turn the inbox into an empty
+   * list — it falls back to central (null) instead.
+   */
+  private async effectiveBranchId(
+    user: JwtPayload | undefined,
+    tenantId: number,
+  ): Promise<number | null> {
+    const locationId = user?.locationId ?? null;
+    if (locationId == null) return null;
+    const loc = await this.prisma.location.findFirst({
+      where: { id: locationId, tenantId },
+      select: { id: true },
+    });
+    return loc ? locationId : null;
+  }
+
   /** The privileged inbox: guest orders for the active business. */
   async list(status?: string, user?: JwtPayload) {
     const tenantId = this.tenantId();
-    const branchId = user?.locationId ?? null;
+    const branchId = await this.effectiveBranchId(user, tenantId);
     return this.prisma.guestOrder.findMany({
       where: {
         tenantId,
@@ -73,7 +92,7 @@ export class GuestOrdersService {
 
   async get(id: number, user?: JwtPayload) {
     const tenantId = this.tenantId();
-    const branchId = user?.locationId ?? null;
+    const branchId = await this.effectiveBranchId(user, tenantId);
     const order = await this.prisma.guestOrder.findFirst({
       where: {
         id,
@@ -139,9 +158,15 @@ export class GuestOrdersService {
     });
     await this.log(id, 'REVIEWED', note, actor.sub);
 
-    // F&B / service bookings convert right away; retail/mfg use `convert`.
+    // F&B / service / room / car-wash bookings convert right away; retail/mfg
+    // use `convert`.
     const kinds = new Set((order.items ?? []).map((i) => i.itemKind));
-    if (kinds.has('MENU_ITEM') || kinds.has('SERVICE_ITEM') || kinds.has('ROOM_TYPE')) {
+    if (
+      kinds.has('MENU_ITEM') ||
+      kinds.has('SERVICE_ITEM') ||
+      kinds.has('ROOM_TYPE') ||
+      kinds.has('CARWASH_ITEM')
+    ) {
       await this.conversion.convert(order as any, actor).catch(() => {});
     }
     return this.get(id, actor);
@@ -492,7 +517,7 @@ export class GuestOrdersService {
   /** Count of orders still needing a privileged decision (for the nav badge). */
   /** Count of orders still needing a privileged decision (for the nav badge). */
   async pendingCount(user?: JwtPayload): Promise<{ count: number }> {
-    const branchId = user?.locationId ?? null;
+    const branchId = await this.effectiveBranchId(user, this.tenantId());
     const count = await this.prisma.guestOrder.count({
       where: {
         tenantId: this.tenantId(),

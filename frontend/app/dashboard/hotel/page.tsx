@@ -5,6 +5,7 @@ import Button from "@/app/components/Button";
 import CheckInModal from "@/app/components/CheckInModal";
 import CatalogImageInput from "@/app/components/CatalogImageInput";
 import CheckoutModal from "@/app/components/CheckoutModal";
+import ReservationForm from "@/app/components/ReservationForm";
 import { useAuth } from "@/context/AuthContext";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useTranslation } from "react-i18next";
@@ -51,11 +52,6 @@ export default function HotelPage() {
     imageUrl: null as string | null,
   });
   const [roomForm, setRoomForm] = useState({ number: "", roomTypeId: "" });
-  const [resForm, setResForm] = useState({ roomId: "", guestName: "", checkIn: "", checkOut: "" });
-
-  // Date-range availability for the reservation form (and the check-in modal).
-  const [availability, setAvailability] = useState<any>(null);
-  const [availLoading, setAvailLoading] = useState(false);
 
   // Edit modals
   const [roomTypeModal, setRoomTypeModal] = useState<any>(null);
@@ -90,34 +86,6 @@ export default function HotelPage() {
     load();
   }, [load]);
 
-  // Re-resolve availability whenever the requested dates change, so the room
-  // picker only ever offers rooms that are actually free for that window.
-  useEffect(() => {
-    const { checkIn, checkOut } = resForm;
-    if (!checkIn || !checkOut || new Date(checkOut) <= new Date(checkIn)) {
-      setAvailability(null);
-      return;
-    }
-    let cancelled = false;
-    setAvailLoading(true);
-    api
-      .get("/hotel/rooms/available", {
-        params: { checkInDate: checkIn, checkOutDate: checkOut },
-      })
-      .then((r) => {
-        if (!cancelled) setAvailability(r.data);
-      })
-      .catch(() => {
-        if (!cancelled) setAvailability(null);
-      })
-      .finally(() => {
-        if (!cancelled) setAvailLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [resForm.checkIn, resForm.checkOut]);
-
   /** Every room grouped by its type (used when no dates are chosen yet). */
   const allRoomGroups = () => {
     const groups: { name: string; rooms: any[] }[] = [];
@@ -133,18 +101,31 @@ export default function HotelPage() {
   };
 
   /**
-   * Room options for the reservation forms. With dates chosen we only offer
-   * rooms that are free for that window (grouped by room type); otherwise every
-   * room is listed so the form is still usable.
+   * All rooms grouped by type, as the fallback for the reservation form before
+   * dates are chosen.
    */
-  const roomOptions = () => {
-    if (availability) {
-      return (availability.roomTypes ?? []).map((g: any) => ({
+  const fallbackRoomGroups = () =>
+    allRoomGroups().map((g) => ({
+      name: g.name,
+      rooms: g.rooms.map((r: any) => ({ id: r.id, number: r.number })),
+    }));
+
+  /** Fetch rooms free for the chosen window and map them to the form's shape. */
+  const fetchRoomAvailability = async (checkIn: string, checkOut: string) => {
+    const r = await api.get("/hotel/rooms/available", {
+      params: { checkInDate: checkIn, checkOutDate: checkOut },
+    });
+    return {
+      totalAvailable: r.data?.totalAvailable ?? 0,
+      roomGroups: (r.data?.roomTypes ?? []).map((g: any) => ({
         name: g.roomTypeName,
-        rooms: g.rooms,
-      }));
-    }
-    return allRoomGroups();
+        rooms: g.rooms.map((room: any) => ({
+          id: room.id,
+          number: room.number,
+          totalForStay: room.totalForStay,
+        })),
+      })),
+    };
   };
 
 
@@ -269,17 +250,16 @@ export default function HotelPage() {
       checkOut: r.checkOut?.slice(0, 10) ?? "",
       notes: r.notes ?? "",
     });
-  const saveRes = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const saveRes = async (payload: any) => {
     setBusy(true);
     try {
       await api.patch(`/hotel/reservations/${resModal.id}`, {
-        roomId: Number(resModal.roomId),
-        guestName: resModal.guestName,
-        phone: resModal.phone || undefined,
-        checkIn: resModal.checkIn,
-        checkOut: resModal.checkOut,
-        notes: resModal.notes || undefined,
+        roomId: Number(payload.roomId),
+        guestName: payload.guestName,
+        phone: payload.phone || undefined,
+        checkIn: payload.checkIn,
+        checkOut: payload.checkOut,
+        notes: payload.notes || undefined,
       });
       setResModal(null);
       await load();
@@ -302,17 +282,15 @@ export default function HotelPage() {
     }
   };
 
-  const createReservation = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const createReservation = async (payload: any) => {
     setBusy(true);
     try {
       await api.post("/hotel/reservations", {
-        roomId: Number(resForm.roomId),
-        guestName: resForm.guestName,
-        checkIn: resForm.checkIn,
-        checkOut: resForm.checkOut,
+        roomId: Number(payload.roomId),
+        guestName: payload.guestName,
+        checkIn: payload.checkIn,
+        checkOut: payload.checkOut,
       });
-      setResForm({ roomId: "", guestName: "", checkIn: "", checkOut: "" });
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? t("hotel.failedCreateReservation"));
@@ -531,63 +509,19 @@ export default function HotelPage() {
           <h2 className="font-semibold text-gray-800 mb-3">{t("hotel.reservationsHeading")}</h2>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {canFrontDesk ? (
-            <form onSubmit={createReservation} className="space-y-2">
-              <p className="text-sm font-medium text-gray-700 mb-1">{t("hotel.newReservation")}</p>
-            <select
-              value={resForm.roomId}
-              onChange={(e) => setResForm({ ...resForm, roomId: e.target.value })}
-              className="border border-gray-300 rounded p-2 text-sm w-full"
-              required
-            >
-              <option value="">{t("hotel.selectRoom")}</option>
-              {roomOptions().map((group: any) => (
-                <optgroup key={group.name} label={group.name}>
-                  {group.rooms.map((r: any) => (
-                    <option key={r.id} value={r.id}>
-                      {r.number}
-                      {r.totalForStay != null ? ` — ${r.totalForStay}` : ""}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-            {availLoading && (
-              <p className="text-xs text-gray-400">
-                {t("hotel.checkingAvailability")}
-              </p>
-            )}
-            {availability && !availLoading && (
-              <p className="text-xs text-gray-400">
-                {availability.totalAvailable > 0
-                  ? t("hotel.availableHint")
-                  : t("hotel.noAvailability")}
-              </p>
-            )}
-            <input
-              placeholder={t("hotel.guestName")}
-              value={resForm.guestName}
-              onChange={(e) => setResForm({ ...resForm, guestName: e.target.value })}
-              className="border border-gray-300 rounded p-2 text-sm w-full"
-              required
-            />
-            <input
-              type="date"
-              value={resForm.checkIn}
-              onChange={(e) => setResForm({ ...resForm, checkIn: e.target.value })}
-              className="border border-gray-300 rounded p-2 text-sm w-full"
-              required
-            />
-            <input
-              type="date"
-              value={resForm.checkOut}
-              onChange={(e) => setResForm({ ...resForm, checkOut: e.target.value })}
-              className="border border-gray-300 rounded p-2 text-sm w-full"
-              required
-            />
-              <Button type="submit" loading={busy} className="w-full !p-2 !text-sm font-medium">
-                {t("hotel.createReservation")}
-              </Button>
-            </form>
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-1">
+                  {t("hotel.newReservation")}
+                </p>
+                <ReservationForm
+                  mode="staff"
+                  fallbackRoomGroups={fallbackRoomGroups()}
+                  onFetchAvailability={fetchRoomAvailability}
+                  onSubmit={createReservation}
+                  submitting={busy}
+                  submitLabel={t("hotel.createReservation")}
+                />
+              </div>
             ) : (
               <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded p-2">
                 {t("hotel.frontDeskOnly")}
@@ -751,68 +685,31 @@ export default function HotelPage() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-5 w-full max-w-sm shadow-xl max-h-[92vh] overflow-y-auto">
             <h2 className="font-semibold text-gray-800 mb-3">{t("hotel.editReservationTitle")}</h2>
-            <form onSubmit={saveRes} className="space-y-3">
-              <select
-                value={resModal.roomId}
-                onChange={(e) => setResModal({ ...resModal, roomId: e.target.value })}
-                className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
-                required
+            <ReservationForm
+              mode="staff"
+              fallbackRoomGroups={fallbackRoomGroups()}
+              onFetchAvailability={fetchRoomAvailability}
+              initialValues={{
+                roomId: resModal.roomId,
+                guestName: resModal.guestName,
+                phone: resModal.phone,
+                checkIn: resModal.checkIn,
+                checkOut: resModal.checkOut,
+                notes: resModal.notes,
+              }}
+              onSubmit={saveRes}
+              submitting={busy}
+              submitLabel={t("common.save")}
+            />
+            <div className="flex justify-end mt-2">
+              <button
+                type="button"
+                onClick={() => setResModal(null)}
+                className="px-3 py-2 text-sm text-gray-600"
               >
-                <option value="">{t("hotel.selectRoom")}</option>
-                {allRoomGroups().map((group) => (
-                  <optgroup key={group.name} label={group.name}>
-                    {group.rooms.map((r: any) => (
-                      <option key={r.id} value={r.id}>
-                        {r.number}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-              <input
-                value={resModal.guestName}
-                onChange={(e) => setResModal({ ...resModal, guestName: e.target.value })}
-                placeholder={t("hotel.guestName")}
-                className="border border-gray-300 rounded p-2 text-sm w-full"
-                required
-              />
-              <input
-                value={resModal.phone}
-                onChange={(e) => setResModal({ ...resModal, phone: e.target.value })}
-                placeholder={t("hotel.phoneOptional")}
-                className="border border-gray-300 rounded p-2 text-sm w-full"
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="date"
-                  value={resModal.checkIn}
-                  onChange={(e) => setResModal({ ...resModal, checkIn: e.target.value })}
-                  className="border border-gray-300 rounded p-2 text-sm w-full"
-                  required
-                />
-                <input
-                  type="date"
-                  value={resModal.checkOut}
-                  onChange={(e) => setResModal({ ...resModal, checkOut: e.target.value })}
-                  className="border border-gray-300 rounded p-2 text-sm w-full"
-                  required
-                />
-              </div>
-              <input
-                value={resModal.notes}
-                onChange={(e) => setResModal({ ...resModal, notes: e.target.value })}
-                placeholder={t("hotel.notesOptional")}
-                className="border border-gray-300 rounded p-2 text-sm w-full"
-              />
-              <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setResModal(null)} className="px-3 py-2 text-sm text-gray-600">
-                  {t("common.cancel")}
-                </button>
-                <Button type="submit" loading={busy} variant="dark" className="!px-3 !text-sm">
-                  {t("common.save")}
-                </Button>
-              </div>
-            </form>
+                {t("common.cancel")}
+              </button>
+            </div>
           </div>
         </div>
       )}

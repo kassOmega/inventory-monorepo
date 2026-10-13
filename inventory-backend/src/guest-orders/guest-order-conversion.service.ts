@@ -5,13 +5,15 @@
 //   F&B (TABLE/HOTEL)  -> RestaurantService.createOrder
 //   SHOP               -> SalesService.createSale (at the assigned branch)
 //   HOTEL (rooms)      -> HotelService.createReservation
-//   SERVICE/CARWASH    -> ServiceService.createBooking
+//   SERVICE            -> ServiceService.createBooking
+//   CARWASH            -> CarWashService.createBooking
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RestaurantService } from '../restaurant/restaurant.service';
 import { SalesService } from '../sales/sales.service';
 import { HotelService } from '../hotel/hotel.service';
 import { ServiceService } from '../service/service.service';
+import { CarWashService } from '../carwash/carwash.service';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { tr } from '../i18n/i18n.service';
 import type { GuestOrder } from '@prisma/client';
@@ -24,6 +26,7 @@ export class GuestOrderConversionService {
     private readonly sales: SalesService,
     private readonly hotel: HotelService,
     private readonly service: ServiceService,
+    private readonly carwash: CarWashService,
   ) {}
 
   /**
@@ -47,6 +50,7 @@ export class GuestOrderConversionService {
     if (kinds.has('PRODUCT')) return this.toSale(order, actor, opts);
     if (kinds.has('ROOM_TYPE')) return this.toReservation(order, actor);
     if (kinds.has('SERVICE_ITEM')) return this.toBooking(order, actor);
+    if (kinds.has('CARWASH_ITEM')) return this.toCarWashBooking(order, actor);
     throw new BadRequestException('Nothing to convert for this guest order');
   }
 
@@ -256,5 +260,123 @@ export class GuestOrderConversionService {
       data: { bookingId: created.id, status: 'ACCEPTED' },
     });
     return { kind: 'BOOKING', id: created.id };
+  }
+
+  /**
+   * Reconstruct a public car-wash booking from the guest order's line payload
+   * (stored as JSON in each item's `notes`) and register it in the wash queue.
+   */
+  private async toCarWashBooking(order: any, actor: JwtPayload) {
+    const lines = (order.items ?? [])
+      .filter((i: any) => i.itemKind === 'CARWASH_ITEM')
+      .map((i: any) => {
+        let meta: any = {};
+        try {
+          meta = i.notes ? JSON.parse(i.notes) : {};
+        } catch {
+          meta = {};
+        }
+        return {
+          vehicleType: meta.vehicleType ?? 'Car',
+          plateNumber: meta.plateNumber ?? null,
+          washTypeId: meta.washTypeId ?? (i.itemId ?? null),
+          washerId: meta.washerId ?? null,
+          amount: Number(i.unitPrice) || Number(meta.amount) || 0,
+          startsAt: meta.startsAt ?? order.startsAt,
+        };
+      });
+    if (lines.length === 0) {
+      throw new BadRequestException('Nothing to convert for this guest booking');
+    }
+
+    // Resolve or create the customer so the booking shows their name + phone.
+    let customerId: number | null = order.customerId ?? null;
+    const phone = (order.customerPhone ?? '').trim() || null;
+    if (!customerId && phone) {
+      const existing = await this.prisma.customer.findFirst({
+        where: { organizationId: order.tenantId, phone },
+        select: { id: true },
+      });
+      if (existing) {
+        customerId = existing.id;
+      } else {
+        const created = await this.prisma.customer.create({
+          data: {
+            organizationId: order.tenantId,
+            name: (order.customerName ?? '').trim() || 'Guest',
+            phone,
+          },
+          select: { id: true },
+        });
+        customerId = created.id;
+      }
+    }
+
+    // Resolve (or create) each vehicle by plate and build the booking items.
+    const items: Array<{
+      vehicleId: number | null;
+      vehicleType: string;
+      washTypeId: number | null;
+      washerId: number | null;
+      amount: number;
+      startsAt: string;
+    }> = [];
+    for (const line of lines) {
+      let vehicleId: number | null = null;
+      if (line.plateNumber) {
+        let vehicle = await this.prisma.carWashVehicle.findFirst({
+          where: { tenantId: order.tenantId, plateNumber: line.plateNumber },
+          select: { id: true },
+        });
+        if (!vehicle) {
+          vehicle = await this.prisma.carWashVehicle.create({
+            data: {
+              tenantId: order.tenantId,
+              plateNumber: line.plateNumber,
+              vehicleType: line.vehicleType,
+              customerId,
+            },
+            select: { id: true },
+          });
+        }
+        vehicleId = vehicle.id;
+      }
+      items.push({
+        vehicleId,
+        vehicleType: line.vehicleType,
+        washTypeId: line.washTypeId,
+        washerId: line.washerId,
+        amount: line.amount,
+        startsAt: line.startsAt,
+      });
+    }
+
+    const headerStartsAt = items
+      .map((i) => new Date(i.startsAt).getTime())
+      .reduce((a, b) => Math.min(a, b));
+
+    const created = await this.carwash.createBooking(
+      {
+        customerId,
+        customerName: order.customerName ?? undefined,
+        customerPhone: order.customerPhone ?? undefined,
+        washerId: items[0]?.washerId ?? null,
+        isTimeSlotBooking: true,
+        startsAt: new Date(headerStartsAt).toISOString(),
+        notes: order.note ?? undefined,
+        items,
+      } as any,
+      actor.sub,
+    );
+
+    await this.prisma.guestOrder.update({
+      where: { id: order.id },
+      data: {
+        bookingId: created.id,
+        status: 'ACCEPTED',
+        ...(customerId && !order.customerId ? { customerId } : {}),
+      },
+    });
+    return { kind: 'CARWASH_BOOKING', id: created.id };
   }
 }

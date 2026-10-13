@@ -3902,6 +3902,7 @@ model CarWashWasher {
   carWashes       CarWash[]               @relation("CarWashPrimaryWasher")
   helpedWashes    CarWash[]               @relation("CarWashParticipantWashers")
   bookings        CarWashBooking[]        @relation("CarWashBookingWasher")
+  bookingItems    CarWashBookingItem[]    @relation("CarWashBookingItemWasher")
   equipmentIssues CarWashEquipmentIssue[]
   // Optional salary (washers are usually commission-based).
   salaryAmount    Float?
@@ -4034,6 +4035,9 @@ model CarWashPrice {
   washTypeId   Int?
   washType     CarWashWashType?  @relation(fields: [washTypeId], references: [id], onDelete: Cascade)
   amount       Float             @default(0)
+  /// Optional wash length for this price. When null, booking availability
+  /// falls back to the default slot length (45 minutes).
+  durationMinutes Int?
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 
@@ -4067,6 +4071,10 @@ model CarWashBooking {
   organization      Organization         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customerId        Int?
   customer          Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  /// Snapshot of the entered name/phone so a booking keeps the customer's
+  /// contact even when no linked Customer exists yet (new customer).
+  customerName      String?
+  customerPhone     String?
   vehicleId         Int?
   vehicle           CarWashVehicle?      @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
   washerId          Int?
@@ -4101,6 +4109,10 @@ model CarWashBookingItem {
   vehicleType String          @default("Car")
   washTypeId  Int?
   washType    CarWashWashType? @relation(fields: [washTypeId], references: [id], onDelete: SetNull)
+  /// The washer assigned to THIS vehicle line (multi-vehicle bookings can
+  /// split vehicles across different washers).
+  washerId    Int?
+  washer      CarWashWasher?  @relation("CarWashBookingItemWasher", fields: [washerId], references: [id], onDelete: SetNull)
   amount      Float           @default(0)
   date        DateTime?
   startsAt    DateTime?

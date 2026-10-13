@@ -247,11 +247,15 @@ export class CarWashController {
     @Query('washerId', ParseIntPipe) washerId: number,
     @Query('startsAt') startsAt: string,
     @Query('slotMinutes') slotMinutes?: string,
+    @Query('vehicleType') vehicleType?: string,
+    @Query('washTypeId') washTypeId?: string,
   ) {
     return this.carwash.checkAvailability(
       washerId,
       startsAt,
       slotMinutes ? Number(slotMinutes) : undefined,
+      vehicleType,
+      washTypeId ? Number(washTypeId) : undefined,
     );
   }
 

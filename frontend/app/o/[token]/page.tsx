@@ -10,7 +10,7 @@ import Loading from "@/app/components/Loading";
 import Button from "@/app/components/Button";
 import Modal from "@/app/components/Modal";
 import CarWashBookingForm from "@/app/components/CarWashBookingForm";
-import RoomReservationForm from "@/app/components/RoomReservationForm";
+import ReservationForm from "@/app/components/ReservationForm";
 import ServiceBookingForm from "@/app/components/ServiceBookingForm";
 
 interface PublicItem {
@@ -210,28 +210,64 @@ export default function PublicOrderPage() {
   const checkCarwashAvailability = async (
     washerId: string,
     startsAt: string,
-    slotMinutes: number,
+    vehicleType: string,
+    washTypeId: string,
   ) => {
     const r = await api.get(
-      `/public/entry/${token}/carwash-availability?washerId=${washerId}&startsAt=${encodeURIComponent(startsAt)}&slotMinutes=${slotMinutes}`,
+      `/public/entry/${token}/carwash-availability?washerId=${washerId}&startsAt=${encodeURIComponent(startsAt)}&vehicleType=${encodeURIComponent(vehicleType)}&washTypeId=${washTypeId}`,
     );
     return { available: !!r.data?.available };
+  };
+
+  const lookupPublicCustomer = async (phone: string) => {
+    try {
+      const r = await api.post(`/public/entry/${token}/customer-lookup`, {
+        phone,
+      });
+      return r.data?.name ? { id: "", name: r.data.name } : null;
+    } catch {
+      return null;
+    }
   };
 
   const submitCarwashBooking = async (payload: any) => {
     setBookingSubmitting(true);
     setError("");
     try {
-      const r = await api.post(
-        `/public/entry/${token}/carwash-bookings`,
-        payload,
-      );
+      const r = await api.post(`/public/entry/${token}/carwash-bookings`, {
+        name: payload.name ?? payload.customerName,
+        phone: payload.phone ?? payload.customerPhone,
+        washerId: payload.washerId ? Number(payload.washerId) : null,
+        startsAt: payload.startsAt,
+        notes: payload.notes,
+        items: (payload.items ?? []).map((it: any) => ({
+          vehicleType: it.vehicleType,
+          plateNumber: it.plateNumber,
+          washTypeId: it.washTypeId ? Number(it.washTypeId) : null,
+          washerId: it.washerId ? Number(it.washerId) : null,
+          amount: Number(it.amount) || 0,
+          startsAt: it.startsAt,
+        })),
+      });
       setBookingDone({ kind: "CARWASH", data: r.data });
     } catch (e: any) {
       setError(e?.response?.data?.message ?? "Could not submit booking");
     } finally {
       setBookingSubmitting(false);
     }
+  };
+
+  const fetchPublicRoomAvailability = async (
+    checkIn: string,
+    checkOut: string,
+  ) => {
+    const r = await api.get(
+      `/public/entry/${token}/room-availability?checkIn=${checkIn}&checkOut=${checkOut}`,
+    );
+    return {
+      totalAvailable: r.data?.totalAvailable ?? 0,
+      roomTypes: r.data?.roomTypes ?? [],
+    };
   };
 
   const submitRoomReservation = async (payload: any) => {
@@ -383,8 +419,8 @@ export default function PublicOrderPage() {
                   id: w.id,
                   name: w.name,
                 }))}
-                slotMinutes={carwashOptions.slotMinutes ?? 30}
                 showPrices={carwashOptions.showPrices}
+                onLookupCustomer={lookupPublicCustomer}
                 onCheckAvailability={checkCarwashAvailability}
                 onSubmit={submitCarwashBooking}
                 submitting={bookingSubmitting}
@@ -399,7 +435,8 @@ export default function PublicOrderPage() {
       {isAccommodation && (
         <div className="mx-auto max-w-md p-4">
           <div className="bg-white rounded-xl border p-4">
-            <RoomReservationForm
+            <ReservationForm
+              mode="public"
               roomTypes={visibleItems.map((it) => ({
                 ref: it.ref,
                 name: it.name,
@@ -408,6 +445,7 @@ export default function PublicOrderPage() {
                 image: it.image ?? null,
                 meta: it.meta,
               }))}
+              onFetchAvailability={fetchPublicRoomAvailability}
               onSubmit={submitRoomReservation}
               submitting={bookingSubmitting}
             />

@@ -47,7 +47,7 @@ export default function GuestOrdersPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [locations, setLocations] = useState<any[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("SUBMITTED");
   const [detail, setDetail] = useState<any | null>(null);
   const [routePick, setRoutePick] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
@@ -279,6 +279,88 @@ export default function GuestOrdersPage() {
         </div>
       )}
 
+      {statusFilter === "SUBMITTED" ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {orders.map((o) => (
+            <div
+              key={o.id}
+              onClick={() => openDetail(o)}
+              className="bg-white rounded-xl border border-gray-200 p-3 space-y-2 cursor-pointer hover:border-blue-300 hover:shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">
+                    {o.entry?.label}
+                  </p>
+                  <p className="text-[11px] text-gray-400">
+                    {o.entry?.kind}
+                    {o.entry?.table?.name ? ` · ${o.entry.table.name}` : ""}
+                  </p>
+                </div>
+                {canManage && (
+                  <input
+                    type="checkbox"
+                    checked={selected.has(o.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={() =>
+                      setSelected((prev) => {
+                        const next = new Set(prev);
+                        next.has(o.id) ? next.delete(o.id) : next.add(o.id);
+                        return next;
+                      })
+                    }
+                  />
+                )}
+              </div>
+
+              <p className="text-sm text-gray-600">
+                {o.customerName ?? "—"}
+                {o.customerPhone ? (
+                  <span className="block text-[11px] text-gray-400">
+                    {o.customerPhone}
+                  </span>
+                ) : null}
+              </p>
+
+              <ul className="text-xs text-gray-500 space-y-0.5">
+                {(o.items ?? []).slice(0, 3).map((it: any) => (
+                  <li key={it.id}>
+                    · {it.quantity}× {it.nameSnapshot}
+                  </li>
+                ))}
+                {(o.items ?? []).length > 3 && (
+                  <li className="text-gray-400">
+                    +{(o.items ?? []).length - 3} {t("guestOrders.more")}
+                  </li>
+                )}
+              </ul>
+
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold">
+                  {fmtCurrency(o.totalAmount)}
+                </span>
+                <span
+                  className={`text-xs px-2 py-0.5 rounded-full ${STATUS_CLASS[o.status]}`}
+                >
+                  {t(`guestOrders.status.${o.status}`)}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between pt-1 border-t">
+                <span className="text-[11px] text-gray-400">
+                  {formatDateTime(o.createdAt)}
+                </span>
+                <span className="text-xs text-blue-600">{t("common.view")}</span>
+              </div>
+            </div>
+          ))}
+          {orders.length === 0 && (
+            <p className="col-span-full text-center text-gray-400 py-10">
+              {t("guestOrders.empty")}
+            </p>
+          )}
+        </div>
+      ) : (
       <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
         <table className="w-full text-sm min-w-[680px]">
           <thead className="bg-gray-50 text-left text-xs text-gray-500">
@@ -324,7 +406,7 @@ export default function GuestOrdersPage() {
                     <span className="block text-[11px] text-gray-400">{o.customerPhone}</span>
                   ) : null}
                 </td>
-                <td className="px-3 py-2 text-right">{o.totalAmount}</td>
+                <td className="px-3 py-2 text-right">{fmtCurrency(o.totalAmount)}</td>
                 <td className="px-3 py-2">
                   <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_CLASS[o.status]}`}>
                     {t(`guestOrders.status.${o.status}`)}
@@ -347,6 +429,7 @@ export default function GuestOrdersPage() {
           </tbody>
         </table>
       </div>
+      )}
 
       <Modal isOpen={!!detail} onClose={() => setDetail(null)} title={t("guestOrders.detail")}>
         {detail && (
@@ -367,7 +450,7 @@ export default function GuestOrdersPage() {
               ))}
             </ul>
             <p className="text-right font-semibold">
-              {t("common.total")}: {detail.totalAmount}
+              {t("common.total")}: {fmtCurrency(detail.totalAmount)}
             </p>
             {detail.note && <p className="text-xs text-gray-500">{detail.note}</p>}
 

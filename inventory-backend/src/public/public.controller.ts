@@ -63,6 +63,17 @@ export class PublicController {
     return this.publicSvc.reserve(token, body);
   }
 
+  /** Public room availability for the guest-chosen stay window. */
+  @Get('entry/:token/room-availability')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  roomAvailability(
+    @Param('token') token: string,
+    @Query('checkIn') checkIn?: string,
+    @Query('checkOut') checkOut?: string,
+  ) {
+    return this.publicSvc.roomAvailability(token, checkIn, checkOut);
+  }
+
   /** Submit a public service booking (no auth, scoped by the entry token). */
   @Post('entry/:token/service-bookings')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
@@ -102,12 +113,16 @@ export class PublicController {
     @Query('washerId') washerId: string,
     @Query('startsAt') startsAt: string,
     @Query('slotMinutes') slotMinutes?: string,
+    @Query('vehicleType') vehicleType?: string,
+    @Query('washTypeId') washTypeId?: string,
   ) {
     return this.publicSvc.carwashAvailability(
       token,
       Number(washerId),
       startsAt,
       slotMinutes ? Number(slotMinutes) : undefined,
+      vehicleType,
+      washTypeId ? Number(washTypeId) : undefined,
     );
   }
 

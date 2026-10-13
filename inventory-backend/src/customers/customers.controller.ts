@@ -84,6 +84,13 @@ export class CustomersController {
     return this.svc.updateLoyaltyProgram(dto);
   }
 
+  /** Exact phone match for the car-wash booking/vehicle autofill. */
+  @Get('by-phone')
+  @Permissions('credits.view', 'customers.view')
+  byPhone(@Query('phone') phone?: string) {
+    return this.svc.findByPhone(phone?.trim() ?? '');
+  }
+
   @Get(':id')
   @Permissions('credits.view', 'customers.view')
   async findOne(@Param('id') ref: string, @Query('shopId') shopId?: string) {

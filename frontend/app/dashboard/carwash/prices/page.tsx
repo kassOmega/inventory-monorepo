@@ -19,7 +19,7 @@ export default function CarWashPricesPage() {
   const [prices, setPrices] = useState<any[]>([]);
   const [washTypes, setWashTypes] = useState<any[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<any[]>([]);
-  const [form, setForm] = useState({ vehicleType: "", washTypeId: "", amount: "" });
+  const [form, setForm] = useState({ vehicleType: "", washTypeId: "", amount: "", durationMinutes: "" });
   const [washTypeForm, setWashTypeForm] = useState("");
   const [vehicleTypeOpen, setVehicleTypeOpen] = useState(false);
   const [editingVehicleType, setEditingVehicleType] = useState<any | null>(null);
@@ -67,7 +67,7 @@ export default function CarWashPricesPage() {
 
   const openEdit = (p: any) => {
     setEditing(p);
-    setForm({ vehicleType: p.vehicleType, washTypeId: p.washTypeId ? String(p.washTypeId) : "", amount: String(p.amount) });
+    setForm({ vehicleType: p.vehicleType, washTypeId: p.washTypeId ? String(p.washTypeId) : "", amount: String(p.amount), durationMinutes: p.durationMinutes != null ? String(p.durationMinutes) : "" });
     setOpen(true);
   };
 
@@ -80,13 +80,16 @@ export default function CarWashPricesPage() {
         vehicleType: form.vehicleType,
         washTypeId: form.washTypeId ? Number(form.washTypeId) : null,
         amount: Number(form.amount) || 0,
+        durationMinutes: form.durationMinutes
+          ? Number(form.durationMinutes)
+          : null,
       };
       // Editing updates the existing row (by id) so changing the vehicle/wash
       // type moves THAT row instead of creating a new one and leaving the old.
       if (editing) await api.patch(`/carwash/prices/${editing.id}`, payload);
       else await api.post("/carwash/prices", payload);
       setOpen(false);
-      setForm({ vehicleType: "", washTypeId: "", amount: "" });
+      setForm({ vehicleType: "", washTypeId: "", amount: "", durationMinutes: "" });
       setEditing(null);
       await load();
     } catch (err: any) {
@@ -246,7 +249,7 @@ export default function CarWashPricesPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-800">{t("carwash.prices")}</h1>
         {canWrite && (
-          <button onClick={() => { setEditing(null); setForm({ vehicleType: vehicleTypes[0] ? vehicleTypes[0].name : "", washTypeId: washTypes[0] ? String(washTypes[0].id) : "", amount: "" }); setOpen(true); }} className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium">
+          <button onClick={() => { setEditing(null); setForm({ vehicleType: vehicleTypes[0] ? vehicleTypes[0].name : "", washTypeId: washTypes[0] ? String(washTypes[0].id) : "", amount: "", durationMinutes: "" }); setOpen(true); }} className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium">
             + {t("carwash.addPrice")}
           </button>
         )}
@@ -405,6 +408,21 @@ export default function CarWashPricesPage() {
           </div>
           <label className="block text-sm text-gray-600">{t("carwash.amount")}
             <input value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder={t("carwash.amount")} type="number" min="0" className="border border-gray-300 rounded p-2 text-sm w-full mt-1" required />
+          </label>
+          <label className="block text-sm text-gray-600">
+            {t("carwash.washDuration")}{" "}
+            <span className="text-xs text-gray-400">({t("carwash.optional")})</span>
+            <input
+              value={form.durationMinutes}
+              onChange={(e) =>
+                setForm({ ...form, durationMinutes: e.target.value })
+              }
+              type="number"
+              min="1"
+              placeholder="45"
+              className="border border-gray-300 rounded p-2 text-sm w-full mt-1"
+            />
+            <span className="text-xs text-gray-400">{t("carwash.washDurationHint")}</span>
           </label>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={() => setOpen(false)} className="px-3 py-2 text-sm text-gray-600">{t("carwash.cancel")}</button>

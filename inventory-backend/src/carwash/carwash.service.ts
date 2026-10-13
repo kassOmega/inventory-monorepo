@@ -502,7 +502,10 @@ export class CarWashService {
     if (existing) {
       const updated = await this.prisma.carWashPrice.update({
         where: { id: existing.id },
-        data: { amount: dto.amount },
+        data: {
+          amount: dto.amount,
+          durationMinutes: dto.durationMinutes ?? null,
+        },
       });
       if (actorId != null) {
         await auditBestEffort(this.prisma, {
@@ -519,6 +522,7 @@ export class CarWashService {
         vehicleType: dto.vehicleType,
         washTypeId,
         amount: dto.amount,
+        durationMinutes: dto.durationMinutes ?? null,
       },
     });
     if (actorId != null) {
@@ -549,6 +553,7 @@ export class CarWashService {
         vehicleType: dto.vehicleType,
         washTypeId,
         amount: dto.amount,
+        durationMinutes: dto.durationMinutes ?? null,
       },
     });
     if (actorId != null) {
@@ -727,7 +732,7 @@ export class CarWashService {
         customer: true,
         vehicle: true,
         washer: true,
-        items: { include: { vehicle: true, washType: true } },
+        items: { include: { vehicle: true, washType: true, washer: true } },
       },
       orderBy: [{ isTimeSlotBooking: 'asc' }, { startsAt: 'asc' }],
     });
@@ -768,8 +773,10 @@ export class CarWashService {
       data: {
         tenantId,
         customerId: dto.customerId ?? null,
+        customerName: dto.customerName?.trim() || null,
+        customerPhone: dto.customerPhone?.trim() || null,
         vehicleId: items[0]?.vehicleId ?? null,
-        washerId: dto.washerId ?? null,
+        washerId: items[0]?.washerId ?? dto.washerId ?? null,
         vehicleType: items[0]?.vehicleType ?? dto.vehicleType ?? 'Car',
         amount: totalAmount,
         isTimeSlotBooking: dto.isTimeSlotBooking ?? true,
@@ -784,6 +791,7 @@ export class CarWashService {
             vehicleId: i.vehicleId ?? null,
             vehicleType: i.vehicleType ?? 'Car',
             washTypeId: i.washTypeId ?? null,
+            washerId: i.washerId ?? null,
             amount: i.amount ?? 0,
             date: i.date ? new Date(i.date) : startsAt,
             startsAt: i.startsAt ? new Date(i.startsAt) : startsAt,
@@ -794,7 +802,7 @@ export class CarWashService {
         customer: true,
         vehicle: true,
         washer: true,
-        items: { include: { vehicle: true, washType: true } },
+        items: { include: { vehicle: true, washType: true, washer: true } },
       },
     });
     if (actorId != null) {
@@ -1672,10 +1680,14 @@ export class CarWashService {
     washerId: number,
     startsAt: string,
     slotMinutes?: number,
+    vehicleType?: string,
+    washTypeId?: number,
   ) {
     const tenantId = this.tenantId();
     const start = new Date(startsAt);
-    const mins = slotMinutes ?? 30;
+    const mins =
+      slotMinutes ??
+      (await this.slotForPrice(tenantId, vehicleType, washTypeId));
     const end = new Date(start.getTime() + mins * 60 * 1000);
     const overlapping = await this.prisma.carWashBooking.findMany({
       where: {
@@ -1690,6 +1702,24 @@ export class CarWashService {
       select: { id: true },
     });
     return { available: overlapping.length === 0, slotMinutes: mins };
+  }
+
+  /**
+   * The booking slot length for a vehicle/wash combination: the price's
+   * `durationMinutes` when set, otherwise the default 45 minutes.
+   */
+  private async slotForPrice(
+    tenantId: number,
+    vehicleType?: string,
+    washTypeId?: number | null,
+  ): Promise<number> {
+    const DEFAULT_SLOT = 45;
+    if (!vehicleType) return DEFAULT_SLOT;
+    const price = await this.prisma.carWashPrice.findFirst({
+      where: { tenantId, vehicleType, washTypeId: washTypeId ?? null },
+      select: { durationMinutes: true },
+    });
+    return price?.durationMinutes ?? DEFAULT_SLOT;
   }
 
   // -------------------------------------------------------------------------
