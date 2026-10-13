@@ -26,8 +26,12 @@ export class GuestOrdersController {
 
   @Get()
   @Permissions('guest-orders.view')
-  list(@Query('status') status: string | undefined, @Req() req: RequestWithUser) {
-    return this.guestOrders.list(status, req.user);
+  list(
+    @Query('status') status: string | undefined,
+    @Query('sort') sort: string | undefined,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.guestOrders.list(status, req.user, sort);
   }
 
   // Bulk routes MUST be declared before the `:id` routes so `/bulk/review`
@@ -56,10 +60,33 @@ export class GuestOrdersController {
     return this.guestOrders.pendingCount(req.user);
   }
 
+  // Declared before `:id` so it is not captured as a numeric id.
+  @Get('edit-options')
+  @Permissions('guest-orders.manage')
+  editOptions() {
+    return this.guestOrders.editOptions();
+  }
+
   @Get(':id')
   @Permissions('guest-orders.view')
   get(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
     return this.guestOrders.get(id, req.user);
+  }
+
+  @Patch(':id')
+  @Permissions('guest-orders.manage')
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: any,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.guestOrders.update(id, body, req.user);
+  }
+
+  @Delete(':id')
+  @Permissions('guest-orders.manage')
+  remove(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
+    return this.guestOrders.remove(id, req.user);
   }
 
   @Post(':id/review')

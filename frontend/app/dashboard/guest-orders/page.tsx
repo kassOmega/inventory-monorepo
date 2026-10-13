@@ -48,9 +48,19 @@ export default function GuestOrdersPage() {
   const [locations, setLocations] = useState<any[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [statusFilter, setStatusFilter] = useState("SUBMITTED");
+  const [sort, setSort] = useState<"oldest" | "newest">("oldest");
   const [detail, setDetail] = useState<any | null>(null);
   const [routePick, setRoutePick] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
+  // Edit car-wash guest order lines.
+  const [editOpen, setEditOpen] = useState(false);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editOptions, setEditOptions] = useState<{
+    washers: any[];
+    washTypes: any[];
+    vehicleTypes: string[];
+  }>({ washers: [], washTypes: [], vehicleTypes: [] });
+  const [editRows, setEditRows] = useState<any[]>([]);
   // "Add as sale" form state (per detail).
   const [saleBranch, setSaleBranch] = useState("");
   const [saleMethod, setSaleMethod] = useState("");
@@ -65,8 +75,11 @@ export default function GuestOrdersPage() {
 
   const load = useCallback(async () => {
     try {
+      const qs = new URLSearchParams();
+      if (statusFilter) qs.set("status", statusFilter);
+      qs.set("sort", sort);
       const [o, l, p] = await Promise.all([
-        api.get(`/guest-orders${statusFilter ? `?status=${statusFilter}` : ""}`),
+        api.get(`/guest-orders?${qs.toString()}`),
         api.get("/locations").catch(() => ({ data: [] })),
         api.get("/payment-methods").catch(() => ({ data: [] })),
       ]);
@@ -78,7 +91,7 @@ export default function GuestOrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, toast]);
+  }, [statusFilter, sort, toast]);
 
   useEffect(() => {
     load();
@@ -118,6 +131,91 @@ export default function GuestOrdersPage() {
       setDetail(r.data);
     } catch {
       setDetail(o);
+    }
+  };
+
+  const toLocalInput = (value: any) => {
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) return "";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  // Deletion is only allowed before the order links to a sale/booking.
+  const linked = (o: any) =>
+    o?.saleId != null ||
+    o?.bookingId != null ||
+    o?.orderId != null ||
+    o?.reservationId != null;
+
+  const openEdit = async () => {
+    if (!detail) return;
+    try {
+      const r = await api.get("/guest-orders/edit-options");
+      setEditOptions(
+        r.data ?? { washers: [], washTypes: [], vehicleTypes: [] },
+      );
+    } catch {
+      setEditOptions({ washers: [], washTypes: [], vehicleTypes: [] });
+    }
+    const rows = (detail.items ?? [])
+      .filter((it: any) => it.itemKind === "CARWASH_ITEM")
+      .map((it: any) => {
+        let meta: any = {};
+        try {
+          meta = JSON.parse(it.notes || "{}");
+        } catch {
+          meta = {};
+        }
+        return {
+          id: it.id,
+          vehicleType: meta.vehicleType ?? "",
+          washTypeId: meta.washTypeId != null ? String(meta.washTypeId) : "",
+          washerId: meta.washerId != null ? String(meta.washerId) : "",
+          startsAt: meta.startsAt ? toLocalInput(meta.startsAt) : "",
+          plateNumber: meta.plateNumber ?? "",
+        };
+      });
+    setEditRows(rows);
+    setEditOpen(true);
+  };
+
+  const saveEdit = async () => {
+    if (!detail) return;
+    setEditBusy(true);
+    try {
+      await api.patch(`/guest-orders/${detail.id}`, {
+        items: editRows.map((r) => ({
+          id: r.id,
+          vehicleType: r.vehicleType || undefined,
+          washTypeId: r.washTypeId ? Number(r.washTypeId) : null,
+          washerId: r.washerId ? Number(r.washerId) : null,
+          startsAt: r.startsAt || undefined,
+        })),
+      });
+      const refreshed = await api.get(`/guest-orders/${detail.id}`).catch(() => null);
+      if (refreshed) setDetail(refreshed.data);
+      setEditOpen(false);
+      await load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? "Failed to update");
+    } finally {
+      setEditBusy(false);
+    }
+  };
+
+  const removeOrder = async () => {
+    if (!detail) return;
+    if (!confirm(t("guestOrders.deleteConfirm"))) return;
+    setBusy(true);
+    try {
+      await api.delete(`/guest-orders/${detail.id}`);
+      setDetail(null);
+      await load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? "Failed to delete");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -218,6 +316,9 @@ export default function GuestOrdersPage() {
 
   const hasProducts = (o: any) =>
     (o?.items ?? []).some((it: any) => it.itemKind === "PRODUCT");
+  const detailIsCarWash = (detail?.items ?? []).some(
+    (it: any) => it.itemKind === "CARWASH_ITEM",
+  );
   const myBranch = locations.find((l) => l.id === user?.locationId);
   const openStatuses = ["SUBMITTED", "REVIEWED", "ROUTED"];
   const saleValid =
@@ -229,7 +330,7 @@ export default function GuestOrdersPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-800">{t("guestOrders.title")}</h1>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {["", "SUBMITTED", "REVIEWED", "ROUTED", "ACCEPTED", "COMPLETED", "REJECTED"].map(
           (s) => (
             <button
@@ -246,6 +347,15 @@ export default function GuestOrdersPage() {
             </button>
           ),
         )}
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as "oldest" | "newest")}
+          className="ml-auto border border-gray-300 rounded-lg p-2 text-xs bg-white"
+          aria-label={t("guestOrders.sort")}
+        >
+          <option value="oldest">{t("guestOrders.sortOldest")}</option>
+          <option value="newest">{t("guestOrders.sortNewest")}</option>
+        </select>
       </div>
 
       {canManage && selected.size > 0 && (
@@ -439,13 +549,40 @@ export default function GuestOrdersPage() {
               {t("guestOrders.customer")}: {detail.customerName ?? "—"}
               {detail.customerPhone ? ` · ${detail.customerPhone}` : ""}
             </p>
+
+            {/* Car-wash orders: edit lines; delete only before conversion. */}
+            {canManage && detailIsCarWash && (
+              <div className="flex items-center gap-2">
+                <Button size="sm" onClick={openEdit}>
+                  {t("common.edit")}
+                </Button>
+                {!linked(detail) && (
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    loading={busy}
+                    onClick={removeOrder}
+                  >
+                    {t("common.delete")}
+                  </Button>
+                )}
+              </div>
+            )}
+
             <ul className="divide-y divide-gray-100 border rounded-lg">
               {detail.items?.map((it: any) => (
-                <li key={it.id} className="flex justify-between px-3 py-2">
-                  <span>
+                <li key={it.id} className="flex justify-between px-3 py-2 gap-3">
+                  <span className="min-w-0">
                     {it.quantity}× {it.nameSnapshot}
+                    {it.itemKind === "CARWASH_ITEM" && it.washerName ? (
+                      <span className="block text-[11px] text-gray-400">
+                        {t("carwash.washer")}: {it.washerName}
+                      </span>
+                    ) : null}
                   </span>
-                  <span className="text-gray-500">{it.unitPrice * it.quantity}</span>
+                  <span className="text-gray-500 whitespace-nowrap">
+                    {it.unitPrice * it.quantity}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -726,6 +863,122 @@ export default function GuestOrdersPage() {
             >
               {t("products.priceList.generatePdf")}
             </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit car-wash guest order lines. */}
+      <Modal
+        isOpen={editOpen}
+        onClose={() => setEditOpen(false)}
+        title={t("guestOrders.editTitle")}
+      >
+        <div className="space-y-3 text-sm">
+          {(detail?.customerVehicles ?? []).length > 0 && (
+            <div className="rounded-lg bg-gray-50 p-2 text-xs text-gray-600">
+              <p className="font-medium text-gray-700 mb-1">
+                {t("guestOrders.registeredVehicles")}
+              </p>
+              {detail.customerVehicles.map((v: any) => (
+                <p key={v.id}>
+                  · {v.plateNumber} ({v.vehicleType})
+                </p>
+              ))}
+            </div>
+          )}
+
+          {editRows.map((row: any, index: number) => {
+            const vehicleTypes = Array.from(
+              new Set([
+                ...(editOptions.vehicleTypes ?? []),
+                ...(detail?.customerVehicles ?? []).map(
+                  (v: any) => v.vehicleType,
+                ),
+              ]),
+            );
+            const updateRow = (patch: any) =>
+              setEditRows((rows) =>
+                rows.map((r) => (r.id === row.id ? { ...r, ...patch } : r)),
+              );
+            return (
+              <div key={row.id} className="space-y-2 border rounded-lg p-3">
+                <p className="text-xs text-gray-400">
+                  {row.plateNumber ? `${row.plateNumber} · ` : ""}
+                  {t("guestOrders.detail")} #{index + 1}
+                </p>
+
+                <label className="block text-gray-600">
+                  {t("carwash.vehicleType")}
+                  <select
+                    value={row.vehicleType}
+                    onChange={(e) => updateRow({ vehicleType: e.target.value })}
+                    className="border border-gray-300 rounded-lg p-2 text-sm w-full bg-white"
+                  >
+                    <option value="">{t("common.select")}</option>
+                    {vehicleTypes.map((vt) => (
+                      <option key={vt} value={vt}>
+                        {vt}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block text-gray-600">
+                  {t("carwash.washType")}
+                  <select
+                    value={row.washTypeId}
+                    onChange={(e) => updateRow({ washTypeId: e.target.value })}
+                    className="border border-gray-300 rounded-lg p-2 text-sm w-full bg-white"
+                  >
+                    <option value="">{t("common.optional")}</option>
+                    {editOptions.washTypes.map((w) => (
+                      <option key={w.id} value={String(w.id)}>
+                        {w.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block text-gray-600">
+                  {t("carwash.washer")}
+                  <select
+                    value={row.washerId}
+                    onChange={(e) => updateRow({ washerId: e.target.value })}
+                    className="border border-gray-300 rounded-lg p-2 text-sm w-full bg-white"
+                  >
+                    <option value="">{t("carwash.washerOptional")}</option>
+                    {editOptions.washers.map((w) => (
+                      <option key={w.id} value={String(w.id)}>
+                        {w.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block text-gray-600">
+                  {t("guestOrders.dateTime")}
+                  <input
+                    type="datetime-local"
+                    value={row.startsAt}
+                    onChange={(e) => updateRow({ startsAt: e.target.value })}
+                    className="border border-gray-300 rounded-lg p-2 text-sm w-full"
+                  />
+                </label>
+              </div>
+            );
+          })}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setEditOpen(false)}
+              className="px-3 py-2 text-sm text-gray-600"
+            >
+              {t("common.cancel")}
+            </button>
+            <Button loading={editBusy} onClick={saveEdit}>
+              {t("common.save")}
+            </Button>
           </div>
         </div>
       </Modal>

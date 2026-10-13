@@ -4768,7 +4768,14 @@
     },
     "selected": "{{count}} ተመርጧል",
     "approveSelected": "የተመረጡትን አጽድቅ",
-    "rejectSelected": "የተመረጡትን ግለስ"
+    "rejectSelected": "የተመረጡትን ግለስ",
+    "sort": "ማደራጀት",
+    "sortOldest": "የቀደመ መጀመሪያ",
+    "sortNewest": "የቅርብ መጀመሪያ",
+    "editTitle": "የእንግዳ ትዕዛዝ አርትዕ",
+    "deleteConfirm": "ይህን የእንግዳ ትዕዛዝ ይሰረዝ?",
+    "registeredVehicles": "የተመዘገቡ ተሽከርካሪዎች",
+    "dateTime": "ቀን እና ሰዓት"
   },
   "qr": {
     "title": "QR እና የህዝብ አገናኞች",

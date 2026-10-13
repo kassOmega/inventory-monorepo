@@ -55,7 +55,7 @@ export class GuestOrdersService {
   }
 
   /** The privileged inbox: guest orders for the active business. */
-  async list(status?: string, user?: JwtPayload) {
+  async list(status?: string, user?: JwtPayload, sort?: string) {
     const tenantId = this.tenantId();
     const branchId = await this.effectiveBranchId(user, tenantId);
     return this.prisma.guestOrder.findMany({
@@ -85,7 +85,8 @@ export class GuestOrdersService {
         items: true,
         routes: { include: { location: { select: { id: true, name: true } } } },
       },
-      orderBy: { createdAt: 'desc' },
+      // Default: oldest first (inbox order). The UI can switch to newest first.
+      orderBy: { createdAt: sort === 'newest' ? 'desc' : 'asc' },
       take: 200,
     });
   }
@@ -115,10 +116,54 @@ export class GuestOrdersService {
     });
     if (!order) throw new NotFoundException('Guest order not found');
 
+    // Surface the washer chosen for each car-wash line (stored as JSON in the
+    // item notes) so the detail view can show it next to each vehicle.
+    const washerIdByItem = new Map<
+      number,
+      { washerId: number | null; washerName: string | null }
+    >();
+    const washerIds = new Set<number>();
+    for (const item of order.items) {
+      if (item.itemKind !== 'CARWASH_ITEM' || !item.notes) continue;
+      let washerId: number | null = null;
+      try {
+        washerId = JSON.parse(item.notes).washerId ?? null;
+      } catch {
+        washerId = null;
+      }
+      if (typeof washerId === 'number') washerIds.add(washerId);
+      washerIdByItem.set(item.id, { washerId, washerName: null });
+    }
+    if (washerIds.size > 0) {
+      const washers = await this.prisma.carWashWasher.findMany({
+        where: { tenantId, id: { in: [...washerIds] } },
+        select: { id: true, name: true },
+      });
+      const nameById = new Map(washers.map((w) => [w.id, w.name]));
+      for (const entry of washerIdByItem.values()) {
+        if (entry.washerId != null) {
+          entry.washerName = nameById.get(entry.washerId) ?? null;
+        }
+      }
+    }
+    const items = order.items.map((item) => {
+      const washer = washerIdByItem.get(item.id);
+      return washer ? { ...item, ...washer } : item;
+    });
+
+    // Registered customers have known vehicle types; surface them so the edit
+    // form can show the customer's vehicle type when present.
+    const customerVehicles = await this.customerVehiclesFor(
+      tenantId,
+      order.customerId,
+      order.customerPhone,
+    );
+
     // GuestOrder.saleId is a plain Int? (no relation in Prisma), so fetch the
     // linked sale summary explicitly for the detail modal.
+    let sale: { id: number; invoiceNumber: string; shop: { id: number; name: string } | null } | null = null;
     if (order.saleId) {
-      const sale = await this.prisma.sale.findUnique({
+      sale = await this.prisma.sale.findUnique({
         where: { id: order.saleId },
         select: {
           id: true,
@@ -126,9 +171,306 @@ export class GuestOrdersService {
           shop: { select: { id: true, name: true } },
         },
       });
-      return { ...order, sale: sale ?? null };
     }
-    return order;
+    return { ...order, items, sale, customerVehicles };
+  }
+
+  /** The registered customer's car-wash vehicles (plate + type), if any. */
+  private async customerVehiclesFor(
+    tenantId: number,
+    customerId: number | null,
+    customerPhone: string | null,
+  ) {
+    let resolvedId = customerId;
+    if (resolvedId == null && customerPhone) {
+      const customer = await this.prisma.customer.findFirst({
+        where: { organizationId: tenantId, phone: customerPhone },
+        select: { id: true },
+      });
+      resolvedId = customer?.id ?? null;
+    }
+    if (resolvedId == null) return [];
+    return this.prisma.carWashVehicle.findMany({
+      where: { tenantId, customerId: resolvedId },
+      select: { id: true, plateNumber: true, vehicleType: true },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /** Options the guest-order edit form needs (car-wash lines only). */
+  async editOptions() {
+    const tenantId = this.tenantId();
+    const [washers, washTypes, vehicleTypes] = await Promise.all([
+      this.prisma.carWashWasher.findMany({
+        where: { tenantId, isActive: true },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true },
+      }),
+      this.prisma.carWashWashType.findMany({
+        where: { tenantId },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true },
+      }),
+      this.prisma.carWashVehicleType.findMany({
+        where: { tenantId },
+        orderBy: { name: 'asc' },
+        select: { name: true },
+      }),
+    ]);
+    return {
+      washers,
+      washTypes,
+      vehicleTypes: vehicleTypes.map((v) => v.name),
+    };
+  }
+
+  /** Delete a guest order before it is linked to an internal record. */
+  async remove(id: number, user?: JwtPayload) {
+    const tenantId = this.tenantId();
+    const branchId = await this.effectiveBranchId(user, tenantId);
+    const order = await this.prisma.guestOrder.findFirst({
+      where: {
+        id,
+        tenantId,
+        ...(branchId
+          ? {
+              OR: [
+                { entry: { locationId: branchId } },
+                { routes: { some: { locationId: branchId } } },
+              ],
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        saleId: true,
+        bookingId: true,
+        orderId: true,
+        reservationId: true,
+      },
+    });
+    if (!order) throw new NotFoundException('Guest order not found');
+    if (
+      order.saleId != null ||
+      order.bookingId != null ||
+      order.orderId != null ||
+      order.reservationId != null
+    ) {
+      throw new BadRequestException(
+        'This order is already linked to an internal record and can no longer be deleted',
+      );
+    }
+    await this.prisma.guestOrder.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  /** Edit car-wash guest order lines: washer, date/time, wash type, vehicle type. */
+  async update(
+    id: number,
+    dto:
+      | {
+          items?: Array<{
+            id: number;
+            vehicleType?: string;
+            washTypeId?: number | null;
+            washerId?: number | null;
+            startsAt?: string;
+          }>;
+          note?: string;
+        }
+      | undefined,
+    user?: JwtPayload,
+  ) {
+    const tenantId = this.tenantId();
+    const branchId = await this.effectiveBranchId(user, tenantId);
+    const order = await this.prisma.guestOrder.findFirst({
+      where: {
+        id,
+        tenantId,
+        ...(branchId
+          ? {
+              OR: [
+                { entry: { locationId: branchId } },
+                { routes: { some: { locationId: branchId } } },
+              ],
+            }
+          : {}),
+      },
+      include: { items: true },
+    });
+    if (!order) throw new NotFoundException('Guest order not found');
+
+    const carWashItems = (order.items ?? []).filter(
+      (item) => item.itemKind === 'CARWASH_ITEM',
+    );
+    if (carWashItems.length === 0) {
+      throw new BadRequestException('Only car wash orders can be edited here');
+    }
+
+    const updateById = new Map((dto?.items ?? []).map((u) => [u.id, u]));
+    const [prices, washTypes, washers] = await Promise.all([
+      this.prisma.carWashPrice.findMany({
+        where: { tenantId },
+        select: { vehicleType: true, washTypeId: true, amount: true },
+      }),
+      this.prisma.carWashWashType.findMany({
+        where: { tenantId },
+        select: { id: true, name: true },
+      }),
+      this.prisma.carWashWasher.findMany({
+        where: { tenantId, isActive: true },
+        select: { id: true },
+      }),
+    ]);
+    const activeWasherIds = new Set(washers.map((w) => w.id));
+    const washTypeName = (washTypeId: number | null) =>
+      washTypeId == null
+        ? null
+        : (washTypes.find((w) => w.id === washTypeId)?.name ?? null);
+    const priceFor = (vehicleType: string, washTypeId: number | null) =>
+      prices.find(
+        (p) =>
+          p.vehicleType.toLowerCase() === vehicleType.toLowerCase() &&
+          String(p.washTypeId ?? '') === String(washTypeId ?? ''),
+      );
+
+    const updatedCarWashItems: Array<{
+      id: number;
+      vehicleType: string;
+      washTypeId: number | null;
+      washerId: number | null;
+      amount: number;
+      startsAt: Date;
+      nameSnapshot: string;
+    }> = [];
+    let totalAmount = 0;
+
+    for (const item of order.items) {
+      if (item.itemKind !== 'CARWASH_ITEM') {
+        totalAmount += item.unitPrice * item.quantity;
+        continue;
+      }
+      let meta: any = {};
+      try {
+        meta = item.notes ? JSON.parse(item.notes) : {};
+      } catch {
+        meta = {};
+      }
+      const upd = updateById.get(item.id);
+      const vehicleType =
+        (upd?.vehicleType ?? meta.vehicleType ?? 'Car').trim() || 'Car';
+      const washTypeId =
+        upd?.washTypeId !== undefined
+          ? upd.washTypeId
+          : (meta.washTypeId ?? null);
+      const washerId =
+        upd?.washerId !== undefined ? upd.washerId : (meta.washerId ?? null);
+      const startsAt = upd?.startsAt
+        ? new Date(upd.startsAt)
+        : meta.startsAt
+          ? new Date(meta.startsAt)
+          : order.startsAt
+            ? new Date(order.startsAt)
+            : new Date();
+
+      if (Number.isNaN(startsAt.getTime())) {
+        throw new BadRequestException('Invalid booking time');
+      }
+      if (washerId != null && !activeWasherIds.has(washerId)) {
+        throw new BadRequestException('The selected washer is not available');
+      }
+
+      const priceAmount = priceFor(vehicleType, washTypeId)?.amount;
+      const amount =
+        typeof priceAmount === 'number'
+          ? priceAmount
+          : typeof meta.amount === 'number'
+            ? meta.amount
+            : Number(item.unitPrice) || 0;
+
+      const nextNotes = JSON.stringify({
+        vehicleType,
+        plateNumber: meta.plateNumber ?? null,
+        washTypeId,
+        washerId,
+        amount,
+        startsAt: startsAt.toISOString(),
+      });
+      const nameSnapshot =
+        [vehicleType, washTypeName(washTypeId)].filter(Boolean).join(' — ') ||
+        'Car wash';
+
+      totalAmount += amount * item.quantity;
+      updatedCarWashItems.push({
+        id: item.id,
+        vehicleType,
+        washTypeId,
+        washerId,
+        amount,
+        startsAt,
+        nameSnapshot,
+      });
+
+      await this.prisma.guestOrderItem.update({
+        where: { id: item.id },
+        data: {
+          notes: nextNotes,
+          unitPrice: amount,
+          nameSnapshot,
+        },
+      });
+    }
+
+    const headerStartsAt = updatedCarWashItems.length
+      ? new Date(
+          Math.min(...updatedCarWashItems.map((i) => i.startsAt.getTime())),
+        )
+      : order.startsAt;
+
+    await this.prisma.guestOrder.update({
+      where: { id },
+      data: {
+        totalAmount,
+        ...(headerStartsAt ? { startsAt: headerStartsAt } : {}),
+        ...(dto && dto.note !== undefined ? { note: dto.note } : {}),
+      },
+    });
+
+    // Keep the converted car-wash booking in sync. Conversion registers one
+    // booking item per CARWASH_ITEM line in order, so match by index.
+    if (order.bookingId) {
+      const booking = await this.prisma.carWashBooking.findUnique({
+        where: { id: order.bookingId },
+        include: { items: { orderBy: { id: 'asc' } } },
+      });
+      if (booking) {
+        await this.prisma.carWashBooking.update({
+          where: { id: booking.id },
+          data: {
+            startsAt: headerStartsAt ?? booking.startsAt,
+            vehicleType:
+              updatedCarWashItems[0]?.vehicleType ?? booking.vehicleType,
+            amount: totalAmount,
+          },
+        });
+        for (let i = 0; i < booking.items.length; i++) {
+          const line = updatedCarWashItems[i];
+          if (!line) break;
+          await this.prisma.carWashBookingItem.update({
+            where: { id: booking.items[i].id },
+            data: {
+              vehicleType: line.vehicleType,
+              washTypeId: line.washTypeId,
+              washerId: line.washerId,
+              startsAt: line.startsAt,
+              amount: line.amount,
+            },
+          });
+        }
+      }
+    }
+
+    return this.get(id, user);
   }
 
   private async log(orderId: number, action: string, note?: string | null, actorId?: number) {
