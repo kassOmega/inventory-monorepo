@@ -329,6 +329,7 @@ export const amMessages: Record<string, any> = {
     saleAlreadySubmitted: 'ይህ ሽያጭ ቀድሞ ገብቷል። እባክዎ ገጹን አድስተው እንደገና ይሞክሩ።',
     orderAlreadySubmitted: 'ይህ ትዕዛዝ ቀድሞ ገብቷል። እባክዎ ገጹን አድስተው እንደገና ይሞክሩ።',
     paymentAlreadySubmitted: 'ይህ ክፍያ ቀድሞ ገብቷል። እባክዎ ገጹን አድስተው እንደገና ይሞክሩ።',
+    requestAlreadySubmitted: 'ይህ ጥያቄ ቀድሞ ገብቷል። እባክዎ ገጹን አድስተው እንደገና ይሞክሩ።',
     duplicateService: 'በዚህ ስም ያለ አገልግሎት ቀድሞ አለ።',
 
     // የመድረክ አስተዳዳሪ እና የማረጋገጫ ሞጁሎች (ደረጃ 7)።

@@ -984,10 +984,12 @@ model StockRequest {
   items        RequestItem[]
   activities   RequestActivity[]
   sales        Sale[]
+  clientRef    String? // client-generated idempotency key (offline sync / double-submit protection)
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 
   @@unique([tenantId, number])
+  @@unique([tenantId, clientRef])
   @@index([storeId])
   @@index([shopId])
   @@index([status])

@@ -348,6 +348,17 @@ export class SalesService {
     const saleType = (dto.saleType ?? 'FULLY_PAID') as any;
     const tenantId = requireTenantId();
 
+    // Offline idempotency: a queued submit that is replayed (because its first
+    // response was lost) must return the sale that already booked instead of a
+    // 409. The P2002 fallback in the catches below covers the rare race where
+    // two replays land at the same time.
+    if (dto.clientRef) {
+      const existing = await (opts.tx ?? this.prisma).sale.findFirst({
+        where: { clientRef: dto.clientRef },
+      });
+      if (existing) return { ...existing, loyalty: undefined };
+    }
+
     const run = async (tx: Prisma.TransactionClient) => {
       let totalAmount = 0;
       let totalCost = 0;
@@ -495,12 +506,24 @@ export class SalesService {
       try {
         return await run(opts.tx);
       } catch (err) {
+        if (dto.clientRef) {
+          const existing = await opts.tx.sale.findFirst({
+            where: { clientRef: dto.clientRef },
+          });
+          if (existing) return { ...existing, loyalty: undefined };
+        }
         return assertNotDuplicate(err, 'errors.saleAlreadySubmitted');
       }
     }
     try {
       return await this.prisma.$transaction(run);
     } catch (err) {
+      if (dto.clientRef) {
+        const existing = await this.prisma.sale.findFirst({
+          where: { clientRef: dto.clientRef },
+        });
+        if (existing) return { ...existing, loyalty: undefined };
+      }
       return assertNotDuplicate(err, 'errors.saleAlreadySubmitted');
     }
   }

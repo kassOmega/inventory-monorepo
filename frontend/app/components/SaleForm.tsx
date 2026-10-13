@@ -17,6 +17,8 @@
 // applies everywhere, and the idempotency key survives a failed submit so a
 // retry can never book the sale twice.
 import api, { markHandled } from "@/lib/api";
+import { submitOrQueue } from "@/lib/offlineQueue";
+import { cachedGet } from "@/lib/offlineCache";
 import BarcodeScanner from "./BarcodeScanner";
 import AiPhotoPicker from "./AiPhotoPicker";
 import SearchableSelect from "./SearchableSelect";
@@ -254,21 +256,23 @@ function SaleFormModal({
   // form fetches nothing and an open one loads exactly once.
   useEffect(() => {
     if (!isOpen) return;
-    api
-      .get("/categories")
-      .then((r) => setCategories(r.data))
+    // `cachedGet` serves the last cached list when offline, so the form stays
+    // usable without a network.
+    cachedGet("/categories")
+      .then((r) => setCategories(r as any))
       .catch(() => {});
     // Only credit-eligible customers can be billed on the credit pages — the
     // backend enforces the same rule, this keeps blocked ones out of the picker.
-    api
-      .get(creditCustomersOnly ? "/customers?canTakeCredit=true" : "/customers")
-      .then((r) => setCustomers(r.data))
+    cachedGet(
+      creditCustomersOnly ? "/customers?canTakeCredit=true" : "/customers",
+    )
+      .then((r) => setCustomers(r as any))
       .catch(() => {});
-    api
-      .get("/payment-methods")
+    cachedGet("/payment-methods")
       .then((r) => {
-        setPaymentMethods(r.data);
-        const cash = (r.data as any[]).find(
+        const list = (r as any[]) ?? [];
+        setPaymentMethods(list);
+        const cash = list.find(
           (m: any) => m.name.toLowerCase() === "cash",
         );
         // Cash is the default + initially selected payment method.
@@ -276,11 +280,11 @@ function SaleFormModal({
       })
       .catch(() => {});
     if (isOwner) {
-      api
-        .get("/locations")
+      cachedGet("/locations")
         .then((r) => {
-          setLocations(r.data);
-          setShops(r.data.filter((l: any) => l.type === "SHOP"));
+          const list = (r as any[]) ?? [];
+          setLocations(list);
+          setShops(list.filter((l: any) => l.type === "SHOP"));
         })
         .catch(() => {});
     }
@@ -291,9 +295,8 @@ function SaleFormModal({
   useEffect(() => {
     if (!isOpen) return;
     const locParam = isOwner && ownerShopId ? `?locationId=${ownerShopId}` : "";
-    api
-      .get(`/products${locParam}`)
-      .then((r) => setProducts(r.data))
+    cachedGet(`/products${locParam}`)
+      .then((r) => setProducts(r as any))
       .catch(() => setErrorMsg(t("sales.errorProcessing")));
     // Intent: reload for the open form whenever the shop scope changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -585,17 +588,29 @@ function SaleFormModal({
         const res = await api.put(`/sales/${editing.id}`, payload);
         onSaved?.(res.data);
       } else {
-        const res = await api.post("/sales", {
-          ...payload,
-          clientRef: clientRef.current,
+        // If the network is down the sale is queued and synced later; the
+        // clientRef stays the same, so a replay can never double-book it.
+        const ref = clientRef.current;
+        const result = await submitOrQueue({
+          kind: "SALE",
+          url: "/sales",
+          body: { ...payload, clientRef: ref },
+          clientRef: ref,
         });
-        // CRM: tell the cashier what the customer just earned, when the loyalty
-        // programme is on and the sale was billed to somebody.
-        const earned = res.data?.loyalty?.earned ?? 0;
-        if (earned > 0) {
-          toast.success(t("crm.earnedToast", { points: earned }));
+        if (result.queued) {
+          toast.success(t("sync.queuedOffline"));
+          onSaved?.(result.data);
+        } else {
+          // CRM: tell the cashier what the customer just earned, when the
+          // loyalty programme is on and the sale was billed to somebody.
+          const earned =
+            (result.data as { loyalty?: { earned?: number } } | undefined)
+              ?.loyalty?.earned ?? 0;
+          if (earned > 0) {
+            toast.success(t("crm.earnedToast", { points: earned }));
+          }
+          onSaved?.(result.data);
         }
-        onSaved?.(res.data);
       }
     } catch (err: any) {
       markHandled(err);

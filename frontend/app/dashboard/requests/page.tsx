@@ -18,6 +18,9 @@ import VariantLinesEditor, {
 } from "@/app/components/VariantLinesEditor";
 import { useAuth } from "@/context/AuthContext";
 import api, { markHandled } from "@/lib/api";
+import { newClientRef } from "@/lib/clientRef";
+import { submitOrQueue } from "@/lib/offlineQueue";
+import { cachedGet } from "@/lib/offlineCache";
 import { formatBusinessNumber } from "@/lib/bizNumber";
 import { fmtCurrency } from "@/lib/currency";
 import { formatDateTime } from "@/lib/datetime";
@@ -204,17 +207,28 @@ export default function RequestsPage() {
   };
 
   useEffect(() => {
-    api.get("/locations").then((res) => {
-      setLocations(res.data);
-      setStores(res.data.filter((l: any) => l.type === "STORE"));
-    });
-    api.get("/categories").then((res) => setCategories(res.data));
-    api.get("/products").then((res) => setProducts(res.data));
+    // Cached reads keep the compose form usable offline.
+    cachedGet("/locations")
+      .then((res) => {
+        const list = (res as any[]) ?? [];
+        setLocations(list as any);
+        setStores(list.filter((l: any) => l.type === "STORE") as any);
+      })
+      .catch(() => {});
+    cachedGet("/categories")
+      .then((res) => setCategories(((res as any[]) ?? []) as any))
+      .catch(() => {});
+    cachedGet("/products")
+      .then((res) => setProducts(((res as any[]) ?? []) as any))
+      .catch(() => {});
   }, []);
 
   // Reset to page 1 when any filter/date changes, then refetch.
   const reqFilterSig = `${statusFilter}|${locationFilter}|${categoryFilter}|${productFilter}|${startDate}|${endDate}`;
   const reqFilterRef = useRef(reqFilterSig);
+  // Idempotency key for the request being composed: reused on retry, reset when
+  // a new-request modal is opened. Lets an offline request replay safely.
+  const reqClientRef = useRef<string>(newClientRef());
   useEffect(() => {
     if (reqFilterRef.current !== reqFilterSig) {
       reqFilterRef.current = reqFilterSig;
@@ -539,7 +553,14 @@ export default function RequestsPage() {
         await api.put(`/requests/${editingReq.id}`, payload);
         toast.success(t("requests.requestUpdated"));
       } else {
-        await api.post("/requests", payload);
+        // Offline: queue the request and sync it when the connection returns.
+        const result = await submitOrQueue({
+          kind: "REQUEST",
+          url: "/requests",
+          body: { ...payload, clientRef: reqClientRef.current },
+          clientRef: reqClientRef.current,
+        });
+        if (result.queued) toast.success(t("sync.queuedOffline"));
       }
       setShowReqModal(false);
       setEditingReq(null);
@@ -1166,7 +1187,12 @@ export default function RequestsPage() {
         </h1>
         {hasPermission("requests.create") && (
           <button
-            onClick={() => setShowReqModal(true)}
+            onClick={() => {
+              // A brand-new request gets a fresh idempotency key.
+              setEditingReq(null);
+              reqClientRef.current = newClientRef();
+              setShowReqModal(true);
+            }}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg whitespace-nowrap"
           >
             {t("requests.newRequest")}

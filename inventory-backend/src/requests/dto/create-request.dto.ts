@@ -4,6 +4,8 @@ import {
   IsInt,
   IsNumber,
   IsOptional,
+  IsString,
+  MaxLength,
   ValidateNested,
 } from 'class-validator';
 
@@ -38,4 +40,11 @@ export class CreateRequestDto {
   @ValidateNested({ each: true })
   @Type(() => CreateRequestItemDto)
   items!: CreateRequestItemDto[];
+
+  // Client-generated idempotency key: lets an offline/queued request replay
+  // safely (the backend returns the request that already exists).
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  clientRef?: string;
 }

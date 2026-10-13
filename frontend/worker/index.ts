@@ -59,7 +59,24 @@ self.addEventListener("notificationclick", (event) => {
   );
 });
 
-// 3. Take over immediately + purge stale caches so an outdated precache never
+// 3. Background Sync (Android/Chrome): when connectivity returns the browser
+//    wakes this worker; ask every open client to flush the IndexedDB mutation
+//    queue. iOS has no Background Sync, so the in-page OfflineSyncProvider is
+//    still the source of truth — this is only an extra nudge. The page also
+//    listens for the SYNC_NOW message.
+self.addEventListener("sync", (event) => {
+  const tag = (event as Event & { tag?: string }).tag;
+  if (tag !== "kass-offline-sync") return;
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((clients) => {
+        for (const client of clients) client.postMessage({ type: "SYNC_NOW" });
+      }),
+  );
+});
+
+// 4. Take over immediately + purge stale caches so an outdated precache never
 //    serves a broken shell (hard refreshes fail with "This page couldn't load"
 //    when old HTML references chunk files that no longer exist).
 self.addEventListener("install", () => {

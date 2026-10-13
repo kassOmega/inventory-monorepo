@@ -6,6 +6,9 @@
 // shared with the mobile quick nav (lib/useNavGroups.ts, NavItemLink.tsx).
 import NavItemLink from "./NavItemLink";
 import SectionedNavItems from "./SectionedNavItems";
+import { useTranslation } from "react-i18next";
+import { useOfflineSync } from "@/context/OfflineSyncContext";
+import { filterNavForOffline } from "@/lib/offlineNav";
 import { type DashboardNav } from "@/lib/dashboardNavigation";
 import useNavGroups from "@/lib/useNavGroups";
 
@@ -26,15 +29,24 @@ const sectionHeaderClass =
   "px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500";
 
 export default function SidebarMenu({ nav, pathname, onNavigate }: Props) {
+  const { t } = useTranslation();
+  const { online } = useOfflineSync();
+  // Offline: only offer the pages that still work (cached data + queue).
+  const shownNav = online ? nav : filterNavForOffline(nav);
   // Several groups may stay open at once, and the active one opens itself.
-  const { isOpen, toggle } = useNavGroups(nav, pathname, {
+  const { isOpen, toggle } = useNavGroups(shownNav, pathname, {
     multiple: true,
     autoOpenActive: true,
   });
 
   return (
     <>
-      {nav.groups.map((group) => {
+      {!online && (
+        <p className="px-3 py-2 mb-1 text-[11px] leading-tight text-amber-300">
+          {t("offline.limitedNav")}
+        </p>
+      )}
+      {shownNav.groups.map((group) => {
         // Flat groups render their links directly (no header, no toggle).
         if (group.flat) {
           return (
@@ -92,7 +104,7 @@ export default function SidebarMenu({ nav, pathname, onNavigate }: Props) {
         );
       })}
 
-      {nav.loose.map((item) => (
+      {shownNav.loose.map((item) => (
         <NavItemLink
           key={item.href}
           item={item}

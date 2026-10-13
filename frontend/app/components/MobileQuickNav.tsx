@@ -19,6 +19,8 @@ import {
   type DashboardNavItem,
   type NavStation,
 } from "@/lib/dashboardNavigation";
+import { useOfflineSync } from "@/context/OfflineSyncContext";
+import { isOfflineRoute } from "@/lib/offlineNav";
 
 /** Pages that pin their own action bar to the bottom of the mobile viewport. */
 const HIDDEN_PREFIXES = [
@@ -109,6 +111,12 @@ export default function MobileQuickNav({
     [nav, businessType, stations],
   );
 
+  const { online } = useOfflineSync();
+  // Offline: only keep quick actions to pages that still work.
+  const shownActions = online
+    ? actions
+    : actions.filter((item) => isOfflineRoute(item.href));
+
   const [expanded, setExpanded] = useState(true);
   const [hidden, setHidden] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -128,7 +136,7 @@ export default function MobileQuickNav({
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  if (actions.length === 0) return null;
+  if (shownActions.length === 0) return null;
   if (
     HIDDEN_PREFIXES.some(
       (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
@@ -163,7 +171,7 @@ export default function MobileQuickNav({
           }`}
         >
           <div className="flex flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain p-1">
-            {actions.map((item) => (
+            {shownActions.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -223,7 +231,7 @@ export default function MobileQuickNav({
             />
           </svg>
           {/* Marks that the current page matches one of the quick actions. */}
-          {actions.some((i) => isNavItemActive(i, pathname)) && (
+          {shownActions.some((i) => isNavItemActive(i, pathname)) && (
             <span
               className="absolute right-1 top-1 h-2 w-2 rounded-full bg-emerald-400"
               aria-hidden="true"

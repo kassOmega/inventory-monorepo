@@ -4,6 +4,7 @@ import Button from "@/app/components/Button";
 import { useToast } from "@/app/components/ToastProvider";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import api, { markHandled } from "@/lib/api";
+import { cachedGet } from "@/lib/offlineCache";
 import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 
@@ -25,7 +26,7 @@ export default function CategoriesManager() {
   const canDelete = hasPermission("categories.delete");
 
   const fetchCategories = () =>
-    api.get("/categories").then((r) => setCategories(r.data));
+    cachedGet<any>("/categories").then((data) => setCategories(data));
 
   useEffect(() => {
     fetchCategories();

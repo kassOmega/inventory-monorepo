@@ -16,7 +16,9 @@
 // It owns its reference data (payment methods, vendors, shops) and its own
 // Modal, so a caller only has to say *why* it is opening the form. The
 // idempotency key survives a failed submit, so a retry cannot book twice.
-import api, { markHandled } from "@/lib/api";
+import { markHandled } from "@/lib/api";
+import { submitOrQueue } from "@/lib/offlineQueue";
+import { cachedGet } from "@/lib/offlineCache";
 import Modal from "./Modal";
 import Loading from "./Loading";
 import SearchableSelect from "./SearchableSelect";
@@ -116,17 +118,15 @@ function PurchaseFormModal({
   useEffect(() => {
     if (!isOpen) return;
     // Vendors are customers — reuse the same directory the pickers use.
-    api
-      .get("/customers")
-      .then((r) =>
-        setVendors(Array.isArray(r.data) ? r.data : (r.data?.data ?? [])),
-      )
+    // `cachedGet` falls back to the cached list when offline.
+    cachedGet("/customers")
+      .then((r) => setVendors(Array.isArray(r) ? r : ((r as any)?.data ?? [])))
       .catch(() => {});
-    api
-      .get("/payment-methods")
+    cachedGet("/payment-methods")
       .then((r) => {
-        setPaymentMethods(r.data);
-        const cash = (r.data as any[]).find(
+        const list = (r as any[]) ?? [];
+        setPaymentMethods(list);
+        const cash = list.find(
           (m: any) => m.name.toLowerCase() === "cash",
         );
         // Cash is the default + initially selected payment method.
@@ -134,11 +134,11 @@ function PurchaseFormModal({
       })
       .catch(() => {});
     if (isOwner) {
-      api
-        .get("/locations")
+      cachedGet("/locations")
         .then((r) => {
-          setLocations(r.data);
-          setShops(r.data.filter((l: any) => l.type === "SHOP"));
+          const list = (r as any[]) ?? [];
+          setLocations(list);
+          setShops(list.filter((l: any) => l.type === "SHOP"));
         })
         .catch(() => {});
     }
@@ -196,7 +196,8 @@ function PurchaseFormModal({
 
     setLoading(true);
     try {
-      const res = await api.post("/purchases/bulk", {
+      const ref = clientRef.current;
+      const body = {
         paymentType: mode,
         items: items.map((line) => ({
           productName: line.productName.trim(),
@@ -211,11 +212,23 @@ function PurchaseFormModal({
           !isCredit && paymentMethodId ? Number(paymentMethodId) : undefined,
         shopId: isOwner && ownerShopId ? Number(ownerShopId) : undefined,
         notes: notes || undefined,
-        clientRef: clientRef.current,
+        clientRef: ref,
+      };
+      // Offline: queue the batch (the per-line clientRef dedupes a replay).
+      const result = await submitOrQueue({
+        kind: "PURCHASE",
+        url: "/purchases/bulk",
+        body,
+        clientRef: ref,
+        offlineData: [{ ...body, _offline: true }],
       });
-      const rows = Array.isArray(res.data) ? res.data : [res.data];
+      const rows = Array.isArray(result.data) ? result.data : [result.data];
       toast.success(
-        isCredit ? t("purchases.createdCredit") : t("purchases.createdPaid"),
+        result.queued
+          ? t("sync.queuedOffline")
+          : isCredit
+            ? t("purchases.createdCredit")
+            : t("purchases.createdPaid"),
       );
       onSaved?.(rows);
       onClose();

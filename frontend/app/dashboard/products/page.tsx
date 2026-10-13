@@ -13,6 +13,7 @@ import StockCountModal from "@/app/components/StockCountModal";
 import { useToast } from "@/app/components/ToastProvider";
 import { useAuth } from "@/context/AuthContext";
 import api, { markHandled } from "@/lib/api";
+import { cachedGet } from "@/lib/offlineCache";
 import { fmtCurrency } from "@/lib/currency";
 import { formatDate } from "@/lib/datetime";
 import {
@@ -101,10 +102,9 @@ export default function ProductsPage() {
     // category, page, save, auto-refresh) stays in place.
     if (!silent && !hasLoadedRef.current) setLoading(true);
     try {
-      const res = await api.get(
+      const body = await cachedGet<any>(
         `/products?search=${debouncedSearch}&categoryId=${categoryFilter}&page=${paged.page}&pageSize=${paged.pageSize}`,
       );
-      const body = res.data;
       const rows = Array.isArray(body) ? body : (body?.data ?? []);
       setProducts(rows);
       paged.setTotal(
@@ -119,8 +119,8 @@ export default function ProductsPage() {
   };
 
   const fetchCategories = async () => {
-    const res = await api.get("/categories");
-    setCategories(res.data);
+    const data = await cachedGet<any>("/categories");
+    setCategories(data);
   };
 
   // Debounce the search input so we don't fire an API request on every

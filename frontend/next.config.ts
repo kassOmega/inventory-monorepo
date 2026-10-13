@@ -1,10 +1,79 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- this file is a CommonJS Next config */
+const fs = require("fs");
+const path = require("path");
+const nodeCrypto = require("node:crypto");
+
+/**
+ * Route shells that must be available offline. Their HTML documents are
+ * precached so an offline navigation that falls back to a hard load never hits
+ * the /~offline page. Keep in sync with lib/offlineNav.ts (OFFLINE_ROUTES).
+ */
+const OFFLINE_ROUTE_SHELLS = [
+  "/dashboard",
+  "/dashboard/sales",
+  "/dashboard/purchases",
+  "/dashboard/requests",
+  "/dashboard/products",
+];
+
+/** md5 revision for a public file (what Workbox would compute itself). */
+function fileRevision(file: string): string {
+  return nodeCrypto.createHash("md5").update(fs.readFileSync(file)).digest("hex");
+}
+
+/**
+ * Precache entries for everything under public/ (the plugin's own default). We
+ * have to build this ourselves because supplying `additionalManifestEntries`
+ * replaces the plugin's default public glob.
+ */
+function publicManifestEntries(): Array<{ url: string; revision: string }> {
+  const publicDir = path.join(__dirname, "public");
+  const entries: Array<{ url: string; revision: string }> = [];
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== "noprecache") walk(full);
+        continue;
+      }
+      // Generated worker/service-worker files are never precached.
+      if (/^(workbox|fallback|swe-worker|worker)-.*\.js(\.map)?$/.test(entry.name))
+        continue;
+      if (entry.name === "sw.js" || entry.name === "sw.js.map") continue;
+      entries.push({
+        url: "/" + path.relative(publicDir, full).split(path.sep).join("/"),
+        revision: fileRevision(full),
+      });
+    }
+  };
+  if (fs.existsSync(publicDir)) walk(publicDir);
+  return entries;
+}
+
+// A per-build revision forces Workbox to re-fetch the shells on every deploy
+// (revision:null would treat them as immutable and could leave stale HTML that
+// references removed chunk files).
+const BUILD_REVISION = String(Date.now());
+const PRECACHE_MANIFEST_ENTRIES = [
+  ...publicManifestEntries(),
+  ...OFFLINE_ROUTE_SHELLS.map((url) => ({ url, revision: BUILD_REVISION })),
+];
+
 const withPWA = require("@ducanh2912/next-pwa").default({
   dest: "public", // The service worker will be generated here
   customWorkerDir: "worker",
   cacheOnFrontEndNav: true,
   aggressiveFrontEndNavCaching: false, // serve fresh shell online
   reloadOnOnline: true,
-  disable: process.env.NODE_ENV === "development",
+  // The service worker is production-only unless explicitly opted into in dev
+  // (set NEXT_PUBLIC_ENABLE_PWA=true). Dev SW caching can go stale on HMR, so it
+  // stays off by default and is only for testing the offline behaviour locally.
+  disable:
+    process.env.NODE_ENV === "development" &&
+    process.env.NEXT_PUBLIC_ENABLE_PWA !== "true",
+  // Serve the branded app/~offline page when an offline navigation cannot be
+  // answered from the cache, instead of the browser's generic offline page.
+  fallbacks: { document: "/~offline" },
   // Take over + clean up as soon as a new build ships so stale precaches never
   // serve an old shell (which breaks hard refreshes with chunk 404s).
   skipWaiting: true,
@@ -12,6 +81,8 @@ const withPWA = require("@ducanh2912/next-pwa").default({
   cleanupOutdatedCaches: true,
   workboxOptions: {
     disableDevLogs: true,
+    // Public assets + the offline route shells (see above).
+    additionalManifestEntries: PRECACHE_MANIFEST_ENTRIES,
   },
 });
 

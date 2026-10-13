@@ -111,6 +111,19 @@ export class PurchasesService {
     meta: PurchaseBatch,
     user: JwtPayload,
   ) {
+    // Offline idempotency: a queued batch that is replayed (because its first
+    // response was lost) must return the rows that already booked instead of a
+    // 409. Each line is stored under `${clientRef}:${i}`, so the whole batch is
+    // found with a prefix match. The P2002 fallback below covers the race.
+    if (meta.clientRef) {
+      const existing = await this.prisma.purchase.findMany({
+        where: { clientRef: { startsWith: `${meta.clientRef}:` } },
+        include: PURCHASE_INCLUDE,
+        orderBy: { clientRef: 'asc' },
+      });
+      if (existing.length) return existing;
+    }
+
     const shop = await this.resolveShop(user, meta.shopId);
     const paymentType: PaymentType =
       meta.paymentType === 'CREDIT' ? 'CREDIT' : 'PAID';
@@ -204,6 +217,14 @@ export class PurchasesService {
         return created;
       });
     } catch (err) {
+      if (meta.clientRef) {
+        const existing = await this.prisma.purchase.findMany({
+          where: { clientRef: { startsWith: `${meta.clientRef}:` } },
+          include: PURCHASE_INCLUDE,
+          orderBy: { clientRef: 'asc' },
+        });
+        if (existing.length) return existing;
+      }
       return assertNotDuplicate(err, 'errors.purchaseAlreadySubmitted');
     }
   }

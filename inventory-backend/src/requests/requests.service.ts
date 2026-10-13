@@ -4,11 +4,17 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { RequestItemStatus, RequestStatus, RequestType } from '@prisma/client';
+import {
+  Prisma,
+  RequestItemStatus,
+  RequestStatus,
+  RequestType,
+} from '@prisma/client';
 import {
   asNumericId,
   formatBusinessNumber,
 } from '../common/business-number.util';
+import { assertNotDuplicate } from '../common/duplicate.util';
 import { inventoryFind, inventoryUpsert } from '../common/inventory.util';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { getCurrentTenantId, requireTenantId } from '../common/tenant/tenant.context';
@@ -20,6 +26,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SalesService } from '../sales/sales.service';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { ConfirmSaleDto } from './dto/confirm-sale.dto';
+
+/** Relation set returned for every stock request read/create. */
+const REQUEST_INCLUDE = {
+  items: { include: { product: true, variant: true, batch: true } },
+  shop: true,
+  store: true,
+  fromStore: true,
+} satisfies Prisma.StockRequestInclude;
 
 @Injectable()
 export class RequestsService {
@@ -36,6 +50,17 @@ export class RequestsService {
 
     const tenantId = getCurrentTenantId();
     const isStorekeeper = user.locationType === 'STORE';
+
+    // Offline idempotency: a queued request that is replayed (because its first
+    // response was lost) returns the request already created instead of
+    // re-running stock validation or raising a conflict.
+    if (dto.clientRef) {
+      const existing = await this.prisma.stockRequest.findFirst({
+        where: { clientRef: dto.clientRef },
+        include: REQUEST_INCLUDE,
+      });
+      if (existing) return existing;
+    }
 
     let requestType: RequestType;
     let shopId: number | null;
@@ -78,31 +103,28 @@ export class RequestsService {
       await this.validateStoreStock(dto.items, fromStoreId, 'source store');
     }
 
-    return this.prisma.stockRequest.create({
-      data: {
-        shopId,
-        storeId,
-        fromStoreId,
-        requestType,
-        createdById: user.sub,
-        status: RequestStatus.PENDING,
-        items: {
-          create: dto.items.map((item) => ({
-            tenantId,
-            productId: item.productId,
-            variantId: item.variantId ?? null,
-            quantityRequested: item.quantityRequested ?? null,
-            status: RequestItemStatus.PENDING,
-          })),
+    try {
+      const req = await this.prisma.stockRequest.create({
+        data: {
+          shopId,
+          storeId,
+          fromStoreId,
+          requestType,
+          createdById: user.sub,
+          status: RequestStatus.PENDING,
+          clientRef: dto.clientRef ?? null,
+          items: {
+            create: dto.items.map((item) => ({
+              tenantId,
+              productId: item.productId,
+              variantId: item.variantId ?? null,
+              quantityRequested: item.quantityRequested ?? null,
+              status: RequestItemStatus.PENDING,
+            })),
+          },
         },
-      },
-      include: {
-        items: { include: { product: true, variant: true, batch: true } },
-        shop: true,
-        store: true,
-        fromStore: true,
-      },
-    }).then(async (req) => {
+        include: REQUEST_INCLUDE,
+      });
       await this.prisma.requestActivity.create({
         data: {
           requestId: req.id,
@@ -117,7 +139,16 @@ export class RequestsService {
         { dedupeKey: `REQUEST_CREATED:${req.id}` },
       );
       return req;
-    });
+    } catch (err) {
+      if (dto.clientRef) {
+        const existing = await this.prisma.stockRequest.findFirst({
+          where: { clientRef: dto.clientRef },
+          include: REQUEST_INCLUDE,
+        });
+        if (existing) return existing;
+      }
+      return assertNotDuplicate(err, 'errors.requestAlreadySubmitted');
+    }
   }
 
   /**

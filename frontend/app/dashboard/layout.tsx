@@ -17,6 +17,9 @@ import MobileQuickNav from "../components/MobileQuickNav";
 import Loading from "../components/Loading";
 import NotificationBell from "../components/NotificationBell";
 import NotificationToast from "../components/NotificationToast";
+import OfflineSyncIndicator from "../components/OfflineSyncIndicator";
+import { OfflineSyncProvider } from "@/context/OfflineSyncContext";
+import { OFFLINE_ROUTES } from "@/lib/offlineNav";
 import SubscriptionRenewalPrompt from "../components/SubscriptionRenewalPrompt";
 import SidebarMenu from "../components/SidebarMenu";
 import { ToastProvider } from "../components/ToastProvider";
@@ -76,6 +79,32 @@ export default function DashboardLayout({
       .then((r) => setAgentPending(Array.isArray(r.data) ? r.data.length : 0))
       .catch(() => undefined);
   }, [canManageAgent]);
+
+  // Warm the offline-critical routes while online. Two caches are filled:
+  //  * `router.prefetch` stores the RSC payload (fast client-side nav).
+  //  * a plain HTML fetch stores the *document* in the SW `pages` cache. An
+  //    offline navigation whose RSC request fails falls back to a hard load,
+  //    and without the document cached that hard load shows /~offline.
+  useEffect(() => {
+    if (!user) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    const warm = () => {
+      for (const href of OFFLINE_ROUTES) {
+        router.prefetch(href);
+        fetch(href, {
+          credentials: "include",
+          headers: { Accept: "text/html" },
+        }).catch(() => undefined);
+      }
+    };
+    // Deferred a tick so a cold start does not compete with the first paint.
+    const id = setTimeout(warm, 0);
+    window.addEventListener("online", warm);
+    return () => {
+      clearTimeout(id);
+      window.removeEventListener("online", warm);
+    };
+  }, [router, user]);
 
   // Load the org's active stations so the nav lists them dynamically.
   useEffect(() => {
@@ -354,6 +383,7 @@ export default function DashboardLayout({
 
   return (
     <ToastProvider>
+      <OfflineSyncProvider>
       <ConfirmProvider>
         <div className="flex h-screen bg-gray-100 overflow-hidden">
           {/* Persistent notification toast */}
@@ -536,6 +566,7 @@ export default function DashboardLayout({
                   </button>
                 )}
 
+                <OfflineSyncIndicator />
                 <LanguageSwitcher />
                 <NotificationBell />
               </div>
@@ -557,6 +588,7 @@ export default function DashboardLayout({
         <AiCoachDrawer open={coachOpen} onClose={() => setCoachOpen(false)} />
         <SubscriptionRenewalPrompt />
       </ConfirmProvider>
+      </OfflineSyncProvider>
     </ToastProvider>
   );
 }

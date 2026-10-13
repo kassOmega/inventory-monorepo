@@ -341,6 +341,8 @@ export const enMessages: Record<string, any> = {
       'This order was already submitted. Please refresh and try again.',
     paymentAlreadySubmitted:
       'This payment was already submitted. Please refresh and try again.',
+    requestAlreadySubmitted:
+      'This request was already submitted. Please refresh and try again.',
     duplicateService: 'A service with this name already exists.',
 
     // Platform-admin + verification modules (Phase 7).

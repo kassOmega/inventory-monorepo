@@ -92,7 +92,12 @@ api.interceptors.response.use(
     const isSessionCheck =
       err?.config?.method?.toLowerCase() === "get" &&
       String(err?.config?.url ?? "").includes("/auth/me");
-    if (!err?.handled && !isSessionCheck) {
+    // While offline every page's GETs fail at once; a toast per request would
+    // flood the screen. The OfflineSyncIndicator already communicates the state,
+    // so stay quiet until we are back online.
+    const offline =
+      typeof navigator !== "undefined" && navigator.onLine === false;
+    if (!err?.handled && !isSessionCheck && !offline) {
       setTimeout(() => {
         if (!err?.handled) emitApiError(err);
       }, 0);

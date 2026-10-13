@@ -48,7 +48,8 @@ export default function PwaRegistry() {
     if (!("serviceWorker" in navigator)) return;
     if (
       process.env.NODE_ENV !== "production" &&
-      !process.env.NEXT_PUBLIC_ENABLE_PUSH
+      !process.env.NEXT_PUBLIC_ENABLE_PUSH &&
+      process.env.NEXT_PUBLIC_ENABLE_PWA !== "true"
     ) {
       // Development: the app never registers a worker here, but a stale worker
       // from an earlier production build may still be controlling the page and
