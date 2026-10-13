@@ -109,6 +109,14 @@ const TIME_SLOTS = (() => {
   return slots;
 })();
 
+/** Render a 24h "HH:mm" slot as 12-hour time, e.g. "9:45 AM". */
+const to12h = (slot: string): string => {
+  const [h, m] = slot.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
+};
+
 const emptyItem = (vehicleTypes: string[]): CarWashBookingItemPayload => ({
   vehicleId: null,
   vehicleType: vehicleTypes[0] ?? "Car",
@@ -542,7 +550,7 @@ export default function CarWashBookingForm({
                     <option value="">{t("carwash.timeSlot")}</option>
                     {TIME_SLOTS.map((slot) => (
                       <option key={slot} value={slot}>
-                        {slot}
+                        {to12h(slot)}
                       </option>
                     ))}
                   </select>
