@@ -92,16 +92,20 @@ interface CarWashBookingFormProps {
   submitLabel?: string;
 }
 
-/** 24h day split into 45-minute slots. */
+/** Booking time slots: 09:00 → 16:00, every 45 minutes. */
 const TIME_SLOTS = (() => {
   const slots: string[] = [];
-  for (let mins = 0; mins < 24 * 60; mins += 45) {
+  const START = 9 * 60; // 09:00
+  const END = 16 * 60; // 16:00
+  for (let mins = START; mins < END; mins += 45) {
     const h = Math.floor(mins / 60);
     const m = mins % 60;
     slots.push(
       `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`,
     );
   }
+  // Offer the closing time too (it is off the 45-minute grid).
+  slots.push("16:00");
   return slots;
 })();
 
