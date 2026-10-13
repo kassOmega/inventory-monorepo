@@ -1,5 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
+import PublicFooter from "../components/PublicFooter";
 
 // The startup status is written at runtime by the container entrypoint, so the
 // page must be evaluated per request (never prerendered at build time).
@@ -71,10 +72,11 @@ export default async function StatusPage() {
   const hints = hintsFor(status);
 
   return (
-    <main
-      data-startup-ok={ok ? "true" : "false"}
-      className="min-h-screen bg-gray-100 px-6 py-12 text-gray-900"
-    >
+    <>
+      <main
+        data-startup-ok={ok ? "true" : "false"}
+        className="min-h-screen bg-gray-100 px-6 py-12 text-gray-900"
+      >
       <div className="mx-auto max-w-2xl rounded-xl bg-white p-8 shadow-sm">
         <h1 className="text-2xl font-bold">Startup status</h1>
         <p className="mt-2 text-lg">
@@ -117,7 +119,9 @@ export default async function StatusPage() {
             ? `Last update: ${time}`
             : "No status file found — the service has not reported yet."}
         </p>
-      </div>
-    </main>
+        </div>
+      </main>
+      <PublicFooter />
+    </>
   );
 }

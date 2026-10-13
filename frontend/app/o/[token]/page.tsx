@@ -2,16 +2,17 @@
 
 // PUBLIC guest-ordering page (no auth, no dashboard chrome). Opened by scanning a
 // printed QR: /o/<token>. It talks ONLY to the /public/* API, scoped by the token.
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
-import { useTranslation } from "react-i18next";
-import api from "@/lib/api";
-import Loading from "@/app/components/Loading";
 import Button from "@/app/components/Button";
-import Modal from "@/app/components/Modal";
 import CarWashBookingForm from "@/app/components/CarWashBookingForm";
+import Loading from "@/app/components/Loading";
+import Modal from "@/app/components/Modal";
+import PublicFooter from "@/app/components/PublicFooter";
 import ReservationForm from "@/app/components/ReservationForm";
 import ServiceBookingForm from "@/app/components/ServiceBookingForm";
+import api from "@/lib/api";
+import { useParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface PublicItem {
   ref: string;
@@ -20,7 +21,12 @@ interface PublicItem {
   description: string | null;
   price: number;
   image?: string | null;
-  variants?: Array<{ ref: string; name: string; price: number; image?: string | null }>;
+  variants?: Array<{
+    ref: string;
+    name: string;
+    price: number;
+    image?: string | null;
+  }>;
   meta?: Record<string, unknown>;
 }
 interface EntryView {
@@ -98,7 +104,9 @@ export default function PublicOrderPage() {
   const autofill = async () => {
     if (!phone || phone.length < 7) return;
     try {
-      const r = await api.post(`/public/entry/${token}/customer-lookup`, { phone });
+      const r = await api.post(`/public/entry/${token}/customer-lookup`, {
+        phone,
+      });
       if (r.data?.name && !name) setName(r.data.name);
     } catch {
       // best-effort
@@ -106,7 +114,9 @@ export default function PublicOrderPage() {
   };
 
   const itemsByRef = useMemo(() => {
-    const all = (entry?.items ?? []).concat(entry?.services?.flatMap((s) => s.items) ?? []);
+    const all = (entry?.items ?? []).concat(
+      entry?.services?.flatMap((s) => s.items) ?? [],
+    );
     const map = new Map<string, PublicItem>();
     for (const item of all) {
       map.set(item.ref, item);
@@ -128,7 +138,10 @@ export default function PublicOrderPage() {
   // Items to show: the active service tab when tabbed, else the flat catalog.
   const visibleItems = useMemo(() => {
     if (entry?.services?.length) {
-      return entry.services.find((s) => s.key === tab)?.items ?? entry.services[0].items;
+      return (
+        entry.services.find((s) => s.key === tab)?.items ??
+        entry.services[0].items
+      );
     }
     return entry?.items ?? [];
   }, [entry, tab]);
@@ -145,9 +158,10 @@ export default function PublicOrderPage() {
     .filter(([, q]) => q > 0)
     .map(([ref, q]) => ({ item: itemsByRef.get(ref), qty: q }))
     .filter((l) => l.item);
-  const total = cartLines.reduce((s, l) => s + (l.item!.price * l.qty), 0);
+  const total = cartLines.reduce((s, l) => s + l.item!.price * l.qty, 0);
 
-  const add = (ref: string) => setCart((c) => ({ ...c, [ref]: (c[ref] ?? 0) + 1 }));
+  const add = (ref: string) =>
+    setCart((c) => ({ ...c, [ref]: (c[ref] ?? 0) + 1 }));
   const sub = (ref: string) =>
     setCart((c) => ({ ...c, [ref]: Math.max(0, (c[ref] ?? 0) - 1) }));
 
@@ -170,15 +184,23 @@ export default function PublicOrderPage() {
           ? {
               identityMode,
               tableNumber:
-                identityMode === "TABLE" ? tableNumber.trim() || undefined : undefined,
+                identityMode === "TABLE"
+                  ? tableNumber.trim() || undefined
+                  : undefined,
               customerName:
                 identityMode === "PHONE" ? name.trim() || undefined : undefined,
               customerPhone:
-                identityMode === "PHONE" ? phone.trim() || undefined : undefined,
+                identityMode === "PHONE"
+                  ? phone.trim() || undefined
+                  : undefined,
             }
           : {
-              customerName: entry?.requiresProfile ? name.trim() || undefined : undefined,
-              customerPhone: entry?.requiresProfile ? phone.trim() || undefined : undefined,
+              customerName: entry?.requiresProfile
+                ? name.trim() || undefined
+                : undefined,
+              customerPhone: entry?.requiresProfile
+                ? phone.trim() || undefined
+                : undefined,
             }),
         note: note.trim() || undefined,
       });
@@ -287,7 +309,10 @@ export default function PublicOrderPage() {
     setBookingSubmitting(true);
     setError("");
     try {
-      const r = await api.post(`/public/entry/${token}/service-bookings`, payload);
+      const r = await api.post(
+        `/public/entry/${token}/service-bookings`,
+        payload,
+      );
       setBookingDone({ kind: "SERVICE", data: r.data });
     } catch (e: any) {
       setError(e?.response?.data?.message ?? "Could not submit booking");
@@ -360,26 +385,29 @@ export default function PublicOrderPage() {
   if (bookingDone) {
     const isCarwashBooking = bookingDone.kind === "CARWASH";
     return (
-      <div className="min-h-screen bg-gray-100 p-6">
-        <div className="mx-auto max-w-md bg-white rounded-xl border p-6 text-center space-y-3">
-          <p className="text-3xl">✅</p>
-          <p className="font-semibold text-gray-800">
-            {isCarwashBooking
-              ? t("carwash.bookingSent")
-              : t("public.bookingSent")}
-          </p>
-          <p className="text-sm text-gray-500">
-            {isCarwashBooking
-              ? t("carwash.bookingWaitHint")
-              : t("public.bookingWaitHint")}
-          </p>
+      <div className="min-h-screen bg-gray-100">
+        <div className="mx-auto max-w-md px-4 pt-6">
+          <div className="bg-white rounded-xl border p-6 text-center space-y-3">
+            <p className="text-3xl">✅</p>
+            <p className="font-semibold text-gray-800">
+              {isCarwashBooking
+                ? t("carwash.bookingSent")
+                : t("public.bookingSent")}
+            </p>
+            <p className="text-sm text-gray-500">
+              {isCarwashBooking
+                ? t("carwash.bookingWaitHint")
+                : t("public.bookingWaitHint")}
+            </p>
+          </div>
         </div>
+        <PublicFooter />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 pb-32">
+    <div className="min-h-screen bg-gray-100">
       <header className="bg-white border-b px-4 py-3 sticky top-0 z-10">
         {entry?.showBusinessInfo ? (
           <>
@@ -564,7 +592,9 @@ export default function PublicOrderPage() {
             />
           ))}
           {visibleItems.length === 0 && (
-            <p className="text-center text-gray-400 text-sm py-10">{t("public.empty")}</p>
+            <p className="text-center text-gray-400 text-sm py-10">
+              {t("public.empty")}
+            </p>
           )}
 
           <input
@@ -630,7 +660,8 @@ export default function PublicOrderPage() {
                   className="flex items-center justify-between gap-3 text-sm text-gray-700"
                 >
                   <span className="min-w-0 truncate">
-                    {l.item!.name} <span className="text-gray-400">× {l.qty}</span>
+                    {l.item!.name}{" "}
+                    <span className="text-gray-400">× {l.qty}</span>
                   </span>
                   {entry?.showPrices && (
                     <span className="font-medium whitespace-nowrap">
@@ -646,13 +677,19 @@ export default function PublicOrderPage() {
                   {t("public.total")}: {total.toLocaleString()}
                 </span>
               )}
-              <Button loading={submitting} onClick={requestSubmit} className="!px-5">
+              <Button
+                loading={submitting}
+                onClick={requestSubmit}
+                className="!px-5"
+              >
                 {t("public.placeOrder")}
               </Button>
             </div>
           </div>
         </div>
       )}
+
+      <PublicFooter />
     </div>
   );
 }
@@ -661,7 +698,11 @@ export default function PublicOrderPage() {
 function Thumb({ src }: { src?: string | null }) {
   return src ? (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt="" className="w-12 h-12 rounded-lg object-cover bg-gray-100 shrink-0" />
+    <img
+      src={src}
+      alt=""
+      className="w-12 h-12 rounded-lg object-cover bg-gray-100 shrink-0"
+    />
   ) : (
     <div className="w-12 h-12 rounded-lg bg-gray-100 shrink-0" />
   );
@@ -684,14 +725,27 @@ function Qty({
   if (cart[code]) {
     return (
       <div className="flex items-center gap-2">
-        <button onClick={() => sub(code)} className="w-7 h-7 rounded-full border text-gray-600">−</button>
+        <button
+          onClick={() => sub(code)}
+          className="w-7 h-7 rounded-full border text-gray-600"
+        >
+          −
+        </button>
         <span className="w-5 text-center text-sm">{cart[code]}</span>
-        <button onClick={() => add(code)} className="w-7 h-7 rounded-full bg-blue-600 text-white">+</button>
+        <button
+          onClick={() => add(code)}
+          className="w-7 h-7 rounded-full bg-blue-600 text-white"
+        >
+          +
+        </button>
       </div>
     );
   }
   return (
-    <button onClick={() => add(code)} className="bg-blue-600 text-white rounded-lg px-3 py-1.5 text-sm">
+    <button
+      onClick={() => add(code)}
+      className="bg-blue-600 text-white rounded-lg px-3 py-1.5 text-sm"
+    >
       {t("public.add")}
     </button>
   );
@@ -719,7 +773,9 @@ function ItemCard({
   return (
     <div className="bg-white rounded-xl border p-3">
       <div
-        className={"flex items-center gap-3" + (hasVariants ? " cursor-pointer" : "")}
+        className={
+          "flex items-center gap-3" + (hasVariants ? " cursor-pointer" : "")
+        }
         onClick={hasVariants ? () => setOpen((v) => !v) : undefined}
         role={hasVariants ? "button" : undefined}
         tabIndex={hasVariants ? 0 : undefined}
@@ -737,9 +793,13 @@ function ItemCard({
       >
         <Thumb src={item.image} />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-gray-800 truncate">{item.name}</p>
+          <p className="text-sm font-medium text-gray-800 truncate">
+            {item.name}
+          </p>
           {item.description && (
-            <p className="text-xs text-gray-400 line-clamp-2">{item.description}</p>
+            <p className="text-xs text-gray-400 line-clamp-2">
+              {item.description}
+            </p>
           )}
           {showPrices && (
             <p className="text-sm text-gray-700 mt-0.5">
@@ -747,7 +807,9 @@ function ItemCard({
               {item.price.toLocaleString()}
               {item.meta?.availableCount != null && (
                 <span className="ml-2 text-[11px] text-emerald-600">
-                  {t("public.roomsFree", { count: item.meta.availableCount as number })}
+                  {t("public.roomsFree", {
+                    count: item.meta.availableCount as number,
+                  })}
                 </span>
               )}
             </p>
@@ -773,8 +835,14 @@ function ItemCard({
           {item.variants!.map((v) => (
             <li key={v.ref} className="flex items-center gap-2 py-2">
               <Thumb src={v.image} />
-              <span className="min-w-0 flex-1 text-sm text-gray-700 truncate">{v.name}</span>
-              {showPrices && <span className="text-sm text-gray-600">{v.price.toLocaleString()}</span>}
+              <span className="min-w-0 flex-1 text-sm text-gray-700 truncate">
+                {v.name}
+              </span>
+              {showPrices && (
+                <span className="text-sm text-gray-600">
+                  {v.price.toLocaleString()}
+                </span>
+              )}
               <Qty code={v.ref} cart={cart} add={add} sub={sub} t={t} />
             </li>
           ))}
