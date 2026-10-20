@@ -43,6 +43,12 @@ export default function PublicFooter() {
         >
           {t("public.footerSignup")}
         </Link>
+        <Link
+          href="/install"
+          className="mt-2 block text-xs text-gray-400 hover:text-white"
+        >
+          {t("install.label")}
+        </Link>
 
         <p className="mt-4 text-[11px] text-gray-500">
           {t("public.developedBy", { name: DEVELOPER })} · ©{" "}

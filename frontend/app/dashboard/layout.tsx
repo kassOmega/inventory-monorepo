@@ -458,7 +458,7 @@ export default function DashboardLayout({
                   <p className="text-xs text-gray-400 mb-2">{user.roleName}</p>
                 </div>
               </Link>
-              <InstallAppButton />
+              <InstallAppButton alwaysVisible />
               <button
                 onClick={logout}
                 className="w-full text-left text-sm py-2 px-4 rounded text-red-400 hover:bg-gray-800"
