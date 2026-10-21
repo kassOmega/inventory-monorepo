@@ -45,7 +45,7 @@ interface OfflineSchema extends DBSchema {
 }
 
 const DB_NAME = "kass-offline";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBPDatabase<OfflineSchema>> | null = null;
 
@@ -54,9 +54,22 @@ export function getOfflineDb(): Promise<IDBPDatabase<OfflineSchema>> | null {
   if (typeof indexedDB === "undefined") return null;
   if (!dbPromise) {
     dbPromise = openDB<OfflineSchema>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
+      upgrade(db, _oldVersion, _newVersion, tx) {
+        // Version 1 shipped two schema variants over time. An older build
+        // created `catalog` with out-of-line keys and some users still have a
+        // database with no `mutations` store at all. Repair both stores rather
+        // than letting a stale IndexedDB break product/inventory pages.
+        if (db.objectStoreNames.contains("mutations")) {
+          const store = tx.objectStore("mutations");
+          if (store.keyPath !== "id") db.deleteObjectStore("mutations");
+        }
         if (!db.objectStoreNames.contains("mutations")) {
           db.createObjectStore("mutations", { keyPath: "id" });
+        }
+
+        if (db.objectStoreNames.contains("catalog")) {
+          const store = tx.objectStore("catalog");
+          if (store.keyPath !== "key") db.deleteObjectStore("catalog");
         }
         if (!db.objectStoreNames.contains("catalog")) {
           db.createObjectStore("catalog", { keyPath: "key" });
@@ -85,10 +98,17 @@ export async function getMutation(
 
 /** Every queued mutation, oldest first (sync order). */
 export async function allMutations(): Promise<QueuedMutation[]> {
-  const db = await getOfflineDb();
-  if (!db) return [];
-  const rows = await db.getAll("mutations");
-  return rows.sort((a, b) => a.createdAt - b.createdAt);
+  try {
+    const db = await getOfflineDb();
+    if (!db) return [];
+    const rows = await db.getAll("mutations");
+    return rows.sort((a, b) => a.createdAt - b.createdAt);
+  } catch (err) {
+    // A damaged/legacy IndexedDB must never break the page that only wanted to
+    // read the sync queue.
+    console.warn("[offline] Could not read the mutation queue:", err);
+    return [];
+  }
 }
 
 export async function updateMutation(
@@ -117,21 +137,36 @@ export async function clearMutations(): Promise<void> {
 // --- Reference-data catalog ------------------------------------------------
 
 export async function putCatalog(record: CatalogRecord): Promise<void> {
-  const db = await getOfflineDb();
-  if (!db) return;
-  await db.put("catalog", record);
+  try {
+    const db = await getOfflineDb();
+    if (!db) return;
+    await db.put("catalog", record);
+  } catch (err) {
+    // The catalog is a best-effort offline cache. A write failure must never
+    // prevent a successful API response from rendering (e.g. the product list).
+    console.warn("[offline] Could not cache catalog data:", err);
+  }
 }
 
 export async function getCatalog(
   key: string,
 ): Promise<CatalogRecord | undefined> {
-  const db = await getOfflineDb();
-  if (!db) return undefined;
-  return db.get("catalog", key);
+  try {
+    const db = await getOfflineDb();
+    if (!db) return undefined;
+    return await db.get("catalog", key);
+  } catch (err) {
+    console.warn("[offline] Could not read cached catalog data:", err);
+    return undefined;
+  }
 }
 
 export async function clearCatalog(): Promise<void> {
-  const db = await getOfflineDb();
-  if (!db) return;
-  await db.clear("catalog");
+  try {
+    const db = await getOfflineDb();
+    if (!db) return;
+    await db.clear("catalog");
+  } catch (err) {
+    console.warn("[offline] Could not clear cached catalog data:", err);
+  }
 }

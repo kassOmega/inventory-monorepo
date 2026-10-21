@@ -12,7 +12,7 @@
 // keys (independent of the exact query the caller used), so the products and
 // categories are available offline even on a page the user never opened while
 // online. `cachedGet` falls back to that list when the exact URL is not cached.
-import api from "./api";
+import api, { markHandled } from "./api";
 import { clearCatalog, getCatalog, putCatalog } from "./offlineDb";
 
 export interface OfflineScope {
@@ -128,6 +128,13 @@ export async function getCachedCatalog<T = unknown>(
  * even if they were never opened online.
  */
 export async function warmCatalog(): Promise<void> {
+  // Platform admins and users without an active business must never call the
+  // tenant-scoped catalog endpoints (products/customers/payment-methods/...):
+  // the backend correctly answers 403 and the background warm would only emit
+  // misleading "no permission" toasts.
+  const { tenantId, userId } = currentScope();
+  if (tenantId == null || userId == null) return;
+
   await Promise.all(
     (Object.keys(CATALOG_URLS) as CatalogName[]).map(async (name) => {
       try {
@@ -137,8 +144,10 @@ export async function warmCatalog(): Promise<void> {
           body: res.data,
           at: Date.now(),
         });
-      } catch {
-        // Ignore: not every role can read every list.
+      } catch (err) {
+        // Not every role can read every list. Suppress the global error toast —
+        // this is a best-effort background cache warm, not a user action.
+        markHandled(err);
       }
     }),
   );

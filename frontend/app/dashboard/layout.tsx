@@ -46,8 +46,15 @@ export default function DashboardLayout({
 
   const businessType = activeMembership?.businessType ?? user?.businessType ?? "";
   const vertical = getVerticalFeatures(businessType);
-  const canUseCoach = user?.isSuperuser || hasPermission("ai.chat");
-  const canManageAgent = user?.isSuperuser || hasPermission("agent.manage");
+  const isPlatformAdmin = !!user?.isPlatformAdmin;
+  const canWarmBusinessRoutes =
+    !!user && !isPlatformAdmin && (user.memberships?.length ?? 0) > 0;
+  // Platform admins manage the platform, not a business: never call tenant AI
+  // agent endpoints for them.
+  const canUseCoach =
+    !isPlatformAdmin && (user?.isSuperuser || hasPermission("ai.chat"));
+  const canManageAgent =
+    !isPlatformAdmin && (user?.isSuperuser || hasPermission("agent.manage"));
 
   // Close the mobile drawer only once the tapped route has actually committed,
   // so the in-link spinner stays visible until the new page is ready. A safety
@@ -86,7 +93,7 @@ export default function DashboardLayout({
   //    offline navigation whose RSC request fails falls back to a hard load,
   //    and without the document cached that hard load shows /~offline.
   useEffect(() => {
-    if (!user) return;
+    if (!canWarmBusinessRoutes) return;
     if (typeof navigator !== "undefined" && !navigator.onLine) return;
     const warm = () => {
       for (const href of OFFLINE_ROUTES) {
@@ -104,7 +111,7 @@ export default function DashboardLayout({
       clearTimeout(id);
       window.removeEventListener("online", warm);
     };
-  }, [router, user]);
+  }, [router, canWarmBusinessRoutes]);
 
   // Load the org's active stations so the nav lists them dynamically.
   useEffect(() => {

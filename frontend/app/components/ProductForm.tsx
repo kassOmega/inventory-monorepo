@@ -7,7 +7,7 @@ import api, { markHandled } from "@/lib/api";
 import { variantLabel } from "@/lib/variantLabel";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus } from "lucide-react";
+import { Copy, Plus } from "lucide-react";
 import AiAutofillCapture from "./AiAutofillCapture";
 import CatalogImageInput from "./CatalogImageInput";
 import BarcodeScanner from "./BarcodeScanner";
@@ -34,6 +34,8 @@ interface ProductFormProps {
 }
 
 interface VariantRow {
+  /** Internal React/focus key. Never sent to the API. */
+  rowId: string;
   slot1: string;
   slot2: string;
   slot3: string;
@@ -50,7 +52,13 @@ interface VariantRow {
   variantId?: number;
 }
 
+const newVariantRowId = (): string =>
+  typeof globalThis.crypto?.randomUUID === "function"
+    ? globalThis.crypto.randomUUID()
+    : `v-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 const emptyVariant = (): VariantRow => ({
+  rowId: newVariantRowId(),
   slot1: "",
   slot2: "",
   slot3: "",
@@ -79,6 +87,7 @@ const mapVariantToSlots = (v: any): VariantRow => {
     )
     .map(([, val]) => String(val));
   return {
+    rowId: newVariantRowId(),
     slot1: pick("slot1") || pick("size") || others[0] || "",
     slot2: pick("slot2") || pick("color") || others[1] || "",
     slot3: pick("slot3") || others[2] || "",
@@ -107,6 +116,8 @@ export default function ProductForm({
   // their own inventory, so the stock picker targets the shop location.
   const isStandalone = activeMembership?.standalone === true;
   const isEdit = !!editing;
+  // Row that should receive focus after a duplicate is inserted.
+  const pendingVariantFocus = useRef<string | null>(null);
   // AI product assistant: only for owners with the permission + an enabled AI
   // entitlement, and only on the add flow (never clobber an existing product).
   const canUseAi =
@@ -464,6 +475,20 @@ export default function ProductForm({
         toast.error(t("pf.needVariant"));
         return;
       }
+      // A duplicated row is meant to be edited. Block two identical rows so a
+      // forgotten edit cannot silently create two variants with the same specs.
+      const seenVariantKeys = new Set<string>();
+      for (const v of activeVariants) {
+        const key = [v.slot1, v.slot2, v.slot3, v.slot4]
+          .map((value) => value.trim().toLowerCase())
+          .join("|");
+        if (!key.replace(/\|/g, "").trim()) continue;
+        if (seenVariantKeys.has(key)) {
+          toast.error(t("pf.variantDuplicateAttrs"));
+          return;
+        }
+        seenVariantKeys.add(key);
+      }
       const missingIdx = activeVariants.findIndex(
         (v) => !(Number(v.buyPrice) > 0) || !(Number(v.sellPrice) > 0),
       );
@@ -641,6 +666,48 @@ export default function ProductForm({
       : (Number(form.quantity) || 0) > 0;
 
   const addVariantRow = () => setVariants([...variants, emptyVariant()]);
+
+  /**
+   * Duplicate a variant row directly below its source.
+   *
+   * Specs, prices and reorder settings are copied because variants usually
+   * share them. The variant id, barcode and initial stock are deliberately
+   * cleared:
+   *  - a copied id would update the original variant instead of creating one,
+   *  - barcodes are unique per tenant,
+   *  - copying stock would deposit the same quantity twice.
+   */
+  const duplicateVariant = (index: number) => {
+    const source = variants[index];
+    if (!source) return;
+    const copy: VariantRow = {
+      ...source,
+      rowId: newVariantRowId(),
+      variantId: undefined,
+      barcode: "",
+      quantity: "",
+    };
+    pendingVariantFocus.current = copy.rowId;
+    setVariants((prev) => {
+      const next = [...prev];
+      next.splice(index + 1, 0, copy);
+      return next;
+    });
+    toast.success(t("pf.variantDuplicated"));
+  };
+
+  // Focus the first attribute of a freshly duplicated row after React paints it.
+  useEffect(() => {
+    const rowId = pendingVariantFocus.current;
+    if (!rowId) return;
+    const input = document.querySelector<HTMLInputElement>(
+      `[data-variant-row="${rowId}"] [data-variant-field="slot1"]`,
+    );
+    pendingVariantFocus.current = null;
+    if (!input) return;
+    input.focus();
+    input.select();
+  }, [variants]);
 
   // Signature of a builder row's slots — used to skip suggested rows that are
   // already in the builder, so applying a suggestion can never duplicate a
@@ -1024,25 +1091,41 @@ export default function ProductForm({
             </div>
           )}
           {variants.map((v, i) => (
-            <div key={i} className="border rounded-lg p-3 space-y-2 bg-gray-50/50">
-              <div className="flex items-center justify-between">
+            <div
+              key={v.rowId}
+              data-variant-row={v.rowId}
+              className="border rounded-lg p-3 space-y-2 bg-gray-50/50"
+            >
+              <div className="flex items-center justify-between gap-3">
                 <span className="text-xs font-semibold text-gray-500">
                   {t("pf.variantLabel", { n: i + 1 })}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setVariants(variants.filter((_, idx) => idx !== i))}
-                  className="text-red-500 text-xs"
-                >
-                  {t("pf.remove")}
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => duplicateVariant(i)}
+                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
+                    title={t("pf.duplicateVariantTitle")}
+                    aria-label={t("pf.duplicateVariantAria", { n: i + 1 })}
+                  >
+                    <Copy className="h-3.5 w-3.5" aria-hidden />
+                    {t("pf.duplicateVariant")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVariants(variants.filter((_, idx) => idx !== i))}
+                    className="text-red-500 text-xs"
+                  >
+                    {t("pf.remove")}
+                  </button>
+                </div>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div className="min-w-0">
                   <label className={LABEL_XS} title={t("pf.slot1Label")}>
                     {t("pf.slot1Label")}
                   </label>
-                  <input placeholder={t("pf.slot1Ph")} value={v.slot1} onChange={(e) => updateVariant(i, "slot1", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
+                  <input data-variant-field="slot1" placeholder={t("pf.slot1Ph")} value={v.slot1} onChange={(e) => updateVariant(i, "slot1", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
                 </div>
                 <div className="min-w-0">
                   <label className={LABEL_XS} title={t("pf.slot2Label")}>

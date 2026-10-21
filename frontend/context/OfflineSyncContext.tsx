@@ -71,7 +71,7 @@ export function useOfflineSync(): OfflineSyncContextValue {
 }
 
 export function OfflineSyncProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, activeMembership } = useAuth();
   const toast = useToast();
   const { t } = useTranslation();
   // Read from the external store above; SSR/first paint agree on "online".
@@ -84,6 +84,10 @@ export function OfflineSyncProvider({ children }: { children: ReactNode }) {
   const [paused, setPaused] = useState(false);
   const [items, setItems] = useState<QueuedMutation[]>([]);
 
+  // Platform admins have no tenant. A user without an active business must not
+  // warm or replay tenant-scoped catalog/queue work.
+  const hasTenant = !!user && !user.isPlatformAdmin && !!activeMembership;
+
   // Guards against overlapping flushes (interval + online event + focus).
   const syncingRef = useRef(false);
   const itemsRef = useRef<QueuedMutation[]>([]);
@@ -95,7 +99,7 @@ export function OfflineSyncProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const syncNow = useCallback(async () => {
-    if (!user || syncingRef.current) return;
+    if (!user || !hasTenant || syncingRef.current) return;
     syncingRef.current = true;
     setSyncing(true);
     try {
@@ -115,7 +119,7 @@ export function OfflineSyncProvider({ children }: { children: ReactNode }) {
       syncingRef.current = false;
       setSyncing(false);
     }
-  }, [user, refresh, toast, t]);
+  }, [user, hasTenant, refresh, toast, t]);
 
   // Connectivity: flush as soon as the browser reports it is back online. The
   // `online` flag itself comes from useSyncExternalStore above.
@@ -128,6 +132,7 @@ export function OfflineSyncProvider({ children }: { children: ReactNode }) {
   // On mount (and when the user changes): load the queue and drain it. Deferred
   // one tick so the effect body itself never triggers a synchronous render.
   useEffect(() => {
+    if (!hasTenant) return;
     const id = setTimeout(() => {
       void refresh().then(() => {
         if (typeof navigator === "undefined" || navigator.onLine) {
@@ -136,7 +141,7 @@ export function OfflineSyncProvider({ children }: { children: ReactNode }) {
       });
     }, 0);
     return () => clearTimeout(id);
-  }, [refresh, syncNow, user?.id]);
+  }, [hasTenant, refresh, syncNow, user?.id]);
 
   // A form queued a mutation: refresh so the badge appears immediately.
   useEffect(() => {
@@ -149,16 +154,16 @@ export function OfflineSyncProvider({ children }: { children: ReactNode }) {
   // offline even on a page the user never opened. Deferred a tick and re-run
   // whenever connectivity returns.
   useEffect(() => {
-    if (!user) return;
+    if (!hasTenant) return;
     if (typeof navigator !== "undefined" && !navigator.onLine) return;
     const id = setTimeout(() => void warmCatalog(), 0);
     return () => clearTimeout(id);
-  }, [user, online]);
+  }, [hasTenant, user?.id, online]);
 
   // Best-effort Background Sync registration (Chrome/Android). If unsupported,
   // the timer + online listener above still drain the queue.
   useEffect(() => {
-    if (!user) return;
+    if (!hasTenant) return;
     if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
     const hasPending = items.some((m) => m.status !== "FAILED");
     if (!hasPending) return;
@@ -171,7 +176,7 @@ export function OfflineSyncProvider({ children }: { children: ReactNode }) {
         ).sync?.register?.("kass-offline-sync"),
       )
       .catch(() => undefined);
-  }, [user, items]);
+  }, [hasTenant, items]);
 
   // The service worker woke up on Background Sync: drain now.
   useEffect(() => {
@@ -188,13 +193,14 @@ export function OfflineSyncProvider({ children }: { children: ReactNode }) {
 
   // Retry periodically while there is work and we are online.
   useEffect(() => {
+    if (!hasTenant) return;
     const id = setInterval(() => {
       if (typeof navigator !== "undefined" && !navigator.onLine) return;
       const hasPending = itemsRef.current.some((m) => m.status !== "FAILED");
       if (hasPending) void syncNow();
     }, 20000);
     return () => clearInterval(id);
-  }, [syncNow]);
+  }, [hasTenant, syncNow]);
 
   // Returning to the tab: refresh + try again.
   useEffect(() => {
