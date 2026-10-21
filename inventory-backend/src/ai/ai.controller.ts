@@ -316,6 +316,7 @@ export class AiController {
     const entitlement = await this.usageService.assertAiEnabled(this.resolveTenant(req));
     const usage = await this.usageService.checkAndIncrement(req.user.sub);
 
+    res.status(200);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
@@ -383,6 +384,7 @@ export class AiController {
     // normal JSON 429 response.
     const status = await this.assistService.consume(req.ip ?? 'unknown');
 
+    res.status(200);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');

@@ -41,6 +41,64 @@ export class GeminiService {
       : (process.env.GEMINI_PRO_MODEL ?? 'gemini-3.5-flash');
   }
 
+  /** Primary model followed by an optional fallback model. */
+  private modelsFor(kind: GeminiModelKind): string[] {
+    const primary = this.model(kind);
+    const fallback = (
+      process.env.GEMINI_FALLBACK_MODEL ??
+      process.env.GEMINI_PRO_MODEL ??
+      ''
+    ).trim();
+    return fallback && fallback !== primary ? [primary, fallback] : [primary];
+  }
+
+  /** Extract the provider HTTP/status code from a Google GenAI error. */
+  private providerCode(err: unknown): number | null {
+    const e = err as any;
+    const direct = e?.status ?? e?.code ?? e?.error?.code;
+    if (typeof direct === 'number') return direct;
+    if (typeof direct === 'string' && /^\d{3}$/.test(direct)) {
+      return Number(direct);
+    }
+    const message = typeof e?.message === 'string' ? e.message : '';
+    try {
+      const parsed = JSON.parse(message);
+      const code = parsed?.error?.code ?? parsed?.code;
+      if (typeof code === 'number') return code;
+    } catch {
+      // not JSON
+    }
+    const match = message.match(/"code"\s*:\s*(\d{3})/);
+    return match ? Number(match[1]) : null;
+  }
+
+  private isTransient(err: unknown): boolean {
+    const code = this.providerCode(err);
+    // No code usually means a network/timeout failure.
+    return code == null || [408, 429, 500, 502, 503, 504].includes(code);
+  }
+
+  private friendlyError(err: unknown): string {
+    const code = this.providerCode(err);
+    if (code === 401 || code === 403) {
+      return 'The AI provider rejected the configured API key. Check GEMINI_API_KEY.';
+    }
+    if (code === 404) {
+      return 'The configured AI model is unavailable. Check GEMINI_FAST_MODEL and GEMINI_FALLBACK_MODEL.';
+    }
+    if (code === 429) {
+      return 'The AI provider is receiving too many requests. Please try again shortly.';
+    }
+    if (code === 500 || code === 502 || code === 503 || code === 504) {
+      return 'The AI provider is busy right now. Please try again in a moment.';
+    }
+    return 'The AI service is temporarily unavailable. Please try again.';
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   /**
    * Ask Gemini to produce structured JSON that conforms to `schema`.
    */
@@ -119,6 +177,11 @@ export class GeminiService {
 
   /**
    * Stream a chat completion token-by-token (async generator of text deltas).
+   *
+   * Transient provider failures (429/5xx/network) are retried with exponential
+   * backoff. If the primary model stays unavailable, the configured fallback
+   * model is tried. Once any token has been emitted we cannot safely retry
+   * without duplicating text, so a mid-stream failure is surfaced instead.
    */
   async *streamChat(opts: {
     systemInstruction: string;
@@ -130,26 +193,71 @@ export class GeminiService {
       ...opts.history.map((h) => ({ role: h.role, parts: [{ text: h.text }] })),
       { role: 'user', parts: [{ text: opts.prompt }] },
     ];
-    try {
-      const stream = await ai.models.generateContentStream({
-        model: this.model('fast'),
-        contents,
-        config: {
-          systemInstruction: opts.systemInstruction,
-          temperature: 0.5,
-        },
-      });
-      for await (const chunk of stream) {
-        const delta = chunk.text ?? '';
-        if (delta) yield delta;
+    const models = this.modelsFor('fast');
+    const maxAttemptsPerModel = 3;
+    let lastError: unknown = null;
+
+    for (let modelIndex = 0; modelIndex < models.length; modelIndex++) {
+      const model = models[modelIndex];
+
+      for (let attempt = 1; attempt <= maxAttemptsPerModel; attempt++) {
+        let emitted = false;
+        try {
+          const stream = await ai.models.generateContentStream({
+            model,
+            contents,
+            config: {
+              systemInstruction: opts.systemInstruction,
+              temperature: 0.5,
+            },
+          });
+          for await (const chunk of stream) {
+            const delta = chunk.text ?? '';
+            if (delta) {
+              emitted = true;
+              yield delta;
+            }
+          }
+          return;
+        } catch (err) {
+          lastError = err;
+          const code = this.providerCode(err);
+          this.logger.error(
+            `Gemini streamChat failed (model=${model}, attempt=${attempt}/${maxAttemptsPerModel}, code=${code ?? 'n/a'}): ${
+              (err as Error).message ?? 'unknown error'
+            }`,
+          );
+
+          if (emitted) {
+            throw new BadGatewayException(
+              'The AI connection was interrupted after it started responding. Please try again.',
+            );
+          }
+
+          if (!this.isTransient(err)) {
+            throw new BadGatewayException(this.friendlyError(err));
+          }
+
+          if (attempt < maxAttemptsPerModel) {
+            const waitMs = 500 * 2 ** (attempt - 1);
+            this.logger.warn(`Retrying Gemini chat in ${waitMs}ms...`);
+            await this.sleep(waitMs);
+            continue;
+          }
+
+          if (modelIndex < models.length - 1) {
+            this.logger.warn(
+              `Primary AI model unavailable; falling back to ${models[modelIndex + 1]}.`,
+            );
+            break;
+          }
+
+          throw new BadGatewayException(this.friendlyError(err));
+        }
       }
-    } catch (err) {
-      const message = (err as Error).message ?? 'unknown error';
-      this.logger.error(`Gemini streamChat failed: ${message}`);
-      throw new BadGatewayException(
-        'The AI chat service failed. Please try again.',
-      );
     }
+
+    throw new BadGatewayException(this.friendlyError(lastError));
   }
 
   /**
