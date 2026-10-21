@@ -12,6 +12,9 @@ import { GoogleGenAI } from '@google/genai';
 
 export type GeminiModelKind = 'fast' | 'pro';
 
+/** Hardcoded fallback used when the fast chat model is overloaded. */
+const FALLBACK_GEMINI_MODEL = 'gemini-3-flash-preview';
+
 export interface ChatTurn {
   role: 'user' | 'model';
   text: string;
@@ -41,15 +44,12 @@ export class GeminiService {
       : (process.env.GEMINI_PRO_MODEL ?? 'gemini-3.5-flash');
   }
 
-  /** Primary model followed by an optional fallback model. */
+  /** Primary model followed by the hardcoded fallback model. */
   private modelsFor(kind: GeminiModelKind): string[] {
     const primary = this.model(kind);
-    const fallback = (
-      process.env.GEMINI_FALLBACK_MODEL ??
-      process.env.GEMINI_PRO_MODEL ??
-      ''
-    ).trim();
-    return fallback && fallback !== primary ? [primary, fallback] : [primary];
+    return FALLBACK_GEMINI_MODEL !== primary
+      ? [primary, FALLBACK_GEMINI_MODEL]
+      : [primary];
   }
 
   /** Extract the provider HTTP/status code from a Google GenAI error. */
