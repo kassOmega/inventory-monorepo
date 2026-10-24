@@ -15,6 +15,7 @@ import {
 } from '@prisma/client';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { inventorySet, inventoryUpsert } from '../common/inventory.util';
+import { valueProductInventory } from '../common/inventory-valuation.util';
 import { resolveProductUnits } from '../common/product-units.util';
 import {
   baseToStockQuantity,
@@ -974,7 +975,13 @@ export class ProductsService {
 
     if (!product) throw new NotFoundException(tr('errors.productNotFound'));
 
-    return product;
+    // Per-variant, per-unit valuation used by the product detail view. The
+    // calculation lives here so the frontend never mixes base/stock units.
+    const valuation = valueProductInventory(
+      product as any,
+      (product.inventory ?? []) as any,
+    );
+    return { ...product, valuation };
   }
 
   async update(id: number, dto: UpdateProductDto, user: JwtPayload) {

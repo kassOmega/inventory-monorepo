@@ -4,10 +4,8 @@ import ProductUnitPrices from "./ProductUnitPrices";
 import { QRCodeSVG } from "qrcode.react";
 import { variantLabel } from "@/lib/variantLabel";
 import { formatStockQuantity } from "@/lib/unit-display";
-import {
-  maxPerBase,
-  stockPriceFromBase,
-} from "@/lib/unit-stock";
+import { maxPerBase } from "@/lib/unit-stock";
+import { formatUnitPriceLines, type ProductValuation } from "@/lib/inventory-valuation";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import { fmtCurrency } from "@/lib/currency";
@@ -70,12 +68,8 @@ export default function ProductDetailModal({
   const units: UnitRow[] = d?.units ?? [];
   const baseBuyPrice = Number(d?.currentBuyPrice) || 0;
   const baseSellPrice = Number(d?.currentSellPrice) || 0;
-  // Pre-existing (product-level) valuation, restored after reverting the
-  // per-variant actual/replacement experiment.
-  const unitCost = stockPriceFromBase(baseBuyPrice, units);
-  const unitSell = stockPriceFromBase(baseSellPrice, units);
-  const totalCostValue = totalStock * unitCost;
-  const estProfit = totalStock * (unitSell - unitCost);
+  // Backend-computed per-variant, per-unit valuation.
+  const valuation = detail?.valuation as ProductValuation | undefined;
   const variantById = new Map<number, any>(
     (d?.variants ?? []).map((v: any) => [v.id, v]),
   );
@@ -189,45 +183,134 @@ export default function ProductDetailModal({
             )}
           </div>
 
-          {/* Pricing summary. Buy Price / Total Cost Value / Est. Profit are
-              RBAC-gated (sales.view-profit); everyone sees the sell price. */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {canViewProfit && (
-              <div className="border rounded-lg p-2">
-                <p className="text-[11px] text-gray-400 font-medium">{t("pdm.buyPrice")}</p>
-                <p className="text-sm font-semibold text-gray-800">
-                  {fmtCurrency(unitCost)}
-                </p>
-              </div>
-            )}
-            <div className="border rounded-lg p-2">
-              <p className="text-[11px] text-gray-400 font-medium">{t("pdm.sellPrice")}</p>
-              <p className="text-sm font-semibold text-gray-800">
-                {fmtCurrency(unitSell)}
-              </p>
-            </div>
-            {canViewProfit && (
-              <>
+          {/* Exact totals from the backend per-variant, per-unit valuation. */}
+          {valuation && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {canViewProfit && (
                 <div className="border rounded-lg p-2">
-                  <p className="text-[11px] text-gray-400 font-medium">{t("pdm.totalCostValue")}</p>
+                  <p className="text-[11px] text-gray-400 font-medium">
+                    {t("pdm.buyTotal")}
+                  </p>
                   <p className="text-sm font-semibold text-gray-800">
-                    {fmtCurrency(totalCostValue)}
+                    {fmtCurrency(valuation.totals.buyTotal)}
                   </p>
                 </div>
+              )}
+              <div className="border rounded-lg p-2">
+                <p className="text-[11px] text-gray-400 font-medium">
+                  {t("pdm.sellTotal")}
+                </p>
+                <p className="text-sm font-semibold text-gray-800">
+                  {fmtCurrency(valuation.totals.sellTotal)}
+                </p>
+              </div>
+              {canViewProfit && (
                 <div className="border rounded-lg p-2">
-                  <p className="text-[11px] text-gray-400 font-medium">{t("pdm.estProfit")}</p>
+                  <p className="text-[11px] text-gray-400 font-medium">
+                    {t("pdm.profit")}
+                  </p>
                   <p
                     className={
                       "text-sm font-semibold " +
-                      (estProfit >= 0 ? "text-green-600" : "text-red-500")
+                      (valuation.totals.profit >= 0
+                        ? "text-green-600"
+                        : "text-red-500")
                     }
                   >
-                    {fmtCurrency(estProfit)}
+                    {fmtCurrency(valuation.totals.profit)}
                   </p>
                 </div>
-              </>
-            )}
-          </div>
+              )}
+            </div>
+          )}
+
+          {valuation && (
+            <div>
+              <h4 className="font-medium text-gray-700 mb-2">
+                {t("pdm.valuationTitle")}
+              </h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm whitespace-nowrap">
+                  <thead>
+                    <tr>
+                      <th className="text-left p-1">{t("pdm.variants")}</th>
+                      <th className="text-right p-1">{t("pdm.colQty")}</th>
+                      {canViewProfit && (
+                        <th className="text-right p-1">
+                          {t("pdm.buyPricePerUnit")}
+                        </th>
+                      )}
+                      <th className="text-right p-1">
+                        {t("pdm.sellPricePerUnit")}
+                      </th>
+                      {canViewProfit && (
+                        <th className="text-right p-1">{t("pdm.buyTotal")}</th>
+                      )}
+                      <th className="text-right p-1">{t("pdm.sellTotal")}</th>
+                      {canViewProfit && (
+                        <th className="text-right p-1">{t("pdm.profit")}</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {valuation.rows.map((row) => (
+                      <tr key={row.variantId ?? "standard"} className="border-t">
+                        <td className="p-1">
+                          {row.variant
+                            ? variantLabel(row.variant) || t("pdm.standard")
+                            : t("pdm.standard")}
+                        </td>
+                        <td className="p-1 text-right">{row.quantityText}</td>
+                        {canViewProfit && (
+                          <td className="p-1 text-right">
+                            {formatUnitPriceLines(row.unitLines, "buyPrice")}
+                          </td>
+                        )}
+                        <td className="p-1 text-right">
+                          {formatUnitPriceLines(row.unitLines, "sellPrice")}
+                        </td>
+                        {canViewProfit && (
+                          <td className="p-1 text-right">
+                            {fmtCurrency(row.buyTotal)}
+                          </td>
+                        )}
+                        <td className="p-1 text-right">
+                          {fmtCurrency(row.sellTotal)}
+                        </td>
+                        {canViewProfit && (
+                          <td className="p-1 text-right">
+                            {fmtCurrency(row.profit)}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t font-semibold">
+                      <td className="p-1" colSpan={2}>
+                        {t("common.total")}
+                      </td>
+                      {canViewProfit && <td />}
+                      <td />
+                      {canViewProfit && (
+                        <td className="p-1 text-right">
+                          {fmtCurrency(valuation.totals.buyTotal)}
+                        </td>
+                      )}
+                      <td className="p-1 text-right">
+                        {fmtCurrency(valuation.totals.sellTotal)}
+                      </td>
+                      {canViewProfit && (
+                        <td className="p-1 text-right">
+                          {fmtCurrency(valuation.totals.profit)}
+                        </td>
+                      )}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div>
             <h4 className="font-medium text-gray-700 mb-2">

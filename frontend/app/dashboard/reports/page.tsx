@@ -14,6 +14,7 @@ import { useToast } from "@/app/components/ToastProvider";
 import { useAuth } from "@/context/AuthContext";
 import { variantLabel } from "@/lib/variantLabel";
 import { formatStockQuantity } from "@/lib/unit-display";
+import { formatUnitPriceLines } from "@/lib/inventory-valuation";
 import { getVerticalFeatures } from "@/lib/verticals";
 import { useSingleLocationAutofill } from "@/lib/singleLocation";
 import useDebouncedValue from "@/lib/useDebouncedValue";
@@ -532,12 +533,20 @@ export default function ReportsPage() {
                         </td>
                       ))}
                       <td className="p-2 sm:p-3 md:p-4 text-right text-gray-700">
-                        {fmtMoney(r.unitSellPrice)}
+                        {r.unitLines?.length
+                          ? formatUnitPriceLines(r.unitLines, "sellPrice")
+                          : r.variants?.length > 1
+                            ? t("reports.variesByVariant")
+                            : fmtMoney(r.unitSellPrice)}
                       </td>
                       {showCostValuation && (
                         <>
                           <td className="p-2 sm:p-3 md:p-4 text-right text-gray-700">
-                            {fmtMoney(r.unitBuyPrice)}
+                            {r.unitLines?.length
+                              ? formatUnitPriceLines(r.unitLines, "buyPrice")
+                              : r.variants?.length > 1
+                                ? t("reports.variesByVariant")
+                                : fmtMoney(r.unitBuyPrice)}
                           </td>
                           <td className="p-2 sm:p-3 md:p-4 text-right text-gray-700">
                             {fmtMoney(r.buyTotal)}
@@ -621,12 +630,22 @@ export default function ReportsPage() {
                                     </td>
                                   ))}
                                   <td className="p-1 text-right text-gray-600">
-                                    {fmtMoney(vr.unitSellPrice)}
+                                    {vr.unitLines?.length
+                                      ? formatUnitPriceLines(
+                                          vr.unitLines,
+                                          "sellPrice",
+                                        )
+                                      : fmtMoney(vr.unitSellPrice)}
                                   </td>
                                   {showCostValuation && (
                                     <>
                                       <td className="p-1 text-right text-gray-600">
-                                        {fmtMoney(vr.unitBuyPrice)}
+                                        {vr.unitLines?.length
+                                          ? formatUnitPriceLines(
+                                              vr.unitLines,
+                                              "buyPrice",
+                                            )
+                                          : fmtMoney(vr.unitBuyPrice)}
                                       </td>
                                       <td className="p-1 text-right text-gray-600">
                                         {fmtMoney(vr.buyTotal)}

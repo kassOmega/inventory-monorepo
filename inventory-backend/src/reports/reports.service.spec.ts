@@ -343,4 +343,67 @@ describe('ReportsService.getInventoryBreakdown valuation gating', () => {
     expect(vs[0].sellTotal).toBe(60);
     expect(vs[1].buyTotal).toBe(30);
   });
+
+  it('breaks stock into units and prices every unit per variant', async () => {
+    const units = [
+      {
+        unitId: 1,
+        perBase: 1,
+        isBase: true,
+        isDefaultSale: true,
+        sellPrice: null,
+        buyPrice: null,
+        unit: { name: 'Roll' },
+      },
+      {
+        unitId: 2,
+        perBase: 100,
+        isBase: false,
+        isDefaultSale: false,
+        sellPrice: null,
+        buyPrice: null,
+        unit: { name: 'Meter' },
+      },
+    ];
+    const rows = [
+      invAt(2, 'Main Store', 29637, {
+        productId: 8,
+        productSku: 'WIRE-1',
+        product: { units },
+        variantId: 301,
+        variant: {
+          id: 301,
+          sku: 'WIRE-1-A',
+          attributes: {},
+          buyPrice: 1200,
+          sellPrice: 1500,
+        },
+      }),
+    ];
+    const prisma = makePrisma(rows);
+    const service = new ReportsService(prisma as any);
+
+    const data = await service.getInventoryBreakdown(owner as any, undefined);
+    const row: any = data.rows[0];
+    const vr: any = row.variants[0];
+
+    expect(vr.quantityText).toBe('296 Roll 37 Meter');
+    expect(
+      vr.unitLines.map((line: any) => [
+        line.name,
+        line.count,
+        line.buyPrice,
+        line.sellPrice,
+      ]),
+    ).toEqual([
+      ['Roll', 296, 1200, 1500],
+      ['Meter', 37, 12, 15],
+    ]);
+    expect(vr.buyTotal).toBe(355644); // 296×1200 + 37×12
+    expect(vr.sellTotal).toBe(444555); // 296×1500 + 37×15
+    expect(vr.estimatedProfit).toBe(88911);
+    expect(row.buyTotal).toBe(355644);
+    expect(row.sellTotal).toBe(444555);
+    expect(row.estimatedProfit).toBe(88911);
+  });
 });
