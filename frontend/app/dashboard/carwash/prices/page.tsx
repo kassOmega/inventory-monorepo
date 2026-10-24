@@ -3,7 +3,8 @@
 import api from "@/lib/api";
 import Button from "@/app/components/Button";
 import Loading from "@/app/components/Loading";
-import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
+import { FilterSelect } from "@/app/components/FilterPanel";
 import Modal from "@/app/components/Modal";
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import { useAuth } from "@/context/AuthContext";
@@ -320,7 +321,7 @@ export default function CarWashPricesPage() {
 
       {tab === "prices" && (
         <>
-          <FilterPanel
+          <CollapsibleFilterPanel
             search={search}
             onSearchChange={setSearch}
             searchPlaceholder={t("carwash.vehicleType")}

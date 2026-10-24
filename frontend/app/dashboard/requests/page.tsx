@@ -12,6 +12,7 @@ import Pagination from "@/app/components/Pagination";
 import RowActionsMenu from "@/app/components/RowActionsMenu";
 import SearchableSelect from "@/app/components/SearchableSelect";
 import { useToast } from "@/app/components/ToastProvider";
+import UnitQuantityInput from "@/app/components/UnitQuantityInput";
 import VariantLinesEditor, {
   addOrBumpVariantLine,
   VariantSaleLine,
@@ -26,6 +27,8 @@ import { fmtCurrency } from "@/lib/currency";
 import { formatDateTime } from "@/lib/datetime";
 import { useSingleLocationAutofill } from "@/lib/singleLocation";
 import { statusLabel } from "@/lib/statusLabel";
+import { stockPerUnit, unitsLargestFirst } from "@/lib/unit-stock";
+import { formatStockQuantity } from "@/lib/unit-display";
 import useServerPaging from "@/lib/useServerPaging";
 import { batchLabel, variantLabel } from "@/lib/variantLabel";
 import Link from "next/link";
@@ -86,6 +89,7 @@ export default function RequestsPage() {
             ? {
                 ...r,
                 productId: String(product.id),
+                unitId: baseUnitIdFor(product),
                 variantLines: variant?.id
                   ? [
                       {
@@ -141,6 +145,8 @@ export default function RequestsPage() {
       variantBarcode: string;
       productSku: string;
       productBarcode: string;
+      units: any[];
+      baseUnitName: string;
     }[]
   >([]);
   const [saleType, setSaleType] = useState<
@@ -172,9 +178,10 @@ export default function RequestsPage() {
       productId: string;
       quantity: string;
       categoryId: string;
+      unitId?: string;
       variantLines?: VariantSaleLine[];
     }[]
-  >([{ productId: "", quantity: "", categoryId: "" }]);
+  >([{ productId: "", quantity: "", categoryId: "", unitId: "" }]);
 
   // Edit mode: the request currently being revised (owner or creator).
   const [editingReq, setEditingReq] = useState<any>(null);
@@ -298,6 +305,11 @@ export default function RequestsPage() {
             variantBarcode: i.variant?.barcode ?? "",
             productSku: i.product?.sku ?? "",
             productBarcode: i.product?.barcode ?? "",
+            units: (i.product?.units ?? []) as any[],
+            baseUnitName:
+              (i.product?.units ?? []).find((u: any) => u.isBase)?.unit?.name ??
+              i.product?.unit?.name ??
+              "",
           };
         }),
     );
@@ -565,7 +577,7 @@ export default function RequestsPage() {
       setShowReqModal(false);
       setEditingReq(null);
       setReqStoreId("");
-      setReqItems([{ productId: "", quantity: "", categoryId: "" }]);
+      setReqItems([{ productId: "", quantity: "", categoryId: "", unitId: "" }]);
       fetchRequests();
     } catch (err: any) {
       markHandled(err);
@@ -641,6 +653,7 @@ export default function RequestsPage() {
           ? {
               ...item,
               productId: String(product.id),
+              unitId: baseUnitIdFor(product),
               categoryId: product.categoryId
                 ? String(product.categoryId)
                 : item.categoryId,
@@ -749,15 +762,15 @@ export default function RequestsPage() {
         ).trim() || "Item #" + item.id;
       const requested = item.quantityRequested ?? d.quantityDispatched;
       const already = item.quantityDispatched || 0;
-      if (d.quantityDispatched < 1) {
+      if (d.quantityDispatched <= 0) {
         toast.error(t("requests.qtyAtLeast1", { name }));
         return;
       }
-      if (already + d.quantityDispatched > requested) {
+      if (already + d.quantityDispatched > requested + 1e-9) {
         toast.error(
           t("requests.cannotDispatchMore", {
             name,
-            requested: String(requested),
+            requested: formatRequestQty(requested, item.product),
           }),
         );
         return;
@@ -804,6 +817,22 @@ export default function RequestsPage() {
         : item.quantityDispatched || 0;
     return Math.max(0, (item.quantityRequested ?? 0) - sent);
   };
+  const unitsForProduct = (product: any) =>
+    unitsLargestFirst((product?.units ?? []) as any[]);
+  const baseUnitIdFor = (product: any) => {
+    const units = unitsForProduct(product);
+    return String(
+      (units.find((u: any) => u.isBase) ?? units[0])?.unitId ?? "",
+    );
+  };
+  const formatStockQty = (qty: any, product: any) => {
+    if (qty === null || qty === undefined || qty === "") return "—";
+    const units = unitsForProduct(product);
+    return units.length
+      ? formatStockQuantity(Number(qty) || 0, units)
+      : `${Number(qty) || 0}${product?.unit?.name ? ` ${product.unit.name}` : ""}`;
+  };
+  const formatRequestQty = formatStockQty;
   const isConfirmableItem = (req: any, item: any) =>
     [
       "APPROVED",
@@ -900,6 +929,7 @@ export default function RequestsPage() {
           productId: string;
           quantity: string;
           categoryId: string;
+          unitId?: string;
           variantLines?: VariantSaleLine[];
         }[] = [];
         for (const i of req.items ?? []) {
@@ -921,6 +951,7 @@ export default function RequestsPage() {
                 categoryId: i.product?.categoryId
                   ? String(i.product.categoryId)
                   : "",
+                unitId: baseUnitIdFor(i.product),
                 variantLines: [line],
               });
             }
@@ -931,6 +962,7 @@ export default function RequestsPage() {
               categoryId: i.product?.categoryId
                 ? String(i.product.categoryId)
                 : "",
+              unitId: baseUnitIdFor(i.product),
             });
           }
         }
@@ -1364,7 +1396,10 @@ export default function RequestsPage() {
                               )}
                             </td>
                             <td className="py-1 w-10 whitespace-nowrap text-gray-500">
-                              {i.quantityRequested ?? i.quantityStored ?? "—"}
+                              {formatRequestQty(
+                                i.quantityRequested ?? i.quantityStored,
+                                i.product,
+                              )}
                             </td>
                           </tr>
                         ),
@@ -1587,16 +1622,16 @@ export default function RequestsPage() {
                             )}
                           </td>
                           <td className="p-2 text-right whitespace-nowrap">
-                            {item.quantityRequested ?? "—"}
+                            {formatRequestQty(item.quantityRequested, item.product)}
                           </td>
                           <td className="p-2 text-right whitespace-nowrap">
-                            {item.quantityDispatched ?? 0}
+                            {formatRequestQty(item.quantityDispatched ?? 0, item.product)}
                           </td>
                           <td className="p-2 text-right whitespace-nowrap">
-                            {item.quantityStored ?? 0}
+                            {formatRequestQty(item.quantityStored ?? 0, item.product)}
                           </td>
                           <td className="p-2 text-right whitespace-nowrap">
-                            {item.quantityReceived ?? 0}
+                            {formatRequestQty(item.quantityReceived ?? 0, item.product)}
                           </td>
                           <td className="p-2 whitespace-nowrap">
                             {item.status.replace(/_/g, " ")}
@@ -1669,11 +1704,15 @@ export default function RequestsPage() {
                   </p>
                   <p className="text-sm text-gray-500">
                     {t("requests.requestedSummary", {
-                      qty: item.quantityRequested ?? "—",
+                      qty: formatRequestQty(item.quantityRequested, item.product),
                     })}
                     {isStoreToOwner
-                      ? ` | ${t("requests.storedSummary", { qty: item.quantityStored || 0 })}`
-                      : ` | ${t("requests.dispatchedSummary", { qty: item.quantityDispatched || 0 })}`}
+                      ? ` | ${t("requests.storedSummary", {
+                          qty: formatRequestQty(item.quantityStored || 0, item.product),
+                        })}`
+                      : ` | ${t("requests.dispatchedSummary", {
+                          qty: formatRequestQty(item.quantityDispatched || 0, item.product),
+                        })}`}
                   </p>
                   <p className="flex items-center gap-2 text-xs text-gray-500">
                     {t("requests.statusColon")}
@@ -1709,15 +1748,17 @@ export default function RequestsPage() {
                     item.status === "PARTIALLY_RECEIVED" ||
                     item.status === "PARTIALLY_FULFILLED") && (
                     <p className="text-xs text-gray-500 mt-0.5">
-                      {t("requests.receivedColon")} {item.quantityReceived ?? 0}
+                      {t("requests.receivedColon")}{" "}
+                      {formatRequestQty(item.quantityReceived ?? 0, item.product)}
                       {(item.status === "PARTIALLY_RECEIVED" ||
                         item.status === "PARTIALLY_FULFILLED") &&
                         ` ${t("requests.shortBy", {
-                          n: String(
+                          n: formatRequestQty(
                             (isStoreToOwner
                               ? item.quantityStored || 0
                               : item.quantityDispatched || 0) -
                               (item.quantityReceived ?? 0),
+                            item.product,
                           ),
                         })}`}
                     </p>
@@ -1789,25 +1830,27 @@ export default function RequestsPage() {
                         item.status === "STORED" ||
                         item.status === "PARTIALLY_RECEIVED") && (
                         <>
-                          <input
-                            type="number"
-                            min="0"
-                            placeholder={t("requests.qtyStoredPlaceholder")}
-                            value={storeData?.quantityStored ?? 0}
-                            onChange={(e) =>
-                              setOwnerStoreData(
-                                ownerStoreData.map((d) =>
-                                  d.id === item.id
-                                    ? {
-                                        ...d,
-                                        quantityStored: Number(e.target.value),
-                                      }
-                                    : d,
-                                ),
-                              )
-                            }
-                            className="border p-1 rounded w-24 text-sm"
-                          />
+                          <div>
+                            <p className="mb-0.5 text-[10px] font-medium text-gray-500">
+                              {t("requests.qtyStoredPlaceholder")}
+                            </p>
+                            <UnitQuantityInput
+                              valueMode="stock"
+                              units={unitsForProduct(item.product)}
+                              value={storeData?.quantityStored ?? 0}
+                              onChange={(quantityStored) =>
+                                setOwnerStoreData(
+                                  ownerStoreData.map((d) =>
+                                    d.id === item.id
+                                      ? { ...d, quantityStored }
+                                      : d,
+                                  ),
+                                )
+                              }
+                              compact
+                              showTotal={false}
+                            />
+                          </div>
                           <input
                             type="number"
                             step="0.01"
@@ -1857,28 +1900,25 @@ export default function RequestsPage() {
                   hasPermission("requests.dispatch") &&
                   isDispatchableItem(selectedReq, item) &&
                   !isStoreToOwner && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs text-gray-500">
                         {t("requests.dispatchQtyLabel")}
                       </span>
-                      <input
-                        type="number"
-                        min="1"
-                        max={remainingFor(selectedReq, item)}
+                      <UnitQuantityInput
+                        valueMode="stock"
+                        units={unitsForProduct(item.product)}
                         value={dispatch?.quantityDispatched || 0}
-                        onChange={(e) =>
+                        onChange={(quantityDispatched) =>
                           setDispatchData(
                             dispatchData.map((d) =>
                               d.id === item.id
-                                ? {
-                                    ...d,
-                                    quantityDispatched: Number(e.target.value),
-                                  }
+                                ? { ...d, quantityDispatched }
                                 : d,
                             ),
                           )
                         }
-                        className="border p-2 rounded-lg w-24"
+                        compact
+                        showTotal={false}
                       />
                     </div>
                   )}
@@ -1887,31 +1927,28 @@ export default function RequestsPage() {
                 {!isClosed &&
                   canConfirmReceipt(selectedReq) &&
                   isConfirmableItem(selectedReq, item) && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs text-gray-500">
                         {t("requests.receivedQtyLabel")}
                       </span>
-                      <input
-                        type="number"
-                        min="1"
-                        max={outstandingFor(selectedReq, item)}
+                      <UnitQuantityInput
+                        valueMode="stock"
+                        units={unitsForProduct(item.product)}
                         value={
                           receivedData.find((d) => d.id === item.id)
                             ?.quantityReceived ?? 0
                         }
-                        onChange={(e) =>
+                        onChange={(quantityReceived) =>
                           setReceivedData(
                             receivedData.map((d) =>
                               d.id === item.id
-                                ? {
-                                    ...d,
-                                    quantityReceived: Number(e.target.value),
-                                  }
+                                ? { ...d, quantityReceived }
                                 : d,
                             ),
                           )
                         }
-                        className="border p-2 rounded-lg w-24"
+                        compact
+                        showTotal={false}
                       />
                       {(() => {
                         const expectedQty = outstandingFor(selectedReq, item);
@@ -1921,7 +1958,10 @@ export default function RequestsPage() {
                         return enteredQty > 0 && enteredQty < expectedQty ? (
                           <p className="text-xs text-amber-600 mt-1">
                             {t("requests.shortageNote", {
-                              n: String(expectedQty - enteredQty),
+                              n: formatRequestQty(
+                                expectedQty - enteredQty,
+                                item.product,
+                              ),
                             })}
                           </p>
                         ) : null;
@@ -2077,6 +2117,20 @@ export default function RequestsPage() {
               (sp: any) => sp.id === Number(item.productId),
             );
             const isVariantRow = !!rowProduct?.hasVariants;
+            const rowUnits = unitsForProduct(rowProduct);
+            const rowBaseUnit =
+              rowUnits.find((u: any) => u.isBase) ?? rowUnits[0] ?? null;
+            const rowUnit =
+              rowUnits.find(
+                (u: any) => String(u.unitId) === String(item.unitId),
+              ) ?? rowBaseUnit;
+            const rowStockPerUnit = rowUnit
+              ? stockPerUnit(rowUnit, rowUnits)
+              : 1;
+            const rowDisplayQty =
+              Math.round(
+                ((Number(item.quantity) || 0) / rowStockPerUnit) * 1e6,
+              ) / 1e6;
             return (
               <div
                 key={idx}
@@ -2095,6 +2149,7 @@ export default function RequestsPage() {
                           ...newItems[idx],
                           categoryId: e.target.value,
                           productId: "",
+                          unitId: "",
                           variantLines: [],
                         };
                         setReqItems(newItems);
@@ -2126,9 +2181,13 @@ export default function RequestsPage() {
                         value={item.productId}
                         onChange={(v) => {
                           const newItems = [...reqItems];
+                          const picked = products.find(
+                            (p: any) => String(p.id) === String(v),
+                          );
                           newItems[idx] = {
                             ...newItems[idx],
                             productId: v,
+                            unitId: baseUnitIdFor(picked),
                             variantLines: [],
                           };
                           setReqItems(newItems);
@@ -2158,6 +2217,7 @@ export default function RequestsPage() {
                   <VariantLinesEditor
                     hidePrice
                     allowOutOfStock
+                    quantityUnits={unitsForProduct(storeRow ?? rowProduct)}
                     product={storeRow ?? rowProduct}
                     lines={item.variantLines ?? []}
                     onChange={(lines) => {
@@ -2172,17 +2232,46 @@ export default function RequestsPage() {
                       <label className="block text-xs font-medium text-gray-500 mb-1">
                         {t("requests.qtyOptional")}
                       </label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={item.quantity}
-                        onChange={(e) => {
-                          const newItems = [...reqItems];
-                          newItems[idx].quantity = e.target.value;
-                          setReqItems(newItems);
-                        }}
-                        className="border p-2 rounded-lg w-full text-sm"
-                      />
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          inputMode="numeric"
+                          value={rowDisplayQty || ""}
+                          onChange={(e) => {
+                            const entered =
+                              Number(e.target.value.replace(/[^0-9]/g, "")) || 0;
+                            const stockQty = entered * rowStockPerUnit;
+                            const newItems = [...reqItems];
+                            newItems[idx].quantity = stockQty
+                              ? String(stockQty)
+                              : "";
+                            newItems[idx].unitId = String(rowUnit?.unitId ?? "");
+                            setReqItems(newItems);
+                          }}
+                          className="min-w-0 flex-1 rounded-lg border p-2 text-sm tabular-nums"
+                          placeholder="0"
+                        />
+                        {rowUnit && (
+                          <select
+                            value={String(rowUnit.unitId)}
+                            onChange={(e) => {
+                              const newItems = [...reqItems];
+                              newItems[idx].unitId = e.target.value;
+                              setReqItems(newItems);
+                            }}
+                            className="w-20 shrink-0 rounded-lg border bg-white p-2 text-xs"
+                            aria-label={t("common.unit")}
+                          >
+                            {rowUnits.map((u: any) => (
+                              <option key={u.unitId} value={u.unitId}>
+                                {u.unit?.name ?? u.name ?? u.unitId}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
                       {reqStoreId &&
                         storeStockMap[Number(item.productId)] !== undefined && (
                           <p
@@ -2193,7 +2282,10 @@ export default function RequestsPage() {
                             }`}
                           >
                             {t("sv.storeStock")}:{" "}
-                            {storeStockMap[Number(item.productId)]}
+                            {formatStockQty(
+                              storeStockMap[Number(item.productId)],
+                              rowProduct,
+                            )}
                           </p>
                         )}
                     </div>
@@ -2222,7 +2314,7 @@ export default function RequestsPage() {
               onClick={() =>
                 setReqItems([
                   ...reqItems,
-                  { productId: "", quantity: "", categoryId: "" },
+                  { productId: "", quantity: "", categoryId: "", unitId: "" },
                 ])
               }
               className="flex-1 bg-gray-100 text-gray-700 p-2 rounded-lg text-sm border border-dashed"
@@ -2309,61 +2401,62 @@ export default function RequestsPage() {
                           </div>
                           <p className="text-[10px] text-gray-400">
                             {t("requests.dispatchedInline")}{" "}
-                            {item.dispatched ?? 0}
+                            {formatRequestQty(item.dispatched ?? 0, { units: item.units })}
                             {item.quantityReceived < (item.dispatched ?? 0)
                               ? ` ${t("requests.shortageInline", {
-                                  n: String(
-                                    (item.dispatched ?? 0) -
-                                      item.quantityReceived,
+                                  n: formatRequestQty(
+                                    (item.dispatched ?? 0) - item.quantityReceived,
+                                    { units: item.units },
                                   ),
                                 })}`
                               : ""}
                           </p>
-                          <div className="flex items-center gap-2 flex-wrap mt-1">
-                            <label className="text-xs text-gray-500">
-                              {t("requests.receivedInline")}
-                            </label>
-                            <input
-                              type="number"
-                              min="1"
-                              max={item.dispatched ?? 0}
-                              value={item.quantityReceived}
-                              onChange={(e) => {
-                                const received = Math.min(
-                                  Number(e.target.value),
-                                  item.dispatched ?? 0,
-                                );
-                                updateSaleItem(item.requestItemId, {
-                                  quantityReceived: received,
-                                  quantity: Math.min(item.quantity, received),
-                                });
-                              }}
-                              className="border p-1.5 rounded-lg w-20 text-sm"
-                            />
-                            <label className="text-xs text-gray-500">
-                              {t("requests.sellInline")}
-                            </label>
-                            <input
-                              type="number"
-                              min="0"
-                              max={item.quantityReceived}
-                              value={item.quantity}
-                              onChange={(e) => {
-                                const q = Math.max(
-                                  0,
-                                  Math.min(
-                                    Number(e.target.value) || 0,
-                                    item.quantityReceived || 0,
-                                  ),
-                                );
-                                updateSaleItem(item.requestItemId, {
-                                  quantity: q,
-                                });
-                              }}
-                              className="border p-1.5 rounded-lg w-20 text-sm"
-                            />
+                          <div className="mt-1 space-y-2">
+                            <div>
+                              <label className="mb-0.5 block text-xs text-gray-500">
+                                {t("requests.receivedInline")}
+                              </label>
+                              <UnitQuantityInput
+                                valueMode="stock"
+                                units={item.units}
+                                value={item.quantityReceived}
+                                onChange={(received) => {
+                                  const next = Math.min(
+                                    received,
+                                    item.dispatched ?? 0,
+                                  );
+                                  updateSaleItem(item.requestItemId, {
+                                    quantityReceived: next,
+                                    quantity: Math.min(item.quantity, next),
+                                  });
+                                }}
+                                compact
+                                showTotal={false}
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-0.5 block text-xs text-gray-500">
+                                {t("requests.sellInline")}
+                              </label>
+                              <UnitQuantityInput
+                                valueMode="stock"
+                                units={item.units}
+                                value={item.quantity}
+                                onChange={(q) =>
+                                  updateSaleItem(item.requestItemId, {
+                                    quantity: Math.max(
+                                      0,
+                                      Math.min(q, item.quantityReceived || 0),
+                                    ),
+                                  })
+                                }
+                                compact
+                                showTotal={false}
+                              />
+                            </div>
                             <label className="text-xs text-gray-500">
                               {t("requests.priceInline")}
+                              {item.baseUnitName ? ` / ${item.baseUnitName}` : ""}
                             </label>
                             <input
                               type="number"

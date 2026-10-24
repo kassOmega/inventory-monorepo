@@ -9,6 +9,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Button from "@/app/components/Button";
+import CustomerForm from "@/app/components/CustomerForm";
+import Modal from "@/app/components/Modal";
 import SearchableSelect from "@/app/components/SearchableSelect";
 import { fmtCurrency } from "@/lib/currency";
 
@@ -77,10 +79,6 @@ interface CarWashBookingFormProps {
   onLookupCustomer?: (
     phone: string,
   ) => Promise<{ id: string | number; name: string } | null>;
-  onCreateCustomer?: (
-    name: string,
-    phone: string,
-  ) => Promise<{ id: string | number; name: string }>;
   onCheckAvailability?: (
     washerId: string,
     startsAt: string,
@@ -138,7 +136,6 @@ export default function CarWashBookingForm({
   customers = [],
   vehicles = [],
   onLookupCustomer,
-  onCreateCustomer,
   onCheckAvailability,
   onSubmit,
   submitting = false,
@@ -154,6 +151,7 @@ export default function CarWashBookingForm({
   const [customerState, setCustomerState] = useState<"none" | "found" | "new">(
     "none",
   );
+  const [showCustomerForm, setShowCustomerForm] = useState(false);
 
   // --- Booking lines ---------------------------------------------------
   const [items, setItems] = useState<CarWashBookingItemPayload[]>([
@@ -300,18 +298,7 @@ export default function CarWashBookingForm({
     e.preventDefault();
     if (items.length === 0) return;
 
-    // Resolve the customer id: autofill found one, or create a new one when a
-    // name was typed for an unknown phone (staff mode).
-    let cid = customerId || null;
-    if (!cid && name.trim() && phone.trim() && onCreateCustomer) {
-      try {
-        const created = await onCreateCustomer(name.trim(), phone.trim());
-        cid = String(created.id);
-      } catch {
-        // Let the parent decide how to surface the error; still submit so the
-        // booking can proceed with a name/phone only.
-      }
-    }
+    const cid = customerId || null;
 
     await onSubmit({
       customerId: mode === "staff" ? cid : null,
@@ -340,6 +327,7 @@ export default function CarWashBookingForm({
     (mode === "public" ? t("carwash.bookNow") : t("carwash.newBooking"));
 
   return (
+    <>
     <form onSubmit={submit} className="space-y-4">
       {/* --- Customer information (top) -------------------------------- */}
       <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
@@ -382,6 +370,15 @@ export default function CarWashBookingForm({
               required
             />
           </label>
+          {mode === "staff" && !customerId && (
+            <button
+              type="button"
+              onClick={() => setShowCustomerForm(true)}
+              className="text-xs font-medium text-blue-600 hover:underline text-left"
+            >
+              {t("carwash.newCustomer")}
+            </button>
+          )}
         </div>
 
         {/* Registered vehicles for the selected customer (staff). */}
@@ -612,5 +609,22 @@ export default function CarWashBookingForm({
         </Button>
       </div>
     </form>
+    <Modal
+      isOpen={showCustomerForm}
+      onClose={() => setShowCustomerForm(false)}
+      title={t("carwash.addCustomer")}
+    >
+      <CustomerForm
+        onCancel={() => setShowCustomerForm(false)}
+        onCreated={(customer: any) => {
+          setCustomerId(String(customer.id));
+          setName(customer.name ?? "");
+          setPhone(customer.phone ?? "");
+          setCustomerState("found");
+          setShowCustomerForm(false);
+        }}
+      />
+    </Modal>
+    </>
   );
 }

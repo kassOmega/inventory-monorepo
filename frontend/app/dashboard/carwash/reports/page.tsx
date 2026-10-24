@@ -2,7 +2,7 @@
 
 import CarWashReport from "@/app/components/CarWashReport";
 import { getDateRange, type DatePreset } from "@/app/components/DateFilter";
-import FilterPanel from "@/app/components/FilterPanel";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
 
@@ -18,7 +18,7 @@ export default function CarWashReportsPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-800">{t("carwash.reports")}</h1>
 
-      <FilterPanel
+      <CollapsibleFilterPanel
         showDateFilter
         datePreset={datePreset}
         onDatePresetChange={setDatePreset}

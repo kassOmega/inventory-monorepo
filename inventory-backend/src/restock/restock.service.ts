@@ -14,6 +14,10 @@ import {
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { inventoryUpsert } from '../common/inventory.util';
 import {
+  baseToStockQuantity,
+  stockPriceFromBase,
+} from '../common/unit-stock.util';
+import {
   PriceChange,
   newPriceBatchRef,
   recordPriceChanges,
@@ -53,7 +57,10 @@ export class RestockService {
   async restock(dto: RestockDto, user: JwtPayload) {
     const product = await this.prisma.product.findUnique({
       where: { id: dto.productId },
-      include: { category: { select: { name: true } } },
+      include: {
+        category: { select: { name: true } },
+        units: { select: { perBase: true } },
+      },
     });
     if (!product) throw new BadRequestException(tr('errors.productNotFound'));
 
@@ -204,8 +211,14 @@ export class RestockService {
             productId: dto.productId,
             variantId,
             locationId: target.id,
-            increment: dto.quantity,
-            unitCost: dto.newBuyPrice ?? product.currentBuyPrice ?? null,
+            increment: baseToStockQuantity(dto.quantity, product.units),
+            unitCost:
+              (dto.newBuyPrice ?? product.currentBuyPrice ?? null) != null
+                ? stockPriceFromBase(
+                  dto.newBuyPrice ?? product.currentBuyPrice!,
+                  product.units,
+                )
+                : null,
           });
 
           // Perishable: attribute the incoming units to their batch (FIFO).
@@ -217,7 +230,7 @@ export class RestockService {
               batchNumber: dto.batchNumber!,
               manufactureDate: dto.manufactureDate,
               expiryDate: dto.expiryDate,
-              increment: dto.quantity,
+              increment: baseToStockQuantity(dto.quantity, product.units),
             });
           }
 
@@ -495,6 +508,7 @@ export class RestockService {
         select: {
           id: true, brand: true, baseName: true, hasVariants: true, isPerishable: true,
           currentBuyPrice: true, currentSellPrice: true,
+          units: { select: { unitId: true, perBase: true, isBase: true } },
         },
       }),
       requestedLocationIds.length
@@ -643,6 +657,46 @@ export class RestockService {
           }
         }
 
+        // Persist per-unit price overrides. Base prices are handled by the
+        // existing buyPrice/sellPrice path above.
+        for (const target of targets) {
+          const incoming = (target as any).unitPrices as
+            | Record<string, { buyPrice?: number; sellPrice?: number }>
+            | undefined;
+          if (!incoming || Object.keys(incoming).length === 0) continue;
+          if (target.variant) {
+            const variant = await tx.productVariant.findUnique({
+              where: { id: target.variant.id },
+              select: { unitPrices: true },
+            });
+            const merged = {
+              ...((variant?.unitPrices as Record<string, unknown>) ?? {}),
+              ...incoming,
+            };
+            await tx.productVariant.update({
+              where: { id: target.variant.id },
+              data: { unitPrices: merged as any },
+            });
+          } else {
+            for (const [unitId, price] of Object.entries(incoming)) {
+              await tx.productUnit.updateMany({
+                where: {
+                  productId: target.product.id,
+                  unitId: Number(unitId),
+                },
+                data: {
+                  ...(price.buyPrice != null
+                    ? { buyPrice: Number(price.buyPrice) }
+                    : {}),
+                  ...(price.sellPrice != null
+                    ? { sellPrice: Number(price.sellPrice) }
+                    : {}),
+                },
+              });
+            }
+          }
+        }
+
         // A variant move updates the product's own numbers too: they are the
         // average across variants, exactly as everywhere else.
         for (const productId of touchedProducts) {
@@ -724,8 +778,8 @@ export class RestockService {
               productId: line.product.id,
               variantId: line.variant?.id ?? null,
               locationId,
-              increment: line.quantity,
-              unitCost,
+              increment: baseToStockQuantity(line.quantity, line.product.units),
+              unitCost: stockPriceFromBase(unitCost, line.product.units),
             });
           }
 
@@ -737,7 +791,10 @@ export class RestockService {
               batchNumber: line.batchNumber!,
               manufactureDate: line.manufactureDate,
               expiryDate: line.expiryDate,
-              increment: mode === 'direct' ? line.quantity : 0,
+              increment:
+                mode === 'direct'
+                  ? baseToStockQuantity(line.quantity, line.product.units)
+                  : 0,
             });
           }
 
@@ -1237,7 +1294,10 @@ export class RestockService {
         }
         const found = await tx.product.findUnique({
           where: { id: dto.productId },
-          include: { category: { select: { name: true } } },
+          include: {
+            category: { select: { name: true } },
+            units: { select: { perBase: true } },
+          },
         });
         if (!found) throw new BadRequestException(tr('errors.productNotFound'));
         productId = found.id;
@@ -1393,15 +1453,18 @@ export class RestockService {
       }
 
       // --- 3. Physical stock increments at the resolved location ---
-      if (variantLines.length > 0) {
+        if (variantLines.length > 0) {
         for (const line of variantLines) {
           await inventoryUpsert(tx, {
             tenantId,
             productId,
             variantId: line.variantId,
             locationId: targetLoc.id,
-            increment: line.quantity,
-            unitCost: line.unitBuyPrice,
+            increment: baseToStockQuantity(line.quantity, product.units),
+            unitCost: stockPriceFromBase(
+              line.unitBuyPrice,
+              product.units,
+            ),
           });
         }
       } else {
@@ -1410,8 +1473,8 @@ export class RestockService {
           productId,
           variantId,
           locationId: targetLoc.id,
-          increment: quantity,
-          unitCost: unitBuyPrice,
+          increment: baseToStockQuantity(quantity, product.units),
+          unitCost: stockPriceFromBase(unitBuyPrice, product.units),
         });
       }
 

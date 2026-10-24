@@ -1,7 +1,8 @@
 "use client";
 import { CURRENCY_SYMBOL, fmtCurrency } from "@/lib/currency";
 import { getDateRange } from "@/app/components/DateFilter";
-import FilterPanel from "@/app/components/FilterPanel";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
+import { FilterSelect } from "@/app/components/FilterPanel";
 import Modal from "@/app/components/Modal";
 import Loading from "@/app/components/Loading";
 import RowActionsMenu from "@/app/components/RowActionsMenu";
@@ -21,6 +22,7 @@ import { useToast } from "@/app/components/ToastProvider";
 import api, { markHandled } from "@/lib/api";
 import { formatDateTime } from "@/lib/datetime";
 import { batchLabel, variantLabel } from "@/lib/variantLabel";
+import { formatSaleLineQuantity } from "@/lib/unit-display";
 import SaleForm, { SaleType } from "@/app/components/SaleForm";
 import { useRouter } from "next/navigation";
 import useServerPaging from "@/lib/useServerPaging";
@@ -468,7 +470,7 @@ export default function SalesPage() {
       </div>
 
       {/* Filter Panel */}
-      <FilterPanel
+      <CollapsibleFilterPanel
         showDateFilter
         datePreset={datePreset}
         onDatePresetChange={setDatePreset}
@@ -485,32 +487,35 @@ export default function SalesPage() {
         onLocationChange={setLocationFilter}
         locations={locations}
         showLocation={isOwner}
+        extra={
+          <>
+            <FilterSelect
+              label={t("sales.saleTypeLabel")}
+              value={saleTypeFilter}
+              onChange={setSaleTypeFilter}
+              allLabel={t("sales.allSaleTypes")}
+              options={[
+                { value: "FULLY_PAID", label: t("status.fullyPaid") },
+                {
+                  value: "PARTIALLY_PAID",
+                  label: t("status.partiallyPaid"),
+                },
+                { value: "CREDITED", label: t("status.credited") },
+              ]}
+            />
+            <FilterSelect
+              label={t("sales.paymentType")}
+              value={paymentFilter}
+              onChange={setPaymentFilter}
+              allLabel={t("sales.allPaymentMethods")}
+              options={paymentMethods.map((m: any) => ({
+                value: String(m.id),
+                label: m.name,
+              }))}
+            />
+          </>
+        }
       />
-
-      <div className="flex flex-wrap gap-2 mb-4 items-center">
-        <select
-          value={saleTypeFilter}
-          onChange={(e) => setSaleTypeFilter(e.target.value)}
-          className="border p-2 rounded-lg bg-white text-sm"
-        >
-          <option value="">{t("sales.allSaleTypes")}</option>
-          <option value="FULLY_PAID">{t("status.fullyPaid")}</option>
-          <option value="PARTIALLY_PAID">{t("status.partiallyPaid")}</option>
-          <option value="CREDITED">{t("status.credited")}</option>
-        </select>
-        <select
-          value={paymentFilter}
-          onChange={(e) => setPaymentFilter(e.target.value)}
-          className="border p-2 rounded-lg bg-white text-sm"
-        >
-          <option value="">{t("sales.allPaymentMethods")}</option>
-          {paymentMethods.map((m: any) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
-        </select>
-      </div>
 
       {tab === "sales" && (
         <div className="flex justify-between items-center mb-6 w-full max-w-full">
@@ -679,7 +684,7 @@ export default function SalesPage() {
                                 )}
                               </td>
                               <td className="py-1 w-10 whitespace-nowrap text-gray-500">
-                                {i.quantity}
+                                {formatSaleLineQuantity(i, i.product)}
                               </td>
                             </tr>
                           ),
@@ -881,7 +886,9 @@ export default function SalesPage() {
                                   </span>
                                 )}
                               </td>
-                              <td className="py-1 w-10 whitespace-nowrap text-gray-500">{i.quantity}</td>
+                              <td className="py-1 w-10 whitespace-nowrap text-gray-500">
+                                {formatSaleLineQuantity(i, i.product)}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -967,7 +974,9 @@ export default function SalesPage() {
                     {batchLabel(i.batch)}
                   </span>
                 )}
-                <span className="text-gray-400"> (sold {i.quantity})</span>
+                <span className="text-gray-400">
+                  {" "}(sold {formatSaleLineQuantity(i, i.product)})
+                </span>
               </span>
               <input
                 type="number"
@@ -1166,10 +1175,17 @@ export default function SalesPage() {
                             </span>
                           )}
                         </td>
-                        <td className="p-2 text-right whitespace-nowrap">{i.quantity}</td>
-                        <td className="p-2 text-right whitespace-nowrap">{fmtCurrency(i.unitSellPrice)}</td>
                         <td className="p-2 text-right whitespace-nowrap">
-                          {fmtCurrency(i.unitSellPrice * i.quantity)}
+                          {formatSaleLineQuantity(i, i.product)}
+                        </td>
+                        <td className="p-2 text-right whitespace-nowrap">
+                          {fmtCurrency(i.unitPrice ?? i.unitSellPrice)}
+                        </td>
+                        <td className="p-2 text-right whitespace-nowrap">
+                          {fmtCurrency(
+                            (i.unitPrice ?? i.unitSellPrice) *
+                              (i.unitQuantity ?? i.quantity),
+                          )}
                         </td>
                       </tr>
                     ))

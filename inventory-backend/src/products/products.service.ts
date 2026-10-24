@@ -14,27 +14,37 @@ import {
   RequestType,
 } from '@prisma/client';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
+import { inventorySet, inventoryUpsert } from '../common/inventory.util';
+import { resolveProductUnits } from '../common/product-units.util';
+import {
+  baseToStockQuantity,
+  convertStockQuantityBetweenLadders,
+  isWholeStockQuantity,
+  stockPriceFromBase,
+} from '../common/unit-stock.util';
+import { Paging, pagedResult } from '../common/pagination.util';
 import {
   PriceChange,
   newPriceBatchRef,
   recordPriceChanges,
 } from '../common/price-history.util';
+import {
+  getCurrentTenantId,
+  requireTenantId,
+} from '../common/tenant/tenant.context';
 import { itemDisplayName } from '../common/variant-label.util';
-import { getCurrentTenantId, requireTenantId } from '../common/tenant/tenant.context';
-import { Paging, pagedResult } from '../common/pagination.util';
 import { FinanceService } from '../finance/finance.service';
+import { tr } from '../i18n/i18n.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { tr } from '../i18n/i18n.service';
-import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { AddVariantDto } from './dto/add-variant.dto';
+import { AdjustStockDto } from './dto/adjust-stock.dto';
 import {
   BulkAdjustStockDto,
   BulkAdjustStockItemDto,
 } from './dto/bulk-adjust-stock.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { inventorySet, inventoryUpsert } from '../common/inventory.util';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -82,7 +92,10 @@ interface AdjustTarget {
     hasVariants: boolean;
     currentBuyPrice: number | null;
     reorderLevel: number;
+    units?: { unitId: number; perBase: number; isBase: boolean }[] | null;
   };
+  buyPrice?: number | null;
+  unitPrices?: Record<string, { buyPrice?: number; sellPrice?: number }>;
   variant: {
     id: number;
     sku: string | null;
@@ -203,6 +216,20 @@ export class ProductsService {
     // buy/sell prices. ---
     const variantRows = dto.variants ?? [];
     const isVariantProduct = !!dto.hasVariants;
+
+    // Product unit ladder. The product's current unit is the base unit; lower
+    // units are only allowed in whole-number conversions. Stock is stored in the
+    // lowest unit (the row with the largest perBase).
+    const unitConfig = dto.units?.length
+      ? resolveProductUnits(dto.units, {
+          baseUnitId: dto.unitId ?? 0,
+        })
+      : null;
+    if (dto.units?.length && dto.unitId == null) {
+      throw new BadRequestException('Choose a base unit for the product.');
+    }
+    const maxPerBase = unitConfig?.maxPerBase ?? 1;
+
     let parentBuyPrice = Number(dto.currentBuyPrice) || 0;
     let parentSellPrice = Number(dto.currentSellPrice) || 0;
     if (isVariantProduct) {
@@ -246,6 +273,8 @@ export class ProductsService {
         currentSellPrice: parentSellPrice,
         categoryId: dto.categoryId,
         unitId: dto.unitId ?? null,
+        stockUnitId: unitConfig?.stockUnitId ?? dto.unitId ?? null,
+        historicalUnitId: unitConfig?.historicalUnitId ?? dto.unitId ?? null,
         kind: dto.kind ?? ProductKind.GOODS,
         barcode: dto.barcode ?? null,
         hasVariants: dto.hasVariants ?? false,
@@ -255,6 +284,23 @@ export class ProductsService {
         sku,
       },
     });
+
+    if (unitConfig) {
+      await this.prisma.productUnit.createMany({
+        data: unitConfig.units.map((u) => ({
+          tenantId,
+          productId: product.id,
+          unitId: u.unitId,
+          perBase: u.perBase,
+          isBase: u.isBase,
+          isHistorical: u.isHistorical,
+          isDefaultSale: u.isDefaultSale,
+          buyPrice: u.buyPrice ?? null,
+          sellPrice: u.sellPrice ?? null,
+          sortOrder: u.sortOrder,
+        })),
+      });
+    }
 
     // --- Variants (size/color matrix). Initial quantity is deposited per
     // variant into that variant's own inventory row. ---
@@ -271,6 +317,7 @@ export class ProductsService {
           attributes: v.attributes ?? {},
           buyPrice: v.buyPrice ?? null,
           sellPrice: v.sellPrice ?? null,
+          unitPrices: v.unitPrices ?? {},
           quantity: v.quantity ?? 0,
           // 0 = inherit the product's alert number; null = inherit its suggested
           // reorder quantity.
@@ -316,6 +363,7 @@ export class ProductsService {
             .map((v) => ({
               productId: product.id,
               variantId: v.id,
+              // depositInitialStock() converts base units → stock units once.
               quantity: v.quantity ?? 0,
               // Value the deposit at the exact variant cost, never the parent
               // average — inventory avg-cost and COGS stay precise per SKU.
@@ -325,7 +373,7 @@ export class ProductsService {
       if (stockItems.length > 0) {
         await this.depositInitialStock({
           tenantId,
-          product,
+          product: { ...product, units: unitConfig?.units ?? [] },
           targetLocationId,
           shopId,
           isShopTarget,
@@ -338,8 +386,13 @@ export class ProductsService {
     // Batch / expiry (perishable). The batch quantity links to the initial
     // stock so the initial units are attributed to the created batch.
     if (dto.isPerishable || dto.batch?.batchNumber) {
-      const qty =
-        dto.batch?.quantity ?? (dto.hasVariants ? variantTotal : (dto.quantity ?? 0));
+      const baseQty =
+        dto.batch?.quantity ??
+        (dto.hasVariants ? variantTotal : (dto.quantity ?? 0));
+      const qty = baseToStockQuantity(
+        baseQty,
+        unitConfig?.units ?? [],
+      );
       await this.prisma.productBatch.create({
         data: {
           productId: product.id,
@@ -393,7 +446,9 @@ export class ProductsService {
       user,
       items,
     } = args;
-    const totalQty = items.reduce((s, it) => s + it.quantity, 0);
+    const stockQtyOf = (it: { quantity: number }) =>
+      baseToStockQuantity(it.quantity, product.units);
+    const totalQty = items.reduce((s, it) => s + stockQtyOf(it), 0);
 
     // Receivers = non-owner staff at the target location who must confirm
     // receipt (the acting user and owner accounts never count as receivers —
@@ -416,52 +471,62 @@ export class ProductsService {
           productId: it.productId,
           variantId: it.variantId ?? null,
           locationId: targetLocationId,
-          increment: it.quantity,
+          increment: baseToStockQuantity(it.quantity, product.units),
           // Exact per-item unit cost: variant buy price for variant rows,
-          // parent buy price for plain products.
-          unitCost: it.unitCost ?? product.currentBuyPrice ?? null,
+          // parent buy price for plain products. Inventory avgCost is per stock
+          // unit, so divide the base-unit cost by the stock factor.
+          unitCost:
+            (it.unitCost ?? product.currentBuyPrice ?? null) != null
+              ? stockPriceFromBase(
+                  it.unitCost ?? product.currentBuyPrice!,
+                  product.units,
+                )
+              : null,
         });
       }
 
-      await this.prisma.stockRequest.create({
-        data: {
-          requestType: RequestType.STORE_TO_OWNER,
-          storeId: targetLocationId,
-          shopId,
-          createdById: user.sub,
-          approvedById: user.sub,
-          status: RequestStatus.COMPLETED,
-          items: {
-            create: items.map((it) => ({
-              tenantId,
-              productId: it.productId,
-              variantId: it.variantId ?? null,
-              quantityStored: it.quantity,
-              quantityReceived: it.quantity,
-              status: RequestItemStatus.RECEIVED,
-              confirmedById: user.sub,
-              confirmedAt: new Date(),
-            })),
+      await this.prisma.stockRequest
+        .create({
+          data: {
+            requestType: RequestType.STORE_TO_OWNER,
+            storeId: targetLocationId,
+            shopId,
+            createdById: user.sub,
+            approvedById: user.sub,
+            status: RequestStatus.COMPLETED,
+            items: {
+              create: items.map((it) => ({
+                tenantId,
+                productId: it.productId,
+                variantId: it.variantId ?? null,
+                quantityStored: stockQtyOf(it),
+                quantityReceived: stockQtyOf(it),
+                status: RequestItemStatus.RECEIVED,
+                confirmedById: user.sub,
+                confirmedAt: new Date(),
+              })),
+            },
           },
-        },
-        include: { items: true },
-      }).then(async (req) => {
-        // Universal finance: procurement posting (Inventory ↔ AP) for the
-        // initial stock that just landed — idempotent per request item.
-        for (const it of items) {
-          await this.finance
-            .postProcurement({
-              ref: `RST-${req.id}-${req.items.find((r) => r.productId === it.productId && (r.variantId ?? null) === (it.variantId ?? null))?.id ?? 0}`,
-              description: `Initial stock ${it.quantity} × ${product.brand} ${product.baseName}`,
-              amount: (product.currentBuyPrice ?? 0) * it.quantity,
-              entryDate: new Date(),
-              createdById: user.sub,
-              paid: false, // goods received on account (AP)
-              tenantId: args.tenantId,
-            })
-            .catch(() => false);
-        }
-      });
+          include: { items: true },
+        })
+        .then(async (req) => {
+          // Universal finance: procurement posting (Inventory ↔ AP) for the
+          // initial stock that just landed — idempotent per request item.
+          for (const it of items) {
+            await this.finance
+              .postProcurement({
+                ref: `RST-${req.id}-${req.items.find((r) => r.productId === it.productId && (r.variantId ?? null) === (it.variantId ?? null))?.id ?? 0}`,
+                description: `Initial stock ${it.quantity} × ${product.brand} ${product.baseName}`,
+                amount:
+                  (it.unitCost ?? product.currentBuyPrice ?? 0) * it.quantity,
+                entryDate: new Date(),
+                createdById: user.sub,
+                paid: false, // goods received on account (AP)
+                tenantId: args.tenantId,
+              })
+              .catch(() => false);
+          }
+        });
 
       await this.notifications
         .notifyLocation(
@@ -487,7 +552,7 @@ export class ProductsService {
               tenantId,
               productId: it.productId,
               variantId: it.variantId ?? null,
-              quantityStored: it.quantity,
+              quantityStored: stockQtyOf(it),
               status: RequestItemStatus.STORED,
             })),
           },
@@ -517,7 +582,16 @@ export class ProductsService {
         brand: { equals: b, mode: 'insensitive' },
         baseName: { equals: n, mode: 'insensitive' },
       },
-      include: { category: true, unit: true },
+      include: {
+        category: true,
+        unit: true,
+        units: {
+          include: { unit: true },
+          orderBy: { sortOrder: 'asc' },
+        },
+        stockUnit: true,
+        historicalUnit: true,
+      },
     });
     return { product };
   }
@@ -585,7 +659,9 @@ export class ProductsService {
         tenantId,
         hasVariants: true,
         categoryId: { in: categoryIds },
-        ...(opts.excludeProductId ? { id: { not: opts.excludeProductId } } : {}),
+        ...(opts.excludeProductId
+          ? { id: { not: opts.excludeProductId } }
+          : {}),
       },
       select: {
         id: true,
@@ -708,6 +784,12 @@ export class ProductsService {
     const include: any = {
       category: true,
       unit: true,
+      units: {
+        include: { unit: true },
+        orderBy: { sortOrder: 'asc' },
+      },
+      stockUnit: true,
+      historicalUnit: true,
       variants: { orderBy: { id: 'asc' } },
       inventory: locationId
         ? { where: { locationId }, include: { location: true } }
@@ -784,6 +866,12 @@ export class ProductsService {
     const include: any = {
       category: true,
       unit: true,
+      units: {
+        include: { unit: true },
+        orderBy: { sortOrder: 'asc' },
+      },
+      stockUnit: true,
+      historicalUnit: true,
       variants: { orderBy: { id: 'asc' } },
       batches: { orderBy: { id: 'desc' } },
       inventory: invLocationId
@@ -863,6 +951,12 @@ export class ProductsService {
       priceHistory: { orderBy: { updatedAt: 'desc' } },
       category: true,
       unit: true,
+      units: {
+        include: { unit: true },
+        orderBy: { sortOrder: 'asc' },
+      },
+      stockUnit: true,
+      historicalUnit: true,
       variants: { orderBy: { id: 'asc' } },
       batches: { orderBy: { id: 'desc' } },
       inventory: user.locationId
@@ -889,8 +983,154 @@ export class ProductsService {
     // variant it changed group together on the price-history page.
     const priceBatchRef = newPriceBatchRef();
     const priceChanges: PriceChange[] = [];
-    const existingBefore = await this.prisma.product.findUnique({ where: { id } });
-    if (!existingBefore) throw new NotFoundException(tr('errors.productNotFound'));
+    const existingBefore = await this.prisma.product.findUnique({
+      where: { id },
+      include: { units: true },
+    });
+    if (!existingBefore)
+      throw new NotFoundException(tr('errors.productNotFound'));
+
+    // Multi-unit configuration. The selected base can change; units that are
+    // no longer present are removed after any required stock conversion.
+    const unitConfig = dto.units?.length
+      ? resolveProductUnits(dto.units, {
+          baseUnitId: dto.unitId ?? existingBefore.unitId ?? 0,
+          historicalUnitId:
+            existingBefore.historicalUnitId ??
+            dto.unitId ??
+            existingBefore.unitId ??
+            null,
+        })
+      : null;
+    const oldUnits = existingBefore.units ?? [];
+    // A legacy product with no ProductUnit rows still has one physical unit:
+    // its Product.unitId. Treat it as a one-row ladder so a first multi-unit
+    // edit can convert the existing stock correctly.
+    const oldLadder = oldUnits.length
+      ? oldUnits.map((u) => ({
+          unitId: Number(u.unitId),
+          perBase: Number(u.perBase) || 1,
+        }))
+      : existingBefore.unitId
+        ? [{ unitId: Number(existingBefore.unitId), perBase: 1 }]
+        : [];
+    const oldMaxPerBase = Math.max(
+      1,
+      ...oldLadder.map((u) => u.perBase || 1),
+    );
+    const oldStockUnitId =
+      existingBefore.stockUnitId ??
+      oldLadder.find((u) => u.perBase === oldMaxPerBase)?.unitId ??
+      existingBefore.unitId;
+    const newMaxPerBase = unitConfig?.maxPerBase ?? oldMaxPerBase;
+
+    // Work out how many new stock units make one old stock unit. If the old
+    // stock unit remains in the new ladder its own perBase is enough. If it was
+    // removed, bridge through any unit present in both ladders.
+    let stockRatio = 1;
+    if (unitConfig && oldLadder.length && oldStockUnitId != null) {
+      const converted = convertStockQuantityBetweenLadders(
+        1,
+        oldLadder,
+        unitConfig.units,
+        oldStockUnitId,
+      );
+      if (converted == null) {
+        throw new BadRequestException(
+          'This change removes the current stock unit and has no unit in common with the old unit list. Keep at least one unit that exists in both lists so inventory can be converted.',
+        );
+      }
+      stockRatio = converted;
+    }
+    if (!Number.isFinite(stockRatio) || stockRatio <= 0) {
+      throw new BadRequestException(
+        'The new unit conversion is not compatible with the current stock unit.',
+      );
+    }
+    const stockUnitChanged = Math.abs(stockRatio - 1) > 1e-9;
+
+    // Inventory and batches must remain whole stock units. Check every affected
+    // quantity before changing anything, including open stock requests whose
+    // quantities are also stored in stock units.
+    if (stockUnitChanged) {
+      const openStatuses = [
+        RequestStatus.COMPLETED,
+        RequestStatus.REJECTED,
+        RequestStatus.CLOSED,
+      ];
+      const [inventoryRows, batchRows, openRequestItems] = await Promise.all([
+        this.prisma.inventory.findMany({
+          where: { productId: id },
+          select: { quantity: true },
+        }),
+        this.prisma.productBatch.findMany({
+          where: { productId: id },
+          select: { quantity: true },
+        }),
+        this.prisma.requestItem.findMany({
+          where: {
+            productId: id,
+            request: { status: { notIn: openStatuses } },
+          },
+          select: {
+            requestId: true,
+            quantityRequested: true,
+            quantityDispatched: true,
+            quantityStored: true,
+            quantityReceived: true,
+          },
+        }),
+      ]);
+      const badInventory = inventoryRows.filter(
+        (row) => !isWholeStockQuantity(Number(row.quantity) * stockRatio),
+      );
+      const badBatch = batchRows.filter(
+        (row) => !isWholeStockQuantity(Number(row.quantity) * stockRatio),
+      );
+      const badRequests = openRequestItems.filter((row) =>
+        [
+          row.quantityRequested,
+          row.quantityDispatched,
+          row.quantityStored,
+          row.quantityReceived,
+        ].some(
+          (quantity) =>
+            quantity != null &&
+            !isWholeStockQuantity(Number(quantity) * stockRatio),
+        ),
+      );
+      if (
+        badInventory.length ||
+        badBatch.length ||
+        badRequests.length
+      ) {
+        const blockers: string[] = [];
+        if (badInventory.length) {
+          blockers.push(
+            `${badInventory.length} inventory row(s)`,
+          );
+        }
+        if (badBatch.length) {
+          blockers.push(`${badBatch.length} batch row(s)`);
+        }
+        if (badRequests.length) {
+          const requestIds = [
+            ...new Set(badRequests.map((row) => row.requestId)),
+          ];
+          blockers.push(
+            `open stock request(s) ${requestIds
+              .map((requestId) => `#${requestId}`)
+              .join(', ')}`,
+          );
+        }
+        throw new BadRequestException(
+          `This stock-unit change would make quantities fractional in ${blockers.join(
+            ', ',
+          )}. Adjust/cancel those open requests or keep the current stock unit.`,
+        );
+      }
+    }
+
     if (
       (dto.currentBuyPrice !== undefined &&
         dto.currentBuyPrice !== existingBefore.currentBuyPrice) ||
@@ -915,7 +1155,9 @@ export class ProductsService {
       if (v?.id && (v.buyPrice !== undefined || v.sellPrice !== undefined)) {
         variantPriceEdits.set(Number(v.id), {
           ...(v.buyPrice !== undefined ? { buyPrice: Number(v.buyPrice) } : {}),
-          ...(v.sellPrice !== undefined ? { sellPrice: Number(v.sellPrice) } : {}),
+          ...(v.sellPrice !== undefined
+            ? { sellPrice: Number(v.sellPrice) }
+            : {}),
         });
       }
     }
@@ -928,7 +1170,10 @@ export class ProductsService {
         const edit = variantPriceEdits.get(row.id)!;
         const newBuy = edit.buyPrice ?? row.buyPrice ?? 0;
         const newSell = edit.sellPrice ?? row.sellPrice ?? 0;
-        if (newBuy === (row.buyPrice ?? 0) && newSell === (row.sellPrice ?? 0)) {
+        if (
+          newBuy === (row.buyPrice ?? 0) &&
+          newSell === (row.sellPrice ?? 0)
+        ) {
           continue;
         }
         priceChanges.push({
@@ -952,8 +1197,10 @@ export class ProductsService {
     if (dto.baseName !== undefined) data.baseName = dto.baseName;
     if (dto.imageUrl !== undefined) data.imageUrl = dto.imageUrl;
     if (dto.attributes !== undefined) data.attributes = dto.attributes;
-    if (dto.currentBuyPrice !== undefined) data.currentBuyPrice = dto.currentBuyPrice;
-    if (dto.currentSellPrice !== undefined) data.currentSellPrice = dto.currentSellPrice;
+    if (dto.currentBuyPrice !== undefined)
+      data.currentBuyPrice = dto.currentBuyPrice;
+    if (dto.currentSellPrice !== undefined)
+      data.currentSellPrice = dto.currentSellPrice;
     if (dto.barcode !== undefined) data.barcode = dto.barcode ?? null;
     if (dto.hasVariants !== undefined) data.hasVariants = dto.hasVariants;
     if (dto.isPerishable !== undefined) data.isPerishable = dto.isPerishable;
@@ -962,6 +1209,13 @@ export class ProductsService {
     if (dto.kind !== undefined) data.kind = dto.kind;
     if (dto.categoryId !== undefined) data.categoryId = dto.categoryId;
     if (dto.unitId !== undefined) data.unitId = dto.unitId ?? null;
+    if (unitConfig) {
+      data.stockUnitId = unitConfig.stockUnitId;
+      data.historicalUnitId =
+        existingBefore.historicalUnitId ??
+        existingBefore.unitId ??
+        dto.unitId;
+    }
 
     // Price rules mirror create(): variant products keep the parent row in
     // sync with the per-row average; plain products must carry positive
@@ -1006,9 +1260,93 @@ export class ProductsService {
       }
     }
 
-    const product = await this.prisma.product.update({
-      where: { id },
-      data,
+    const product = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.product.update({
+        where: { id },
+        data,
+      });
+
+      if (!unitConfig) return updated;
+
+      // Convert existing stock to the new stock unit. avgCost is per stock
+      // unit, so it moves in the opposite direction. All checks above already
+      // proved the resulting quantities are whole numbers.
+      if (stockUnitChanged) {
+        await tx.$executeRaw`
+          UPDATE "Inventory"
+          SET "quantity" = "quantity" * ${stockRatio},
+              "avgCost" = "avgCost" / ${stockRatio}
+          WHERE "productId" = ${id}
+        `;
+        await tx.$executeRaw`
+          UPDATE "ProductBatch"
+          SET "quantity" = "quantity" * ${stockRatio},
+              "unitCost" = CASE
+                WHEN "unitCost" IS NULL THEN NULL
+                ELSE "unitCost" / ${stockRatio}
+              END
+          WHERE "productId" = ${id}
+        `;
+        // Open requests carry stock-unit quantities too; scale them with the
+        // inventory so their remaining amounts stay equal to the same physical
+        // goods after the stock unit changes.
+        await tx.$executeRaw`
+          UPDATE "RequestItem" AS ri
+          SET
+            "quantityRequested" = CASE
+              WHEN ri."quantityRequested" IS NULL THEN NULL
+              ELSE ROUND(ri."quantityRequested" * ${stockRatio})::integer
+            END,
+            "quantityDispatched" = ROUND(ri."quantityDispatched" * ${stockRatio})::integer,
+            "quantityStored" = ROUND(ri."quantityStored" * ${stockRatio})::integer,
+            "quantityReceived" = ROUND(ri."quantityReceived" * ${stockRatio})::integer
+          FROM "StockRequest" AS sr
+          WHERE ri."requestId" = sr.id
+            AND ri."productId" = ${id}
+            AND sr."status"::text NOT IN ('COMPLETED', 'REJECTED', 'CLOSED')
+        `;
+      }
+
+      const keep = new Set<number>();
+      for (const unit of unitConfig.units) {
+        keep.add(unit.unitId);
+        await tx.productUnit.upsert({
+          where: {
+            productId_unitId: { productId: id, unitId: unit.unitId },
+          },
+          update: {
+            perBase: unit.perBase,
+            isBase: unit.isBase,
+            isHistorical: unit.isHistorical,
+            isDefaultSale: unit.isDefaultSale,
+            buyPrice: unit.buyPrice ?? null,
+            sellPrice: unit.sellPrice ?? null,
+            sortOrder: unit.sortOrder,
+          },
+          create: {
+            tenantId,
+            productId: id,
+            unitId: unit.unitId,
+            perBase: unit.perBase,
+            isBase: unit.isBase,
+            isHistorical: unit.isHistorical,
+            isDefaultSale: unit.isDefaultSale,
+            buyPrice: unit.buyPrice ?? null,
+            sellPrice: unit.sellPrice ?? null,
+            sortOrder: unit.sortOrder,
+          },
+        });
+      }
+
+      // Any ladder row absent from the new list is removed. ProductUnit rows
+      // are product-specific metadata; the global Unit row and all historical
+      // transaction snapshots stay intact.
+      for (const old of existingBefore.units ?? []) {
+        if (keep.has(old.unitId)) continue;
+        await tx.productUnit.delete({ where: { id: old.id } });
+      }
+
+      return updated;
     });
 
     // --- Variant upserts. Existing variants (by id) are updated in place;
@@ -1039,6 +1377,7 @@ export class ProductsService {
               attributes: v.attributes ?? undefined,
               buyPrice: v.buyPrice ?? undefined,
               sellPrice: v.sellPrice ?? undefined,
+              unitPrices: v.unitPrices ?? undefined,
               // 0 is a meaningful value (inherit), so only `undefined` (field
               // absent from the payload) leaves the stored number untouched.
               // `null` clears the suggested qty back to "inherit".
@@ -1084,8 +1423,11 @@ export class ProductsService {
               productId: id,
               variantId: created.id,
               locationId: depositLocationId,
-              increment: v.quantity,
-              unitCost: v.buyPrice ?? null,
+              increment: baseToStockQuantity(v.quantity, unitConfig?.units ?? []),
+              unitCost:
+                v.buyPrice != null
+                  ? Number(v.buyPrice) / newMaxPerBase
+                  : null,
             });
           }
         }
@@ -1111,9 +1453,7 @@ export class ProductsService {
             manufactureDate: batch.manufactureDate
               ? new Date(batch.manufactureDate)
               : null,
-            expiryDate: batch.expiryDate
-              ? new Date(batch.expiryDate)
-              : null,
+            expiryDate: batch.expiryDate ? new Date(batch.expiryDate) : null,
             quantity: batch.quantity ?? 0,
           },
         });
@@ -1145,6 +1485,12 @@ export class ProductsService {
         variants: { orderBy: { id: 'asc' } },
         batches: { orderBy: { id: 'desc' } },
         inventory: { include: { location: true } },
+        units: {
+          include: { unit: true },
+          orderBy: { sortOrder: 'asc' },
+        },
+        stockUnit: true,
+        historicalUnit: true,
       },
     });
   }
@@ -1240,6 +1586,7 @@ export class ProductsService {
           hasVariants: true,
           currentBuyPrice: true,
           reorderLevel: true,
+          units: { select: { unitId: true, perBase: true, isBase: true } },
         },
       }),
       this.prisma.location.findMany({
@@ -1282,7 +1629,14 @@ export class ProductsService {
       const variantId = item.variantId != null ? Number(item.variantId) : null;
       const locationId = Number(item.locationId);
       const fail = (message: string, status = 400) =>
-        errors.push({ index, productId, variantId, locationId, message, status });
+        errors.push({
+          index,
+          productId,
+          variantId,
+          locationId,
+          message,
+          status,
+        });
 
       const product = productById.get(productId);
       if (!product) {
@@ -1326,6 +1680,10 @@ export class ProductsService {
       }
       // A count may correct the selling price, never the buying price (there is no
       // buy field on the payload at all), and only for users who may edit prices.
+      if (item.buyPrice != null && !this.canChangePrices(user)) {
+        fail('You cannot change buying prices.', 403);
+        continue;
+      }
       if (item.sellPrice != null) {
         if (!this.canChangePrices(user)) {
           fail('You cannot change selling prices.', 403);
@@ -1363,6 +1721,8 @@ export class ProductsService {
         location,
         quantity: item.quantity,
         sellPrice: item.sellPrice != null ? round2(item.sellPrice) : null,
+        buyPrice: item.buyPrice != null ? round2(item.buyPrice) : null,
+        ...(item.unitPrices ? { unitPrices: item.unitPrices } : {}),
       });
     }
 
@@ -1400,6 +1760,7 @@ export class ProductsService {
   ) {
     const { product, variant, location, quantity } = target;
     const variantId = variant?.id ?? null;
+    const stockQuantity = baseToStockQuantity(quantity, product.units);
     const label = itemDisplayName(product, variant);
 
     const before = await tx.inventory.findFirst({
@@ -1410,28 +1771,34 @@ export class ProductsService {
         locationId: location.id,
       },
     });
+    const unitCost =
+      before?.avgCost ??
+      (product.currentBuyPrice != null
+        ? stockPriceFromBase(product.currentBuyPrice, product.units)
+        : 0);
     await inventorySet(tx, {
       tenantId,
       productId: product.id,
       variantId,
       locationId: location.id,
-      quantity,
+      quantity: stockQuantity,
+      unitCost,
     });
 
-    const delta = round2(quantity - (before?.quantity ?? 0));
-    const unitCost = before?.avgCost ?? product.currentBuyPrice ?? 0;
+    const delta = round2(stockQuantity - (before?.quantity ?? 0));
 
     await tx.auditLog.create({
       data: {
         userId: ctx.userId,
         action: 'STOCK_ADJUST',
-        details: `Adjusted ${label} to ${quantity} at ${location.name}${ctx.reason ? ` — ${ctx.reason}` : ''}`,
+        details: `Adjusted ${label} to ${stockQuantity} at ${location.name}${ctx.reason ? ` — ${ctx.reason}` : ''}`,
       },
     });
 
     // Per-row hint for the sheet: is this row now at or below its alert level?
     const alertLevel = variant?.reorderLevel || product.reorderLevel || 0;
-    const lowStock = quantity === 0 || (alertLevel > 0 && quantity <= alertLevel);
+    const lowStock =
+      quantity === 0 || (alertLevel > 0 && quantity <= alertLevel);
 
     return {
       index: target.index,
@@ -1516,13 +1883,19 @@ export class ProductsService {
     const priceChanges: PriceChange[] = [];
 
     const results = await this.prisma.$transaction(async (tx) => {
-      const applied: Awaited<ReturnType<ProductsService['adjustRowInTx']>>[] = [];
+      const applied: Awaited<ReturnType<ProductsService['adjustRowInTx']>>[] =
+        [];
       for (const target of targets) {
         applied.push(
-          await this.adjustRowInTx(tx as Prisma.TransactionClient, tenantId, target, {
-            userId: user.sub,
-            reason: dto.reason,
-          }),
+          await this.adjustRowInTx(
+            tx as Prisma.TransactionClient,
+            tenantId,
+            target,
+            {
+              userId: user.sub,
+              reason: dto.reason,
+            },
+          ),
         );
       }
 
@@ -1569,7 +1942,8 @@ export class ProductsService {
             where: { id: entry.productId },
             select: { currentBuyPrice: true, currentSellPrice: true },
           });
-          if (!product || product.currentSellPrice === entry.sellPrice) continue;
+          if (!product || product.currentSellPrice === entry.sellPrice)
+            continue;
           await tx.product.update({
             where: { id: entry.productId },
             data: { currentSellPrice: entry.sellPrice },
@@ -1584,32 +1958,136 @@ export class ProductsService {
         }
       }
 
+      // Buying prices corrected while counting (owner-only in the UI).
+      const pricedBuy = new Map<
+        string,
+        { productId: number; variantId: number | null; buyPrice: number }
+      >();
+      for (const target of targets) {
+        if (target.buyPrice == null) continue;
+        pricedBuy.set(`${target.product.id}|${target.variant?.id ?? 'base'}`, {
+          productId: target.product.id,
+          variantId: target.variant?.id ?? null,
+          buyPrice: target.buyPrice,
+        });
+      }
+      for (const entry of pricedBuy.values()) {
+        if (entry.variantId != null) {
+          const variant = await tx.productVariant.findFirst({
+            where: { id: entry.variantId },
+            select: { buyPrice: true, sellPrice: true },
+          });
+          if (!variant || variant.buyPrice === entry.buyPrice) continue;
+          await tx.productVariant.update({
+            where: { id: entry.variantId },
+            data: { buyPrice: entry.buyPrice },
+          });
+          priceChanges.push({
+            productId: entry.productId,
+            variantId: entry.variantId,
+            oldBuyPrice: variant.buyPrice ?? 0,
+            newBuyPrice: entry.buyPrice,
+            oldSellPrice: variant.sellPrice ?? 0,
+            newSellPrice: variant.sellPrice ?? 0,
+          });
+          touchedProducts.add(entry.productId);
+        } else {
+          const product = await tx.product.findFirst({
+            where: { id: entry.productId },
+            select: { currentBuyPrice: true, currentSellPrice: true },
+          });
+          if (!product || product.currentBuyPrice === entry.buyPrice) continue;
+          await tx.product.update({
+            where: { id: entry.productId },
+            data: { currentBuyPrice: entry.buyPrice },
+          });
+          priceChanges.push({
+            productId: entry.productId,
+            oldBuyPrice: product.currentBuyPrice,
+            newBuyPrice: entry.buyPrice,
+            oldSellPrice: product.currentSellPrice,
+            newSellPrice: product.currentSellPrice,
+          });
+        }
+      }
+
+      // Persist per-unit price overrides. Base-unit prices are handled by the
+      // existing sellPrice/buyPrice paths above.
+      for (const target of targets) {
+        const incoming = target.unitPrices;
+        if (!incoming || Object.keys(incoming).length === 0) continue;
+        if (target.variant?.id) {
+          const variant = await tx.productVariant.findUnique({
+            where: { id: target.variant.id },
+            select: { unitPrices: true },
+          });
+          const merged = {
+            ...((variant?.unitPrices as Record<string, unknown>) ?? {}),
+            ...incoming,
+          };
+          await tx.productVariant.update({
+            where: { id: target.variant.id },
+            data: { unitPrices: merged as any },
+          });
+          touchedProducts.add(target.product.id);
+        } else {
+          for (const [unitId, price] of Object.entries(incoming)) {
+            await tx.productUnit.updateMany({
+              where: {
+                productId: target.product.id,
+                unitId: Number(unitId),
+              },
+              data: {
+                ...(price.buyPrice != null
+                  ? { buyPrice: Number(price.buyPrice) }
+                  : {}),
+                ...(price.sellPrice != null
+                  ? { sellPrice: Number(price.sellPrice) }
+                  : {}),
+              },
+            });
+          }
+        }
+      }
+
       for (const productId of touchedProducts) {
         const sellRows = await tx.productVariant.findMany({
           where: { productId },
-          select: { sellPrice: true },
+          select: { buyPrice: true, sellPrice: true },
         });
         if (sellRows.length === 0) continue;
         const avgSell = round2(
           sellRows.reduce((sum, r) => sum + (r.sellPrice ?? 0), 0) /
             sellRows.length,
         );
+        const avgBuy = round2(
+          sellRows.reduce((sum, r) => sum + (r.buyPrice ?? 0), 0) /
+            sellRows.length,
+        );
         const parent = await tx.product.findFirst({
           where: { id: productId },
           select: { currentBuyPrice: true, currentSellPrice: true },
         });
-        if (!parent || parent.currentSellPrice === avgSell) continue;
-        await tx.product.update({
-          where: { id: productId },
-          data: { currentSellPrice: avgSell },
-        });
-        priceChanges.push({
-          productId,
-          oldBuyPrice: parent.currentBuyPrice,
-          newBuyPrice: parent.currentBuyPrice,
-          oldSellPrice: parent.currentSellPrice,
-          newSellPrice: avgSell,
-        });
+        if (!parent) continue;
+        if (
+          parent.currentSellPrice !== avgSell ||
+          parent.currentBuyPrice !== avgBuy
+        ) {
+          await tx.product.update({
+            where: { id: productId },
+            data: {
+              currentSellPrice: avgSell,
+              currentBuyPrice: avgBuy,
+            },
+          });
+          priceChanges.push({
+            productId,
+            oldBuyPrice: parent.currentBuyPrice,
+            newBuyPrice: avgBuy,
+            oldSellPrice: parent.currentSellPrice,
+            newSellPrice: avgSell,
+          });
+        }
       }
 
       if (priceChanges.length > 0) {
@@ -1640,22 +2118,21 @@ export class ProductsService {
 
     const byLocation = new Map<number, any>();
     for (const r of results) {
-      const acc =
-        byLocation.get(r.locationId) ??
-        {
-          locationId: r.locationId,
-          locationName: r.locationName,
-          items: 0,
-          changed: 0,
-          surplusValue: 0,
-          shortageValue: 0,
-          netValue: 0,
-          journalRef: null as string | null,
-        };
+      const acc = byLocation.get(r.locationId) ?? {
+        locationId: r.locationId,
+        locationName: r.locationName,
+        items: 0,
+        changed: 0,
+        surplusValue: 0,
+        shortageValue: 0,
+        netValue: 0,
+        journalRef: null as string | null,
+      };
       acc.items += 1;
       if (r.delta !== 0) {
         acc.changed += 1;
-        if (r.valueDelta > 0) acc.surplusValue = round2(acc.surplusValue + r.valueDelta);
+        if (r.valueDelta > 0)
+          acc.surplusValue = round2(acc.surplusValue + r.valueDelta);
         else acc.shortageValue = round2(acc.shortageValue + r.valueDelta);
       }
       acc.netValue = round2(acc.netValue + r.valueDelta);
@@ -1729,6 +2206,16 @@ export class ProductsService {
         currentBuyPrice: true,
         currentSellPrice: true,
         reorderLevel: true,
+        units: {
+          select: {
+            unitId: true,
+            perBase: true,
+            isBase: true,
+            isDefaultSale: true,
+            unit: { select: { name: true } },
+          },
+          orderBy: { sortOrder: 'asc' },
+        },
         variants: {
           orderBy: { id: 'asc' },
           select: {
@@ -1800,9 +2287,11 @@ export class ProductsService {
     if (org?.standalone === true) {
       return (
         user.locationId ??
-        (await this.prisma.location.findFirst({
-          where: { tenantId, type: LocationType.SHOP },
-        }))?.id ??
+        (
+          await this.prisma.location.findFirst({
+            where: { tenantId, type: LocationType.SHOP },
+          })
+        )?.id ??
         null
       );
     }
@@ -1812,9 +2301,20 @@ export class ProductsService {
   async addVariant(productId: number, dto: AddVariantDto, user: JwtPayload) {
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
-      select: { id: true, sku: true, brand: true, baseName: true, currentBuyPrice: true },
+      select: {
+        id: true,
+        sku: true,
+        brand: true,
+        baseName: true,
+        currentBuyPrice: true,
+        units: { select: { perBase: true } },
+      },
     });
     if (!product) throw new NotFoundException(tr('errors.productNotFound'));
+    const maxPerBase = Math.max(
+      1,
+      ...(product.units ?? []).map((u) => Number(u.perBase) || 1),
+    );
 
     const tenantId = getCurrentTenantId();
 
@@ -1864,8 +2364,16 @@ export class ProductsService {
           productId,
           variantId: variant.id,
           locationId: depositLocationId,
-          increment: dto.quantity,
-          unitCost: dto.buyPrice ?? product.currentBuyPrice ?? null,
+          increment: baseToStockQuantity(dto.quantity, product.units),
+          unitCost:
+            dto.buyPrice != null
+              ? stockPriceFromBase(Number(dto.buyPrice), product.units)
+              : product.currentBuyPrice != null
+                ? stockPriceFromBase(
+                    product.currentBuyPrice,
+                    product.units,
+                  )
+                : null,
         });
 
         // Universal finance: procurement posting (Inventory ↔ AP) for the
@@ -1874,7 +2382,8 @@ export class ProductsService {
           .postProcurement({
             ref: `PRDV-${variant.id}`,
             description: `New variant stock ${dto.quantity} × ${product.brand} ${product.baseName} (${variant.sku})`,
-            amount: (dto.buyPrice ?? product.currentBuyPrice ?? 0) * dto.quantity,
+            amount:
+              (dto.buyPrice ?? product.currentBuyPrice ?? 0) * dto.quantity,
             entryDate: new Date(),
             createdById: user.sub,
             paid: false, // goods received on account (AP)

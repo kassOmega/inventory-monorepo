@@ -2,7 +2,7 @@
 
 import api from "@/lib/api";
 import Button from "@/app/components/Button";
-import FilterPanel from "@/app/components/FilterPanel";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
 import Modal from "@/app/components/Modal";
 import { useAuth } from "@/context/AuthContext";
 import { useTranslation } from "react-i18next";
@@ -106,7 +106,7 @@ export default function CarWashStoreItemsPage() {
       </div>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
 
-      <FilterPanel
+      <CollapsibleFilterPanel
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder={t("carwash.name")}

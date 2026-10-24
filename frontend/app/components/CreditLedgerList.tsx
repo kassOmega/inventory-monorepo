@@ -42,6 +42,8 @@ interface Props {
   /** Left half of a day header, e.g. "Aug 21, 2026 · 3 sales". */
   dayLabel: (date: string, count: number) => string;
   emptyLabel: string;
+  /** Optional unit-breakdown label for sold lines (credit sales only). */
+  quantityLabel?: (item: any) => string;
 }
 
 /**
@@ -57,6 +59,7 @@ export default function CreditLedgerList({
   entries,
   dayLabel,
   emptyLabel,
+  quantityLabel,
 }: Props) {
   const { t } = useTranslation();
   // Products whose variant lines are folded open, keyed "<entryKey>:<productId>".
@@ -141,7 +144,7 @@ export default function CreditLedgerList({
                 <RowActionsMenu items={entry.actions} />
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs sm:text-sm">
+                <table className="w-full text-left text-xs sm:text-sm whitespace-nowrap">
                   <thead>
                     <tr className="border-b">
                       <th className="p-2 sm:p-3 font-medium text-gray-500">
@@ -187,7 +190,9 @@ export default function CreditLedgerList({
                             >
                               <td className="p-2 sm:p-3">{name}</td>
                               <td className="p-2 sm:p-3 text-center">
-                                {item.quantity}
+                                {quantityLabel
+                                  ? quantityLabel(item)
+                                  : item.quantity}
                               </td>
                               <td className="p-2 sm:p-3 text-right">
                                 {fmtCurrency(item.unitPrice)}
@@ -232,7 +237,12 @@ export default function CreditLedgerList({
                               </button>
                             </td>
                             <td className="p-2 sm:p-3 text-center">
-                              {group.quantity}
+                              {quantityLabel
+                                ? quantityLabel({
+                                    ...(group.items[0] ?? {}),
+                                    quantity: group.quantity,
+                                  })
+                                : group.quantity}
                             </td>
                             <td className="p-2 sm:p-3 text-right">
                               {group.unitPrice === null
@@ -254,7 +264,9 @@ export default function CreditLedgerList({
                                     t("products.standard")}
                                 </td>
                                 <td className="p-2 sm:p-3 text-center text-[11px] sm:text-xs">
-                                  {item.quantity}
+                                  {quantityLabel
+                                    ? quantityLabel(item)
+                                    : item.quantity}
                                 </td>
                                 <td className="p-2 sm:p-3 text-right text-[11px] sm:text-xs">
                                   {fmtCurrency(item.unitPrice)}

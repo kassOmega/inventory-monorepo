@@ -24,6 +24,11 @@ export class CreateProductVariantDto {
   @IsString()
   imageUrl?: string | null;
 
+  /** Per-unit price overrides keyed by unitId. */
+  @IsOptional()
+  @IsObject()
+  unitPrices?: Record<string, { buyPrice?: number; sellPrice?: number }>;
+
   @IsOptional()
   @IsNumber()
   @Min(0.01)
@@ -67,6 +72,34 @@ export class CreateProductBatchDto {
   @IsOptional()
   @IsInt()
   quantity?: number;
+}
+
+export class CreateProductUnitDto {
+  @IsInt()
+  unitId!: number;
+
+  /// How many of this unit are in ONE base unit. Base row = 1; lower units > 1.
+  @IsInt()
+  @Min(1)
+  perBase!: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isBase?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isDefaultSale?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  buyPrice?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  sellPrice?: number | null;
 }
 
 export class CreateProductDto {
@@ -137,6 +170,13 @@ export class CreateProductDto {
   @ValidateNested({ each: true })
   @Type(() => CreateProductVariantDto)
   variants?: CreateProductVariantDto[];
+
+  /** Product-specific unit ladder (base + lower units). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateProductUnitDto)
+  units?: CreateProductUnitDto[];
 
   @IsOptional()
   @ValidateNested()

@@ -2,6 +2,12 @@
 import Modal from "./Modal";
 import { QRCodeSVG } from "qrcode.react";
 import { variantLabel } from "@/lib/variantLabel";
+import { formatStockQuantity } from "@/lib/unit-display";
+import {
+  baseToStockQuantity,
+  maxPerBase,
+  stockPriceFromBase,
+} from "@/lib/unit-stock";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import { fmtCurrency } from "@/lib/currency";
@@ -45,9 +51,14 @@ export default function ProductDetailModal({
   );
   const priceHistory = detail?.priceHistory ?? [];
 
+  const stockFactor = maxPerBase(d?.units ?? []);
+  const stockLabel = (qty: number) =>
+    (d?.units?.length ?? 0) > 0
+      ? formatStockQuantity(qty, d.units)
+      : `${qty}${d?.unit?.name ? " " + d.unit.name : ""}`;
   // Gated cost/margin figures (only shown to roles with sales.view-profit).
-  const unitCost = d?.currentBuyPrice ?? 0;
-  const unitSell = d?.currentSellPrice ?? 0;
+  const unitCost = stockPriceFromBase(d?.currentBuyPrice ?? 0, d?.units ?? []);
+  const unitSell = stockPriceFromBase(d?.currentSellPrice ?? 0, d?.units ?? []);
   const totalCostValue = totalStock * unitCost;
   const estProfit = totalStock * (unitSell - unitCost);
 
@@ -99,12 +110,13 @@ export default function ProductDetailModal({
             <span
               className={
                 "px-2 py-1 rounded-full text-xs font-bold " +
-                (d.reorderLevel > 0 && totalStock < d.reorderLevel
+                (d.reorderLevel > 0 &&
+                  totalStock < baseToStockQuantity(d.reorderLevel, d?.units ?? [])
                   ? "bg-red-100 text-red-600"
                   : "bg-green-100 text-green-700")
               }
             >
-              {t("pdm.inStock", { n: totalStock })}
+              {t("pdm.inStock", { n: stockLabel(totalStock) })}
             </span>
           </div>
           {d.reorderLevel > 0 && (
@@ -214,7 +226,7 @@ export default function ProductDetailModal({
                             {v.sellPrice != null ? v.sellPrice : "—"}
                           </td>
                           <td className="p-1 text-right font-semibold">
-                            {qty}
+                            {stockLabel(qty)}
                             {v.reorderLevel > 0 && (
                               <span className="block text-[10px] font-normal text-gray-400">
                                 {t("pdm.lowStockAlert", { n: v.reorderLevel })}
@@ -253,7 +265,7 @@ export default function ProductDetailModal({
                             : "—"}
                         </td>
                         <td className="p-1 text-right font-semibold">
-                          {b.quantity}
+                          {stockLabel(b.quantity)}
                         </td>
                       </tr>
                     ))}
@@ -302,7 +314,7 @@ export default function ProductDetailModal({
                             {entry.location?.name ?? "—"}
                           </td>
                           <td className="p-1 text-right font-semibold">
-                            {entry.total}
+                            {stockLabel(entry.total)}
                           </td>
                         </tr>
                         {expanded && (
@@ -328,7 +340,7 @@ export default function ProductDetailModal({
                                           {variantLabel(v) || t("pdm.standard")}
                                         </td>
                                         <td className="p-1 text-right">
-                                          {i.quantity ?? 0}
+                                          {stockLabel(i.quantity ?? 0)}
                                         </td>
                                       </tr>
                                     );

@@ -9,6 +9,14 @@
 // (blank counted = not counted = skipped).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api, { markHandled } from "./api";
+import {
+  baseToStockQuantity,
+  defaultSaleUnit,
+  fromStockQuantity,
+  stockPriceFromBase,
+  unitsLargestFirst,
+} from "./unit-stock";
+import { stockBreakdownCounts } from "./unit-display";
 
 export interface StockSheetVariant {
   id: number;
@@ -31,6 +39,9 @@ export interface StockSheetProduct {
   currentBuyPrice?: number;
   currentSellPrice?: number;
   reorderLevel?: number;
+  unitId?: number | null;
+  unit?: { id: number; name: string } | null;
+  units?: any[];
   variants?: StockSheetVariant[];
 }
 
@@ -76,9 +87,13 @@ export interface StockSheetRow {
    */
   buyPrice?: string;
   sellPrice?: string;
+  /** Per-unit price overrides keyed by unitId. */
+  unitPrices?: Record<string, { buyPrice: string; sellPrice: string }>;
   /** Restock only, for perishable items. */
   batchNumber?: string;
   expiryDate?: string;
+  /** Quantities entered per unit id (multi-unit cells). */
+  unitCounts?: Record<string, string>;
 }
 
 /** The variant-level fields shared by every row of one (product, variant) pair. */
@@ -111,9 +126,30 @@ export const rowKeyOf = (row: {
 const variantFieldsOf = (row: StockSheetRow) => ({
   buyPrice: row.buyPrice,
   sellPrice: row.sellPrice,
+  unitPrices: row.unitPrices,
   batchNumber: row.batchNumber,
   expiryDate: row.expiryDate,
 });
+
+const serializeUnitPrices = (
+  prices: Record<string, { buyPrice: string; sellPrice: string }> | undefined,
+  includeBuy: boolean,
+) =>
+  Object.fromEntries(
+    Object.entries(prices ?? {})
+      .map(([unitId, price]) => [
+        unitId,
+        {
+          ...(includeBuy && price.buyPrice !== ""
+            ? { buyPrice: Number(price.buyPrice) }
+            : {}),
+          ...(price.sellPrice !== ""
+            ? { sellPrice: Number(price.sellPrice) }
+            : {}),
+        },
+      ])
+      .filter(([, price]) => Object.keys(price).length > 0),
+  );
 
 export default function useStockSheet() {
   const [rows, setRows] = useState<StockSheetRow[]>([]);
@@ -162,6 +198,63 @@ export default function useStockSheet() {
     return map;
   }, [products]);
 
+  const unitsForProduct = useCallback(
+    (productId: string | number): any[] =>
+      unitsLargestFirst(
+        (productById.get(Number(productId))?.units ?? []) as any[],
+      ),
+    [productById],
+  );
+
+  /** Write one unit's quantity into a multi-unit cell and recompute the base total. */
+  const setUnitCount = useCallback(
+    (
+      productId: string,
+      variantId: string,
+      locationId: string,
+      unitId: string,
+      value: string,
+    ) => {
+      const units = unitsForProduct(productId);
+      setRows((prev) => {
+        const key = `${productId}|${variantId || "base"}|${locationId || "none"}`;
+        const found = prev.find((r) => rowKeyOf(r) === key);
+        const unitCounts = {
+          ...(found?.unitCounts ?? {}),
+          [String(unitId)]: value,
+        };
+        const baseQty = units.reduce(
+          (sum, u) =>
+            sum +
+            (Number(unitCounts[String(u.unitId)] || 0) /
+              (Number(u.perBase) || 1)),
+          0,
+        );
+        const touched = Object.values(unitCounts).some((v) => v !== "");
+        if (found) {
+          return prev.map((r) =>
+            r === found
+              ? { ...r, unitCounts, counted: String(baseQty), touched }
+              : r,
+          );
+        }
+        if (!touched) return prev;
+        return [
+          ...prev,
+          {
+            key: nextKey(),
+            productId,
+            variantId,
+            locationId,
+            counted: String(baseQty),
+            touched: true,
+            unitCounts,
+          },
+        ];
+      });
+    },
+    [unitsForProduct],
+  );
 
   /**
    * Write a count for a (product, variant, location) triple — the product cards
@@ -229,6 +322,51 @@ export default function useStockSheet() {
     [],
   );
 
+  /** Write a per-unit price override on every row of this variant. */
+  const setVariantUnitPrice = useCallback(
+    (
+      productId: string | number,
+      variantId: string | number | null,
+      unitId: string,
+      field: "buyPrice" | "sellPrice",
+      value: string,
+    ) => {
+      const prefix = `${productId}|${variantId || "base"}|`;
+      setRows((prev) =>
+        prev.map((r) => {
+          if (!rowKeyOf(r).startsWith(prefix)) return r;
+          const current = r.unitPrices?.[unitId] ?? {
+            buyPrice: "",
+            sellPrice: "",
+          };
+          return {
+            ...r,
+            unitPrices: {
+              ...(r.unitPrices ?? {}),
+              [unitId]: { ...current, [field]: value },
+            },
+          };
+        }),
+      );
+    },
+    [],
+  );
+
+  /** Read a per-unit price override from the first row of this variant. */
+  const variantUnitPriceFor = useCallback(
+    (
+      productId: string | number,
+      variantId: string | number | null,
+      unitId: string,
+      field: "buyPrice" | "sellPrice",
+    ) => {
+      const prefix = `${productId}|${variantId || "base"}|`;
+      const row = rows.find((r) => rowKeyOf(r).startsWith(prefix));
+      return row?.unitPrices?.[unitId]?.[field] ?? "";
+    },
+    [rows],
+  );
+
   /** The value of a variant-level field (read off the first row of the variant). */
   const variantFieldFor = useCallback(
     (
@@ -270,6 +408,8 @@ export default function useStockSheet() {
               variantId,
               locationId,
               counted: "",
+              unitCounts: {},
+              unitPrices: {},
               ...(existing ? variantFieldsOf(existing) : {}),
             };
             if (seen.has(rowKeyOf(row))) continue;
@@ -315,6 +455,8 @@ export default function useStockSheet() {
             variantId,
             locationId: column,
             counted: "",
+            unitCounts: {},
+            unitPrices: {},
             ...(existing ? variantFieldsOf(existing) : {}),
           };
           if (seen.has(rowKeyOf(row))) continue;
@@ -431,30 +573,66 @@ export default function useStockSheet() {
     [stock],
   );
 
-  const systemFor = useCallback(
+  const stockUnitsFor = useCallback(
     (row: { productId: string; variantId: string; locationId: string }) =>
       entryFor(row.productId, row.variantId || null, row.locationId)?.quantity ??
       0,
     [entryFor],
   );
 
+  const systemFor = useCallback(
+    (row: { productId: string; variantId: string; locationId: string }) => {
+      const quantity =
+        entryFor(row.productId, row.variantId || null, row.locationId)
+          ?.quantity ?? 0;
+      const units = unitsForProduct(row.productId);
+      const baseUnit = units.find((u: any) => u.isBase) ?? units[0] ?? null;
+      return fromStockQuantity(quantity, baseUnit, units);
+    },
+    [entryFor, unitsForProduct],
+  );
+
+  /** Inventory average cost per canonical stock unit. */
   const unitCostFor = useCallback(
     (row: { productId: string; variantId: string; locationId: string }) => {
       const entry = entryFor(row.productId, row.variantId || null, row.locationId);
       if (entry) return entry.avgCost ?? 0;
-      return productById.get(Number(row.productId))?.currentBuyPrice ?? 0;
+      return stockPriceFromBase(
+        productById.get(Number(row.productId))?.currentBuyPrice ?? 0,
+        unitsForProduct(row.productId),
+      );
     },
-    [entryFor, productById],
+    [entryFor, productById, unitsForProduct],
   );
 
+  /**
+   * Difference between counted and system quantity in STOCK units.
+   *
+   * `counted` is kept in base units, but rounding that base delta to 2dp loses
+   * small lower-unit counts when one base unit contains many stock units. The
+   * backend rounds the submitted quantity to whole stock units, so the totals
+   * must use that same unit.
+   */
   const deltaFor = useCallback(
-    (row: { productId: string; variantId: string; locationId: string; counted: string }) => {
+    (row: {
+      productId: string;
+      variantId: string;
+      locationId: string;
+      counted: string;
+    }) => {
       if (row.counted === "" || row.counted === null) return 0;
       const counted = Number(row.counted);
       if (!Number.isFinite(counted)) return 0;
-      return round2(counted - systemFor(row));
+      const countedStock = baseToStockQuantity(
+        counted,
+        unitsForProduct(row.productId),
+      );
+      const systemStock =
+        entryFor(row.productId, row.variantId || null, row.locationId)
+          ?.quantity ?? 0;
+      return countedStock - systemStock;
     },
-    [systemFor],
+    [entryFor, unitsForProduct],
   );
 
   // ----------------------------------------------------------- totals + save
@@ -469,18 +647,31 @@ export default function useStockSheet() {
       setRows((prev) =>
         prev.map((r) => {
           if (only && !only.includes(Number(r.productId))) return r;
-          const system = stock.find(
-            (s) =>
-              s.productId === Number(r.productId) &&
-              (s.variantId ?? null) === (r.variantId ? Number(r.variantId) : null) &&
-              s.locationId === Number(r.locationId),
-          );
-          if (!system) return r;
-          return { ...r, counted: String(system.quantity), touched: false };
+          const quantity = systemFor(r);
+          if (!quantity) return r;
+          const units = unitsForProduct(r.productId);
+          if (units.length > 1) {
+            const counts = stockBreakdownCounts(
+              baseToStockQuantity(quantity, unitsForProduct(r.productId)),
+              units,
+            );
+            return {
+              ...r,
+              counted: String(quantity),
+              unitCounts: Object.fromEntries(
+                Object.entries(counts).map(([unitId, count]) => [
+                  unitId,
+                  String(count),
+                ]),
+              ),
+              touched: false,
+            };
+          }
+          return { ...r, counted: String(quantity), touched: false };
         }),
       );
     },
-    [stock],
+    [systemFor, unitsForProduct],
   );
 
   /**
@@ -589,14 +780,36 @@ export default function useStockSheet() {
    */
   const buildItems = useCallback(
     () =>
-      touchedRows.map((r) => ({
-        productId: Number(r.productId),
-        ...(r.variantId ? { variantId: Number(r.variantId) } : {}),
-        locationId: Number(r.locationId),
-        quantity: Number(r.counted),
-        ...(r.sellPrice ? { sellPrice: Number(r.sellPrice) } : {}),
-      })),
-    [touchedRows],
+      touchedRows.map((r) => {
+        const product = productById.get(Number(r.productId));
+        const baseUnitId = product?.unitId ? String(product.unitId) : "";
+        const baseBuyOverride = baseUnitId
+          ? r.unitPrices?.[baseUnitId]?.buyPrice
+          : "";
+        const baseSellOverride = baseUnitId
+          ? r.unitPrices?.[baseUnitId]?.sellPrice
+          : "";
+        return {
+          productId: Number(r.productId),
+          ...(r.variantId ? { variantId: Number(r.variantId) } : {}),
+          locationId: Number(r.locationId),
+          quantity: Number(r.counted),
+          ...(baseBuyOverride
+            ? { buyPrice: Number(baseBuyOverride) }
+            : r.buyPrice
+              ? { buyPrice: Number(r.buyPrice) }
+              : {}),
+          ...(baseSellOverride
+            ? { sellPrice: Number(baseSellOverride) }
+            : r.sellPrice
+              ? { sellPrice: Number(r.sellPrice) }
+              : {}),
+          ...(Object.keys(serializeUnitPrices(r.unitPrices, true)).length
+            ? { unitPrices: serializeUnitPrices(r.unitPrices, true) }
+            : {}),
+        };
+      }),
+    [touchedRows, productById],
   );
 
   /**
@@ -607,13 +820,31 @@ export default function useStockSheet() {
     () =>
       touchedRows.map((r) => {
         const product = productById.get(Number(r.productId));
+        const baseUnitId = product?.unitId ? String(product.unitId) : "";
+        const baseBuyOverride = baseUnitId
+          ? r.unitPrices?.[baseUnitId]?.buyPrice
+          : "";
+        const baseSellOverride = baseUnitId
+          ? r.unitPrices?.[baseUnitId]?.sellPrice
+          : "";
         return {
           productId: Number(r.productId),
           ...(r.variantId ? { variantId: Number(r.variantId) } : {}),
           locationId: Number(r.locationId),
           quantity: Number(r.counted),
-          ...(r.buyPrice ? { buyPrice: Number(r.buyPrice) } : {}),
-          ...(r.sellPrice ? { sellPrice: Number(r.sellPrice) } : {}),
+          ...(baseBuyOverride
+            ? { buyPrice: Number(baseBuyOverride) }
+            : r.buyPrice
+              ? { buyPrice: Number(r.buyPrice) }
+              : {}),
+          ...(baseSellOverride
+            ? { sellPrice: Number(baseSellOverride) }
+            : r.sellPrice
+              ? { sellPrice: Number(r.sellPrice) }
+              : {}),
+          ...(Object.keys(serializeUnitPrices(r.unitPrices, true)).length
+            ? { unitPrices: serializeUnitPrices(r.unitPrices, true) }
+            : {}),
           ...(product?.isPerishable && r.batchNumber
             ? { batchNumber: r.batchNumber }
             : {}),
@@ -706,9 +937,13 @@ export default function useStockSheet() {
     productById,
     registerProducts,
     setCounted,
+    setUnitCount,
+    unitsForProduct,
     rowFor,
     setVariantField,
     variantFieldFor,
+    setVariantUnitPrice,
+    variantUnitPriceFor,
     addProduct,
     removeProduct,
     toggleProductLocation,
@@ -720,6 +955,7 @@ export default function useStockSheet() {
     refreshStock,
     loadingStock,
     systemFor,
+    stockUnitsFor,
     unitCostFor,
     deltaFor,
     totals,

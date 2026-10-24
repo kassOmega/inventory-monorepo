@@ -4,7 +4,7 @@ import api from "@/lib/api";
 import Button from "@/app/components/Button";
 import { useAuth } from "@/context/AuthContext";
 import { getDateRange, type DatePreset } from "@/app/components/DateFilter";
-import FilterPanel from "@/app/components/FilterPanel";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -119,7 +119,7 @@ export default function CarWashCollectionPage() {
       </div>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
 
-      <FilterPanel
+      <CollapsibleFilterPanel
         showDateFilter
         datePreset={datePreset}
         onDatePresetChange={setDatePreset}

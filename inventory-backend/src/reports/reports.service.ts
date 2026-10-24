@@ -4,6 +4,7 @@ import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import PDFDocument from 'pdfkit';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { PrismaService } from '../prisma/prisma.service';
+import { stockPriceFromBase } from '../common/unit-stock.util';
 import {
   AuditLogResponse,
   InventoryBreakdownResponse,
@@ -84,6 +85,16 @@ export class ReportsService {
             currentBuyPrice: true,
             currentSellPrice: true,
             category: { select: { name: true } },
+            units: {
+              select: {
+                unitId: true,
+                perBase: true,
+                isBase: true,
+                isDefaultSale: true,
+                unit: { select: { name: true } },
+              },
+              orderBy: { sortOrder: 'asc' },
+            },
           },
         },
         location: true,
@@ -108,6 +119,7 @@ export class ReportsService {
           total: 0,
           locations: {},
           variants: [],
+          units: inv.product.units ?? [],
         };
         productMap.set(inv.productId, data);
       }
@@ -116,12 +128,18 @@ export class ReportsService {
       // back to the product's catalog price (legacy rows without prices).
       const variantBuy = Number(inv.variant?.buyPrice ?? 0);
       const variantSell = Number(inv.variant?.sellPrice ?? 0);
-      const unitBuyPrice =
-        variantBuy > 0 ? variantBuy : Number(inv.product.currentBuyPrice) || 0;
-      const unitSellPrice =
+      const unitBuyPrice = stockPriceFromBase(
+        variantBuy > 0
+          ? variantBuy
+          : Number(inv.product.currentBuyPrice) || 0,
+        inv.product.units ?? [],
+      );
+      const unitSellPrice = stockPriceFromBase(
         variantSell > 0
           ? variantSell
-          : Number(inv.product.currentSellPrice) || 0;
+          : Number(inv.product.currentSellPrice) || 0,
+        inv.product.units ?? [],
+      );
       const qty = Number(inv.quantity) || 0;
 
       // Aggregate correctly: a product can have several variant inventory rows
@@ -272,7 +290,16 @@ export class ReportsService {
       this.prisma.inventory.findMany({
         where: inventoryWhere,
         include: {
-          product: { include: { category: true, unit: true } },
+          product: {
+            include: {
+              category: true,
+              unit: true,
+              units: {
+                include: { unit: true },
+                orderBy: { sortOrder: 'asc' },
+              },
+            },
+          },
           location: true,
           variant: true,
         },
@@ -302,7 +329,10 @@ export class ReportsService {
 
     const items = inventories.map((inv) => {
       const quantity = inv.quantity;
-      const buyPrice = inv.product?.currentBuyPrice ?? 0;
+      const buyPrice = stockPriceFromBase(
+        inv.product?.currentBuyPrice ?? 0,
+        (inv.product as any)?.units ?? [],
+      );
       // The low-stock number and the suggested reorder qty resolve per stock row:
       // a variant's own settings win, otherwise the product's applies (0 = no
       // alert). This keeps the report in step with what actually raises alerts.
@@ -315,6 +345,8 @@ export class ReportsService {
         name: `${inv.product?.brand ?? ''} ${inv.product?.baseName ?? ''}`.trim() || `Product #${inv.productId}`,
         category: inv.product?.category?.name ?? 'Uncategorized',
         unit: inv.product?.unit?.name ?? null,
+        units: (inv.product as any)?.units ?? [],
+        stockUnitId: (inv.product as any)?.stockUnitId ?? null,
         quantity,
         currentBuyPrice: buyPrice,
         stockValue: round2(quantity * buyPrice),
@@ -1794,11 +1826,32 @@ export class ReportsService {
       take: AUDIT_TRAIL_LIMIT,
     });
 
+    // Older sale audit rows stored the numeric "Shop ID 9". Resolve those IDs
+    // at read time so the audit page shows the location name even for history
+    // written before the sale service started storing names.
+    const legacyShopIds = new Set<number>();
+    for (const log of logs) {
+      const matches = String(log.details ?? '').matchAll(/Shop ID (\d+)/g);
+      for (const match of matches) legacyShopIds.add(Number(match[1]));
+    }
+    const legacyLocations = legacyShopIds.size
+      ? await this.prisma.location.findMany({
+          where: { id: { in: [...legacyShopIds] } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const legacyNameById = new Map(
+      legacyLocations.map((loc) => [loc.id, loc.name]),
+    );
+
     return logs.map((log) => ({
       id: log.id,
       userId: log.userId,
       action: log.action,
-      details: log.details,
+      details: String(log.details ?? '').replace(
+        /Shop ID (\d+)/g,
+        (_match, id) => legacyNameById.get(Number(id)) ?? `Shop #${id}`,
+      ),
       createdAt: log.createdAt,
       // Null-safe: a deleted user must not crash the trail.
       user: log.user

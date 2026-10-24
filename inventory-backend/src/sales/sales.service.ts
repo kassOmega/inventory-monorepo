@@ -15,6 +15,14 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { tr } from '../i18n/i18n.service';
 import { inventoryFind, inventoryUpsert } from '../common/inventory.util';
+import {
+  fromStockQuantity,
+  maxPerBase as maxPerBaseOfUnits,
+  pricePerUnitFromBase,
+  stockPerUnit,
+  stockPriceFromUnit,
+  toStockQuantity,
+} from '../common/unit-stock.util';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { ReturnSaleDto } from './dto/return-sale.dto';
 
@@ -27,6 +35,12 @@ interface SaleItemCreationInput {
   unitSellPrice: number;
   unitBuyPrice: number;
   tenantId?: number | null;
+  unitId?: number | null;
+  unitQuantity?: number | null;
+  unitPrice?: number | null;
+  stockQuantity?: number | null;
+  stockUnitId?: number | null;
+  stockFactor?: number | null;
 }
 
 @Injectable()
@@ -183,6 +197,7 @@ export class SalesService {
       quantity: number;
       shopId: number;
       customPrice?: number;
+      unitId?: number;
       tenantId?: number | null;
     },
   ): Promise<SaleItemCreationInput[]> {
@@ -193,39 +208,116 @@ export class SalesService {
         variantId: args.variantId,
         locationId: args.shopId,
       },
-      { product: true },
+      { product: { include: { units: { include: { unit: true } } } } },
     );
-    if (!inventory || inventory.quantity < args.quantity) {
+    if (!inventory) {
       throw new BadRequestException(
         tr('errors.insufficientStockForProduct', { id: args.productId }),
       );
     }
     const product = inventory.product;
+    const unitRows = (product as any).units ?? [];
+    const maxPerBase = maxPerBaseOfUnits(unitRows);
+    const selectedUnit = unitRows.length
+      ? unitRows.find((u: any) => Number(u.unitId) === Number(args.unitId)) ??
+        unitRows.find((u: any) => u.isDefaultSale) ??
+        unitRows.find((u: any) => u.isBase) ??
+        unitRows[0]
+      : null;
+    const perBase = selectedUnit ? Number(selectedUnit.perBase) : 1;
+    if (selectedUnit && Number(args.unitId) && Number(args.unitId) !== Number(selectedUnit.unitId)) {
+      throw new BadRequestException('The selected unit is not configured for this product.');
+    }
+    const stockFactor = stockPerUnit(perBase, maxPerBase);
+    if (!Number.isInteger(stockFactor)) {
+      throw new BadRequestException(
+        'The selected unit cannot be converted to a whole stock quantity.',
+      );
+    }
+    const stockQty = toStockQuantity(args.quantity, perBase, unitRows);
+    if (unitRows.length && (!Number.isInteger(args.quantity) || !Number.isInteger(stockQty))) {
+      throw new BadRequestException(
+        'Enter a whole-number quantity in the selected unit.',
+      );
+    }
+    if (inventory.quantity < stockQty) {
+      throw new BadRequestException(
+        tr('errors.insufficientStockForProduct', { id: args.productId }),
+      );
+    }
 
-    let sellPrice = args.customPrice ?? product.currentSellPrice;
-    let buyPrice = product.currentBuyPrice;
+    let unitSellPrice = 0;
+    let unitBuyPrice = pricePerUnitFromBase(product.currentBuyPrice, perBase);
     if (args.variantId != null) {
       const variant = await tx.productVariant.findUnique({
         where: { id: args.variantId },
       });
-      if (args.customPrice == null && variant?.sellPrice != null) {
-        sellPrice = variant.sellPrice;
+      const unitKey = selectedUnit ? String(selectedUnit.unitId) : "";
+      const variantPrices =
+        (variant?.unitPrices as Record<
+          string,
+          { buyPrice?: number; sellPrice?: number }
+        > | null) ?? {};
+      const variantUnitPrice = unitKey ? variantPrices[unitKey] : null;
+
+      // Priority: variant per-unit override → product per-unit override →
+      // variant base price ÷ perBase → product base price ÷ perBase.
+      if (variantUnitPrice?.buyPrice != null) {
+        unitBuyPrice = Number(variantUnitPrice.buyPrice);
+      } else if (selectedUnit?.buyPrice != null) {
+        unitBuyPrice = Number(selectedUnit.buyPrice);
+      } else if (variant?.buyPrice != null) {
+        unitBuyPrice = pricePerUnitFromBase(Number(variant.buyPrice), perBase);
       }
-      if (variant?.buyPrice != null) {
-        buyPrice = variant.buyPrice;
+      if (args.customPrice != null) {
+        unitSellPrice = Number(args.customPrice);
+      } else if (variantUnitPrice?.sellPrice != null) {
+        unitSellPrice = Number(variantUnitPrice.sellPrice);
+      } else if (selectedUnit?.sellPrice != null) {
+        unitSellPrice = Number(selectedUnit.sellPrice);
+      } else if (variant?.sellPrice != null) {
+        unitSellPrice = pricePerUnitFromBase(Number(variant.sellPrice), perBase);
+      } else {
+        unitSellPrice = pricePerUnitFromBase(product.currentSellPrice, perBase);
       }
+    } else if (args.customPrice != null) {
+      unitSellPrice = Number(args.customPrice);
+    } else if (selectedUnit?.sellPrice != null) {
+      unitSellPrice = Number(selectedUnit.sellPrice);
+    } else {
+      unitSellPrice = pricePerUnitFromBase(product.currentSellPrice, perBase);
     }
+    // SaleItem stores prices per STOCK unit for COGS/report math; the selected
+    // per-unit price is preserved separately in `unitPrice`.
+    const stockSellPrice = stockPriceFromUnit(
+      unitSellPrice,
+      perBase,
+      maxPerBase,
+    );
+    const buyPrice = stockPriceFromUnit(
+      unitBuyPrice,
+      perBase,
+      maxPerBase,
+    );
+    const unitId = selectedUnit ? Number(selectedUnit.unitId) : null;
+    const stockUnitId =
+      (product as any).stockUnitId ??
+      (unitRows.length
+        ? Number(
+            unitRows.find((u: any) => Number(u.perBase) === maxPerBase)?.unitId,
+          )
+        : null);
 
     await tx.inventory.update({
       where: { id: inventory.id },
-      data: { quantity: { decrement: args.quantity } },
+      data: { quantity: { decrement: stockQty } },
     });
 
     const results: SaleItemCreationInput[] = [];
     if (product.isPerishable) {
       const allocs = await this.allocateFifoBatches(tx, {
         productId: args.productId,
-        quantity: args.quantity,
+        quantity: stockQty,
       });
       for (const a of allocs) {
         results.push({
@@ -233,9 +325,19 @@ export class SalesService {
           variantId: args.variantId,
           batchId: a.batchId,
           quantity: a.quantity,
-          unitSellPrice: sellPrice,
+          unitSellPrice: stockSellPrice,
           unitBuyPrice: buyPrice,
           tenantId: args.tenantId,
+          unitId,
+          unitQuantity: fromStockQuantity(
+            a.quantity,
+            perBase,
+            unitRows,
+          ),
+          unitPrice: unitSellPrice,
+          stockQuantity: a.quantity,
+          stockUnitId,
+          stockFactor,
         });
       }
     } else {
@@ -243,10 +345,16 @@ export class SalesService {
         productId: args.productId,
         variantId: args.variantId,
         batchId: null,
-        quantity: args.quantity,
-        unitSellPrice: sellPrice,
+        quantity: stockQty,
+        unitSellPrice: stockSellPrice,
         unitBuyPrice: buyPrice,
         tenantId: args.tenantId,
+        unitId,
+        unitQuantity: args.quantity,
+        unitPrice: unitSellPrice,
+        stockQuantity: stockQty,
+        stockUnitId,
+        stockFactor,
       });
     }
     return results;
@@ -372,6 +480,7 @@ export class SalesService {
           quantity: item.quantity,
           shopId,
           customPrice: item.customPrice,
+          unitId: item.unitId,
           tenantId,
         });
         for (const r of results) {
@@ -479,12 +588,16 @@ export class SalesService {
         userId: user.sub,
       });
 
+      const saleLocation = await tx.location.findUnique({
+        where: { id: shopId },
+        select: { name: true },
+      });
       await tx.auditLog.create({
         data: {
           tenantId,
           userId: user.sub,
           action: 'SALE',
-          details: `Sale #${sale.invoiceNumber}: $${totalAmount.toFixed(2)} (${saleType}) at Shop ID ${shopId}`,
+          details: `Sale #${sale.invoiceNumber}: $${totalAmount.toFixed(2)} (${saleType}) at ${saleLocation?.name ?? `Shop #${shopId}`}`,
         },
       });
 
@@ -593,7 +706,13 @@ export class SalesService {
     }
 
     const include = {
-      items: { include: { product: true, variant: true, batch: true } },
+      items: {
+        include: {
+          product: { include: { units: { include: { unit: true } } } },
+          variant: true,
+          batch: true,
+        },
+      },
       shop: true,
       paymentMethod: true,
       customer: true,
@@ -689,7 +808,14 @@ export class SalesService {
     const sale = await this.prisma.sale.findFirst({
       where,
       include: {
-        items: { include: { product: true, variant: true, batch: true } },
+        items: {
+          include: {
+            product: { include: { units: { include: { unit: true } } } },
+            variant: true,
+            batch: true,
+            unit: true,
+          },
+        },
         shop: true,
         paymentMethod: true,
         customer: true,
@@ -788,7 +914,31 @@ export class SalesService {
         const originalQty = originalByKey.get(
           `${item.productId}:${item.variantId ?? ''}`,
         ) ?? 0;
-        const quantityDelta = item.quantity - originalQty;
+        const unitProduct = await tx.product.findUnique({
+          where: { id: item.productId },
+          select: {
+            units: {
+              select: { unitId: true, perBase: true, isBase: true, isDefaultSale: true },
+            },
+          },
+        });
+        const unitRows = unitProduct?.units ?? [];
+        const maxPerBase = maxPerBaseOfUnits(unitRows);
+        const selectedUnit =
+          unitRows.find((u) => Number(u.unitId) === Number(item.unitId)) ??
+          unitRows.find((u) => u.isDefaultSale) ??
+          unitRows.find((u) => u.isBase) ??
+          unitRows[0];
+        const stockFactor = stockPerUnit(
+          Number(selectedUnit?.perBase) || 1,
+          maxPerBase,
+        );
+        const newStockQty = toStockQuantity(
+          item.quantity,
+          Number(selectedUnit?.perBase) || 1,
+          unitRows,
+        );
+        const quantityDelta = newStockQty - originalQty;
         if (quantityDelta > 0) {
           const inventory = await inventoryFind(tx, {
             productId: item.productId,
@@ -806,7 +956,7 @@ export class SalesService {
             );
             throw new BadRequestException(
               tr('errors.cannotSellQuantity', {
-                quantity: item.quantity,
+                quantity: newStockQty,
                 name,
                 available: currentStock + originalQty,
               }),
@@ -819,6 +969,7 @@ export class SalesService {
           quantity: item.quantity,
           shopId,
           customPrice: item.customPrice,
+          unitId: item.unitId,
           tenantId,
         });
         for (const r of results) {
@@ -1353,7 +1504,11 @@ export class SalesService {
           ? {}
           : { shopId: user.locationId ?? undefined },
       include: {
-        items: { include: { product: true } },
+        items: {
+          include: {
+            product: { include: { units: { include: { unit: true } } } },
+          },
+        },
         sale: { select: { invoiceNumber: true } },
         shop: true,
       },

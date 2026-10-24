@@ -27,6 +27,9 @@ export interface InventoryBreakdownRow {
   locations: Record<string, number>;
   /** Per-variant × per-location breakdown for expandable report rows. */
   variants: InventoryVariantRow[];
+  /** Product-specific unit ladder (base + lower units). */
+  units?: any[];
+  stockUnitId?: number | null;
   /** Unit catalog sell price — always returned. */
   unitSellPrice?: number;
   /** Cost fields below are only returned when the caller holds

@@ -91,6 +91,8 @@ export async function inventorySet(
     quantity: number;
     // Required: Inventory.tenantId is a NOT NULL FK to Organization.
     tenantId: number;
+    /** Optional cost per stock unit (used when the row is first created). */
+    unitCost?: number | null;
   },
 ) {
   const row = await tx.inventory.findFirst({
@@ -103,7 +105,12 @@ export async function inventorySet(
   if (row) {
     return tx.inventory.update({
       where: { id: row.id },
-      data: { quantity: input.quantity },
+      data: {
+        quantity: input.quantity,
+        ...(input.unitCost != null && input.unitCost > 0 && row.quantity <= 0
+          ? { avgCost: input.unitCost }
+          : {}),
+      },
     });
   }
   return tx.inventory.create({
@@ -113,6 +120,9 @@ export async function inventorySet(
       variantId: input.variantId ?? null,
       locationId: input.locationId,
       quantity: input.quantity,
+      ...(input.unitCost != null && input.unitCost > 0
+        ? { avgCost: input.unitCost }
+        : {}),
     },
   });
 }

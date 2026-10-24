@@ -748,11 +748,17 @@ export class AiDataCollectorService {
     staffMap: Map<number, { orders: number; revenue: number; profit: number }>,
   ): Promise<StaffMetric[]> {
     if (staffMap.size === 0) return [];
-    // Staff names are PII — the external model only sees a numeric pseudonym.
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: [...staffMap.keys()] } },
+      select: { id: true, name: true },
+    });
+    const nameById = new Map(users.map((u) => [u.id, u.name]));
     return [...staffMap.entries()]
       .map(([userId, v]) => ({
         userId,
-        userName: `Staff ${userId}`,
+        // Use the staff member's real name so the coach can answer questions
+        // like "who is staff 111?" instead of repeating a numeric pseudonym.
+        userName: nameById.get(userId)?.trim() || `Staff ${userId}`,
         ordersCount: v.orders,
         revenue: round2(v.revenue),
         profit: round2(v.profit),

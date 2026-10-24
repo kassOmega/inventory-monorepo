@@ -1,9 +1,4 @@
 "use client";
-// A collapsible wrapper around the shared FilterPanel (the Sales filter UI).
-//
-// Expanded it renders the FilterPanel exactly as-is; collapsed it hides the whole
-// thing behind a slim header. It starts expanded and does not persist the choice —
-// this is purely a "tuck the filters away" affordance, no restyle of the panel.
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import FilterPanel from "./FilterPanel";
@@ -13,13 +8,12 @@ type FilterPanelProps = React.ComponentProps<typeof FilterPanel>;
 interface Props extends FilterPanelProps {
   /** Header/toggle label. Defaults to the shared "Filters" copy. */
   title?: string;
-  /** Start expanded (default). */
   defaultOpen?: boolean;
 }
 
 export default function CollapsibleFilterPanel({
   title,
-  defaultOpen = true,
+  defaultOpen = false,
   ...panel
 }: Props) {
   const { t } = useTranslation();
@@ -50,8 +44,6 @@ export default function CollapsibleFilterPanel({
       </button>
 
       {open && (
-        // The panel already carries its own bottom margin; drop the wrapper's gap
-        // so spacing matches a page that rendered <FilterPanel> directly.
         <div className="[&>div]:mb-0">
           <FilterPanel {...panel} />
         </div>

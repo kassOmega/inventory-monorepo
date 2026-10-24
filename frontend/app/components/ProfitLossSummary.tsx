@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 interface Props {
   startDate: string;
   endDate: string;
+  locationId?: string;
 }
 
 const money = (n: number) =>
@@ -18,16 +19,22 @@ const money = (n: number) =>
  * GET /finance/profit-loss. Renders nothing while loading or on error so it
  * never blocks the reports page.
  */
-export default function ProfitLossSummary({ startDate, endDate }: Props) {
+export default function ProfitLossSummary({
+  startDate,
+  endDate,
+  locationId,
+}: Props) {
   const { t } = useTranslation();
   const [pl, setPl] = useState<any>(null);
 
   useEffect(() => {
+    const q = new URLSearchParams({ startDate, endDate });
+    if (locationId) q.set("locationId", locationId);
     api
-      .get(`/finance/profit-loss?startDate=${startDate}&endDate=${endDate}`)
+      .get(`/finance/profit-loss?${q.toString()}`)
       .then((r) => setPl(r.data))
       .catch(() => setPl(null));
-  }, [startDate, endDate]);
+  }, [startDate, endDate, locationId]);
 
   if (!pl) return null;
 

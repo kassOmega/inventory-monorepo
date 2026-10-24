@@ -2,8 +2,10 @@
 
 import api from "@/lib/api";
 import Button from "@/app/components/Button";
-import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
+import { FilterSelect } from "@/app/components/FilterPanel";
 import Modal from "@/app/components/Modal";
+import CustomerForm from "@/app/components/CustomerForm";
 import { useAuth } from "@/context/AuthContext";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState } from "react";
@@ -25,6 +27,7 @@ export default function CarWashVehiclesPage() {
   const [customerState, setCustomerState] = useState<"none" | "found" | "new">(
     "none",
   );
+  const [showCustomerForm, setShowCustomerForm] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -117,14 +120,11 @@ export default function CarWashVehiclesPage() {
     setError("");
     setSaving(true);
     try {
-      // Link to an existing customer, or create one inline from phone + name.
-      let customerId = form.customerId ? Number(form.customerId) : null;
-      if (!customerId && form.name.trim() && form.phone.trim()) {
-        const created = await api.post("/customers", {
-          name: form.name.trim(),
-          phone: form.phone.trim(),
-        });
-        customerId = created.data.id;
+      const customerId = form.customerId ? Number(form.customerId) : null;
+      if (!customerId) {
+        setError(t("carwash.selectOrCreateCustomer"));
+        setSaving(false);
+        return;
       }
       const payload: any = {
         customerId,
@@ -186,7 +186,7 @@ export default function CarWashVehiclesPage() {
         <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>
       )}
 
-      <FilterPanel
+      <CollapsibleFilterPanel
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder={t("carwash.plateNumber")}
@@ -316,6 +316,15 @@ export default function CarWashVehiclesPage() {
                 required
               />
             </label>
+            {!form.customerId && (
+              <button
+                type="button"
+                onClick={() => setShowCustomerForm(true)}
+                className="text-xs font-medium text-blue-600 hover:underline"
+              >
+                {t("carwash.newCustomer")}
+              </button>
+            )}
           </div>
 
           <label className="block text-sm text-gray-600">
@@ -362,6 +371,31 @@ export default function CarWashVehiclesPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        isOpen={showCustomerForm}
+        onClose={() => setShowCustomerForm(false)}
+        title={t("carwash.addCustomer")}
+      >
+        <CustomerForm
+          onCancel={() => setShowCustomerForm(false)}
+          onCreated={(customer: any) => {
+            setCustomers((prev) =>
+              prev.some((c: any) => c.id === customer.id)
+                ? prev
+                : [...prev, customer],
+            );
+            setForm((f) => ({
+              ...f,
+              customerId: String(customer.id),
+              name: customer.name ?? "",
+              phone: customer.phone ?? "",
+            }));
+            setCustomerState("found");
+            setShowCustomerForm(false);
+          }}
+        />
       </Modal>
     </div>
   );

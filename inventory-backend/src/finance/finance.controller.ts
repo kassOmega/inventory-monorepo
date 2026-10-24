@@ -229,8 +229,16 @@ export class FinanceController {
   }
 
   @Get('profit-loss')
-  getProfitAndLoss(@Query('startDate') startDate?: string, @Query('endDate') endDate?: string) {
-    return this.finance.getProfitAndLoss(startDate, endDate);
+  getProfitAndLoss(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('locationId') locationId?: string,
+  ) {
+    return this.finance.getProfitAndLoss(
+      startDate,
+      endDate,
+      locationId ? Number(locationId) : undefined,
+    );
   }
 
   @Get('profit-by-category')
@@ -284,8 +292,14 @@ export class FinanceController {
   getExpenseLedger(
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('locationId') locationId?: string,
   ) {
-    return this.finance.getExpenseLedger(startDate, endDate);
+    return this.finance.getExpenseLedger(
+      startDate,
+      endDate,
+      undefined,
+      locationId ? Number(locationId) : undefined,
+    );
   }
 
   @Get('comparison')

@@ -127,6 +127,9 @@ export class PurchasesService {
     const shop = await this.resolveShop(user, meta.shopId);
     const paymentType: PaymentType =
       meta.paymentType === 'CREDIT' ? 'CREDIT' : 'PAID';
+    // An owner's quick purchase is their own money and their own stock: approve
+    // it immediately instead of leaving it in the owner-approval queue.
+    const autoApprove = paymentType === 'PAID' && user.isOwnerAccount === true;
 
     // A credit purchase must name the vendor we owe; a paid one may name one.
     let vendorCustomerId: number | null = meta.vendorCustomerId ?? null;
@@ -149,8 +152,11 @@ export class PurchasesService {
         ? await this.resolvePaymentMethod(meta.paymentMethodId)
         : null;
 
+    let createdRows: Array<
+      Prisma.PurchaseGetPayload<{ include: typeof PURCHASE_INCLUDE }>
+    >;
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      createdRows = await this.prisma.$transaction(async (tx) => {
         const created: Array<
           Prisma.PurchaseGetPayload<{ include: typeof PURCHASE_INCLUDE }>
         > = [];
@@ -207,12 +213,14 @@ export class PurchasesService {
                 .toFixed(2)} / sell ${created
                 .reduce((s, p) => s + p.revenue, 0)
                 .toFixed(2)} birr (${shop.name})`;
-        await this.notifications.notifyOwner(title, body, {
-          locationId: shop.id,
-          type: 'PO_DRAFT',
-          // One key per purchase batch — the same batch never re-notifies.
-          dedupeKey: `PO_DRAFT:${created.map((c) => c.id).join('-')}`,
-        });
+        if (!autoApprove) {
+          await this.notifications.notifyOwner(title, body, {
+            locationId: shop.id,
+            type: 'PO_DRAFT',
+            // One key per purchase batch — the same batch never re-notifies.
+            dedupeKey: `PO_DRAFT:${created.map((c) => c.id).join('-')}`,
+          });
+        }
 
         return created;
       });
@@ -227,6 +235,31 @@ export class PurchasesService {
       }
       return assertNotDuplicate(err, 'errors.purchaseAlreadySubmitted');
     }
+
+    if (autoApprove) {
+      for (const row of createdRows) {
+        try {
+          await this.approve(row.id, user);
+        } catch (err) {
+          // Keep the created purchase rather than losing it: it stays pending
+          // and the owner can approve it manually once the cause is fixed.
+          this.logger.warn(
+            `Auto-approval of owner quick purchase #${row.id} failed: ${
+              (err as Error).message
+            }`,
+          );
+        }
+      }
+      const ids = createdRows.map((row) => row.id);
+      const refreshed = await this.prisma.purchase.findMany({
+        where: { id: { in: ids } },
+        include: PURCHASE_INCLUDE,
+      });
+      const byId = new Map(refreshed.map((row) => [row.id, row]));
+      return createdRows.map((row) => byId.get(row.id) ?? row);
+    }
+
+    return createdRows;
   }
 
   /** Owning shop: the user's own location, else the shop an owner picked. */

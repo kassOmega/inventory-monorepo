@@ -804,6 +804,13 @@ model Product {
   returnItems            ReturnItem[]
   unitId                 Int?
   unit                   Unit?                   @relation(fields: [unitId], references: [id])
+  /// Lowest unit all inventory quantities are stored in. Null = unitId.
+  stockUnitId            Int?
+  stockUnit              Unit?                   @relation("ProductStockUnit", fields: [stockUnitId], references: [id], onDelete: SetNull)
+  /// Unit used by pre-multi-unit transaction history. Null = unitId.
+  historicalUnitId       Int?
+  historicalUnit         Unit?                   @relation("ProductHistoricalUnit", fields: [historicalUnitId], references: [id], onDelete: SetNull)
+  units                  ProductUnit[]
   kind                   ProductKind             @default(GOODS)
   reorderLevel           Int                     @default(0) // per-item low-stock alert threshold
   reorderQty             Int? // suggested quantity to reorder when below reorderLevel
@@ -827,9 +834,49 @@ model Unit {
   symbol   String? // e.g., "pcs", "pr", "kg", "m", "bx"
   nameI18n Json?
   products Product[]
+  stockProducts      Product[]     @relation("ProductStockUnit")
+  historicalProducts Product[]     @relation("ProductHistoricalUnit")
+  productUnits       ProductUnit[]
+  saleItems          SaleItem[]    @relation("SaleItemUnit")
+  saleStockItems     SaleItem[]    @relation("SaleItemStockUnit")
+  returnItems        ReturnItem[]  @relation("ReturnItemUnit")
+  returnStockItems   ReturnItem[]  @relation("ReturnItemStockUnit")
 
   @@unique([tenantId, name])
   @@index([tenantId])
+}
+
+// --- Product-specific unit conversion ladder ---
+// `perBase` is "how many of this unit are in ONE base unit". The base row is 1;
+// lower units are > 1. The unit with the largest perBase is the stock unit.
+model ProductUnit {
+  id             Int      @id @default(autoincrement())
+  tenantId       Int?
+  productId      Int
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  unitId         Int
+  unit           Unit     @relation(fields: [unitId], references: [id])
+
+  /// How many of this unit are in ONE base unit (base row = 1, lower > 1).
+  perBase        Int
+
+  isBase         Boolean  @default(false)
+  /// The unit used by pre-multi-unit transaction history.
+  isHistorical   Boolean  @default(false)
+  isDefaultSale  Boolean  @default(false)
+
+  /// Optional per-unit price overrides. Null = derive from the stock-unit price.
+  buyPrice       Float?
+  sellPrice      Float?
+
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([productId, unitId])
+  @@index([productId])
+  @@index([tenantId])
+  @@index([unitId])
 }
 
 // --- Product Variants (Shoes, Apparel, Multi-Pack Options) ---
@@ -845,6 +892,8 @@ model ProductVariant {
   attributes   Json     @default("{}") // e.g., {"size": "42", "color": "Black"}
   buyPrice     Float?
   sellPrice    Float?
+  /// Per-unit overrides keyed by unitId: { "<unitId>": { buyPrice, sellPrice } }.
+  unitPrices   Json?
   quantity     Int      @default(0) // reserved for per-variant stock (Phase 2)
   // Per-variant low-stock alert number (0 → inherit the product's) and the
   // suggested quantity to reorder once it is breached (null → inherit).
@@ -1100,9 +1149,23 @@ model SaleItem {
   unitSellPrice Float
   unitBuyPrice  Float
 
+  // Multi-unit snapshot. `quantity`, unitSellPrice and unitBuyPrice are per
+  // stock (or historical) unit; these fields preserve the unit the cashier
+  // selected and the normalized stock quantity.
+  unitId        Int?
+  unit          Unit?   @relation("SaleItemUnit", fields: [unitId], references: [id], onDelete: SetNull)
+  unitQuantity  Float?
+  unitPrice     Float?
+  stockQuantity Float?
+  stockUnitId   Int?
+  stockUnit     Unit?   @relation("SaleItemStockUnit", fields: [stockUnitId], references: [id], onDelete: SetNull)
+  stockFactor   Float?
+
   @@index([tenantId])
   @@index([variantId])
   @@index([batchId])
+  @@index([unitId])
+  @@index([stockUnitId])
 }
 
 // --- Returns & Refunds ---
@@ -1135,7 +1198,17 @@ model ReturnItem {
   unitPrice    Float
   unitBuyPrice Float   @default(0)
 
+  unitId        Int?
+  unit          Unit?   @relation("ReturnItemUnit", fields: [unitId], references: [id], onDelete: SetNull)
+  unitQuantity  Float?
+  stockQuantity Float?
+  stockUnitId   Int?
+  stockUnit     Unit?   @relation("ReturnItemStockUnit", fields: [stockUnitId], references: [id], onDelete: SetNull)
+  stockFactor   Float?
+
   @@index([tenantId])
+  @@index([unitId])
+  @@index([stockUnitId])
 }
 
 // --- Payment Methods (dynamic, any role can add) ---
@@ -1152,6 +1225,7 @@ model PaymentMethod {
   purchasePayments PurchasePayment[]
   returns          Return[]
   expenses         Expense[]
+  otherIncomes     OtherIncome[]
   orders           Order[]
   orderPayments    OrderPayment[]
   facilityPayments FacilityPayment[]
@@ -1652,6 +1726,8 @@ model OtherIncome {
   sourceRef      String? // string idempotency key (e.g. hospitality package guest uuid)
   description    String?
   amount         Float
+  paymentMethodId Int?
+  paymentMethod  PaymentMethod?  @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
   incomeDate     DateTime        @default(now())
   createdById    Int?
   createdAt      DateTime        @default(now())

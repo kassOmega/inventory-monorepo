@@ -2,7 +2,6 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsInt,
-  IsNumber,
   IsOptional,
   IsString,
   MaxLength,
@@ -14,7 +13,7 @@ export class CreateRequestItemDto {
   productId!: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   quantityRequested?: number;
 
   // Variant request: when set, stock is requested/dispatched for this

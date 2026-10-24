@@ -13,9 +13,9 @@ import StockCountModal from "@/app/components/StockCountModal";
 import { useToast } from "@/app/components/ToastProvider";
 import { useAuth } from "@/context/AuthContext";
 import api, { markHandled } from "@/lib/api";
-import { cachedGet } from "@/lib/offlineCache";
 import { fmtCurrency } from "@/lib/currency";
 import { formatDate } from "@/lib/datetime";
+import { cachedGet } from "@/lib/offlineCache";
 import {
   buildQrLabelPdf,
   qrLabelFileName,
@@ -24,8 +24,9 @@ import {
 } from "@/lib/qrLabelPdf";
 import { canShareFiles, shareFile } from "@/lib/shareFile";
 import { statusLabel } from "@/lib/statusLabel";
-import useServerPaging from "@/lib/useServerPaging";
+import { formatStockQuantity } from "@/lib/unit-display";
 import useDebouncedValue from "@/lib/useDebouncedValue";
+import useServerPaging from "@/lib/useServerPaging";
 import { variantLabel } from "@/lib/variantLabel";
 import { ChevronDown, ChevronRight, Share2 } from "lucide-react";
 import Link from "next/link";
@@ -203,6 +204,11 @@ export default function ProductsPage() {
     );
   };
 
+  const stockLabel = (product: any, stock: number): string =>
+    product?.units?.length
+      ? formatStockQuantity(stock, product.units)
+      : `${stock}${product?.unit?.name ? " " + product.unit.name : ""}`;
+
   useEffect(() => {
     if (!canAdjust) return;
     api.get("/locations").then((res) => {
@@ -308,8 +314,14 @@ export default function ProductsPage() {
         </h1>
         {tab === "products" && (
           <div className="flex items-center gap-2">
-            {/* Customer-facing sheet of selling prices — no cost data is printed,
-                so this needs no extra permission beyond viewing the catalog. */}
+            {canAdjust && (
+              <Link
+                href="/dashboard/adjust-stock"
+                className="border border-blue-600 text-blue-700 rounded-lg px-3 py-2 text-sm whitespace-nowrap hover:bg-blue-50"
+              >
+                {t("nav.stockCount")}
+              </Link>
+            )}
             <button
               type="button"
               onClick={() => setShowPriceListModal(true)}
@@ -360,18 +372,6 @@ export default function ProductsPage() {
         <CategoriesManager />
       ) : (
         <>
-          {/* The shared Sales-style filter panel, collapsible (starts expanded).
-              The Stock Count link is an action, not a filter, so it stays out. */}
-          {canAdjust && (
-            <div className="flex justify-end mb-2">
-              <Link
-                href="/dashboard/adjust-stock"
-                className="border border-blue-600 text-blue-700 rounded-lg px-3 py-2 text-sm whitespace-nowrap hover:bg-blue-50"
-              >
-                {t("nav.stockCount")}
-              </Link>
-            </div>
-          )}
           <CollapsibleFilterPanel
             search={search}
             onSearchChange={setSearch}
@@ -459,7 +459,7 @@ export default function ProductsPage() {
                             <span
                               className={`font-bold text-xs sm:text-sm ${stock < 10 ? "text-red-500" : "text-gray-800"}`}
                             >
-                              {stock}
+                              {stockLabel(p, stock)}
                             </span>
                           </td>
                           <td className="p-2 sm:p-3 md:p-4">
@@ -571,7 +571,7 @@ export default function ProductsPage() {
                                           : "—"}
                                       </td>
                                       <td className="p-1 text-right font-semibold">
-                                        {stock}
+                                        {stockLabel(p, stock)}
                                       </td>
                                       <td className="p-1 text-right whitespace-nowrap">
                                         {canAdjust && (

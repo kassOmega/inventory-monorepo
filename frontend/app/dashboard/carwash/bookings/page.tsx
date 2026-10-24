@@ -2,7 +2,8 @@
 
 import api from "@/lib/api";
 import Button from "@/app/components/Button";
-import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
+import { FilterSelect } from "@/app/components/FilterPanel";
 import { getDateRange, type DatePreset } from "@/app/components/DateFilter";
 import Modal from "@/app/components/Modal";
 import SearchableSelect from "@/app/components/SearchableSelect";
@@ -126,11 +127,6 @@ export default function CarWashBookingsPage() {
     } catch {
       return null;
     }
-  };
-
-  const createCustomer = async (name: string, phone: string) => {
-    const r = await api.post("/customers", { name, phone });
-    return { id: r.data.id, name: r.data.name };
   };
 
   const submitBooking = async (payload: CarWashBookingPayload) => {
@@ -276,7 +272,7 @@ export default function CarWashBookingsPage() {
         <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>
       )}
 
-      <FilterPanel
+      <CollapsibleFilterPanel
         showDateFilter
         datePreset={datePreset}
         onDatePresetChange={setDatePreset}
@@ -487,7 +483,6 @@ export default function CarWashBookingsPage() {
             customerId: v.customerId,
           }))}
           onLookupCustomer={lookupCustomer}
-          onCreateCustomer={createCustomer}
           onCheckAvailability={checkAvailability}
           onSubmit={submitBooking}
           submitting={saving}

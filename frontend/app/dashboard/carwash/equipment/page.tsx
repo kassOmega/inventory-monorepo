@@ -2,7 +2,8 @@
 
 import api from "@/lib/api";
 import Button from "@/app/components/Button";
-import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
+import { FilterSelect } from "@/app/components/FilterPanel";
 import Modal from "@/app/components/Modal";
 import SearchableSelect from "@/app/components/SearchableSelect";
 import { useAuth } from "@/context/AuthContext";
@@ -112,7 +113,7 @@ export default function CarWashEquipmentPage() {
       </div>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
 
-      <FilterPanel
+      <CollapsibleFilterPanel
         extra={
           <FilterSelect
             value={paidFilter}

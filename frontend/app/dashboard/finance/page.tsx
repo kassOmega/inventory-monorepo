@@ -2,13 +2,16 @@
 
 import { useConfirm } from "@/app/components/ConfirmProvider";
 import Button from "@/app/components/Button";
-import DateFilter, { getDateRange } from "@/app/components/DateFilter";
+import { getDateRange } from "@/app/components/DateFilter";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
+import FinanceOverview from "@/app/components/FinanceOverview";
 import DualExpenseModal from "@/app/components/DualExpenseModal";
 import FinanceComparison from "@/app/components/FinanceComparison";
 import FinancialBreakdown from "@/app/components/FinancialBreakdown";
 import ItemizedPerformanceTable from "@/app/components/ItemizedPerformanceTable";
 import SearchableSelect from "@/app/components/SearchableSelect";
 import { useAuth } from "@/context/AuthContext";
+import { useSingleLocationAutofill } from "@/lib/singleLocation";
 import api from "@/lib/api";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -31,24 +34,32 @@ export default function FinancePage() {
   const confirm = useConfirm();
   const { t } = useTranslation();
   const canManage = hasPermission("finance.manage");
+  const isOwner = user?.isSuperuser === true;
   const businessType =
     activeMembership?.businessType ?? user?.businessType ?? "";
-  const bizKey: Record<string, string> = {
-    MANUFACTURING: "fin.bizManufacturing",
-    HOSPITALITY: "fin.bizHospitality",
-    SERVICE: "fin.bizService",
-  };
-  const bizLabel = t(bizKey[businessType] ?? "fin.bizRetail");
 
   const [tab, setTab] = useState("Overview");
-  const [pl, setPl] = useState<any>(null);
   const [accounts, setAccounts] = useState<any[]>([]);
+  const [location, setLocation] = useState("");
+  const [locations, setLocations] = useState<any[]>([]);
   const [expenseLedger, setExpenseLedger] = useState<any>({
     overhead: [],
     procurements: [],
-    totals: { overheadTotal: 0, procurementTotal: 0, totalMoneyOut: 0 },
+    cogs: [],
+    totals: {
+      overheadTotal: 0,
+      procurementTotal: 0,
+      cogsTotal: 0,
+      totalMoneyOut: 0,
+    },
   });
+  const [expenseView, setExpenseView] = useState<
+    "all" | "OPERATIONAL" | "INVENTORY_RESTOCK" | "COGS"
+  >("all");
   const [incomes, setIncomes] = useState<any[]>([]);
+  const [incomeView, setIncomeView] = useState<"all" | "manual" | "system">(
+    "all",
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
@@ -63,49 +74,48 @@ export default function FinancePage() {
   const [savingIncome, setSavingIncome] = useState(false);
   const [addingIncomeCat, setAddingIncomeCat] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [opsSummary, setOpsSummary] = useState<any>(null);
   const [incomeMapping, setIncomeMapping] = useState<any>(null);
+  const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [extraIncome, setExtraIncome] = useState<any[]>([]);
   const [showNewIncomeCat, setShowNewIncomeCat] = useState(false);
   const [newIncomeCatName, setNewIncomeCatName] = useState("");
 
   const load = useCallback(async () => {
     try {
-      const [plRes, accRes, ledRes, incRes, opsRes, mapRes] = await Promise.all(
-        [
-          api.get(
-            `/finance/profit-loss?startDate=${startDate}&endDate=${endDate}`,
-          ),
-          api.get("/finance/accounts"),
-          api.get(
-            `/finance/expense-ledger?startDate=${startDate}&endDate=${endDate}`,
-          ),
-          api.get(`/finance/incomes?startDate=${startDate}&endDate=${endDate}`),
-          api
-            .get(
-              `/finance/operational-summary?startDate=${startDate}&endDate=${endDate}`,
-            )
-            .catch(() => ({ data: null })),
-          api.get("/finance/account-mappings").catch(() => ({ data: [] })),
-        ],
-      );
-      setPl(plRes.data);
+      const [accRes, ledRes, incRes, mapRes, pmRes] = await Promise.all([
+        api.get("/finance/accounts"),
+        api.get(
+          `/finance/expense-ledger?startDate=${startDate}&endDate=${endDate}${
+            location ? `&locationId=${location}` : ""
+          }`,
+        ),
+        api.get(`/finance/incomes?startDate=${startDate}&endDate=${endDate}`),
+        api.get("/finance/account-mappings").catch(() => ({ data: [] })),
+        api.get("/payment-methods").catch(() => ({ data: [] })),
+      ]);
       setAccounts(accRes.data);
       setExpenseLedger(
         ledRes.data ?? { overhead: [], procurements: [], totals: {} },
       );
       setIncomes(incRes.data);
-      setOpsSummary(opsRes.data);
       setIncomeMapping(
         (mapRes.data ?? []).find((m: any) => m.transactionType === "INCOME")
           ?.mapping ?? null,
       );
+      setPaymentMethods(pmRes.data ?? []);
     } catch (e: any) {
       setError(e?.response?.data?.message ?? t("fin.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate, t]);
+  }, [startDate, endDate, location, t]);
+
+  useEffect(() => {
+    if (!isOwner) return;
+    api.get("/locations").then((r) => setLocations(r.data ?? [])).catch(() => {});
+  }, [isOwner]);
+
+  useSingleLocationAutofill(locations, location, setLocation);
 
   useEffect(() => {
     load();
@@ -166,6 +176,8 @@ export default function FinancePage() {
       accountId: incomeAccounts[0]?.id ? String(incomeAccounts[0].id) : "",
       description: "",
       amount: "",
+      incomeDate: new Date().toISOString().slice(0, 10),
+      paymentMethodId: "",
     });
   };
   const openEditIncome = (x: any) => {
@@ -176,6 +188,10 @@ export default function FinancePage() {
       accountId: x.accountId ? String(x.accountId) : "",
       description: x.description ?? "",
       amount: String(x.amount),
+      incomeDate: x.incomeDate
+        ? new Date(x.incomeDate).toISOString().slice(0, 10)
+        : "",
+      paymentMethodId: x.paymentMethodId ? String(x.paymentMethodId) : "",
     });
   };
   const addIncomeCategory = async () => {
@@ -211,6 +227,10 @@ export default function FinancePage() {
         accountId: Number(incForm.accountId),
         amount: Number(incForm.amount),
         description: incForm.description || undefined,
+        ...(incForm.incomeDate ? { incomeDate: incForm.incomeDate } : {}),
+        ...(incForm.paymentMethodId
+          ? { paymentMethodId: Number(incForm.paymentMethodId) }
+          : {}),
       };
       if (incForm.id)
         await api.patch(`/finance/incomes/${incForm.id}`, payload);
@@ -244,141 +264,17 @@ export default function FinancePage() {
     n.toLocaleString(undefined, { maximumFractionDigits: 2 });
   const totalMoneyOut = expenseLedger.totals?.totalMoneyOut ?? 0;
   const totalIncomes = incomes.reduce((s, x) => s + x.amount, 0);
-
-  // Vertical-tailored operational pulse, computed from the same journal lines
-  // the GL/reports use (GET /finance/operational-summary).
-  const opsRows = opsSummary?.rows ?? [];
-  const accountAmount = (type: string, names: string[], codes: string[]) =>
-    opsRows
-      .filter(
-        (r: any) =>
-          r.type === type &&
-          (names.includes(r.name) ||
-            codes.some((c) => String(r.code ?? "").startsWith(c))),
-      )
-      .reduce((s: number, r: any) => s + (r.amount ?? 0), 0);
-  const incomeCard = (names: string[], codes: string[]) =>
-    accountAmount("INCOME", names, codes);
-  const expenseCard = (names: string[], codes: string[]) =>
-    accountAmount("EXPENSE", names, codes);
-  const verticalCards = (() => {
-    if (businessType === "MANUFACTURING")
-      return [
-        {
-          label: t("fin.cardProductionRevenue"),
-          value: incomeCard(["Production Revenue"], ["4010"]),
-          tone: "gray",
-        },
-        {
-          label: t("fin.cardRawMaterialsLabor"),
-          value: expenseCard(
-            ["Raw Materials Cost", "Direct Labor"],
-            ["5020", "5030"],
-          ),
-          tone: "red",
-        },
-        {
-          label: t("fin.cardSpoilageScrap"),
-          value: expenseCard(["Spoilage & Wastage"], ["7100"]),
-          tone: "red",
-        },
-        {
-          label: t("fin.cardFinishedCogs"),
-          value: expenseCard(["Cost of Goods Sold"], ["5000"]),
-          tone: "red",
-        },
-      ];
-    if (businessType === "HOSPITALITY")
-      return [
-        {
-          label: t("fin.cardRoomRevenue"),
-          value: incomeCard(["Room Revenue"], ["4030"]),
-          tone: "gray",
-        },
-        {
-          label: t("fin.cardFoodSales"),
-          value: incomeCard(["Food Sales"], ["4010"]),
-          tone: "gray",
-        },
-        {
-          label: t("fin.cardBeverageSales"),
-          value: incomeCard(["Beverage Sales"], ["4020"]),
-          tone: "gray",
-        },
-        {
-          label: t("fin.cardFoodBeverageCost"),
-          value: expenseCard(["Food Cost", "Beverage Cost"], ["5020", "5030"]),
-          tone: "red",
-        },
-      ];
-    if (businessType === "SERVICE")
-      return [
-        {
-          label: t("fin.cardServiceRevenue"),
-          value: incomeCard(
-            ["Service Revenue", "Sales Revenue"],
-            ["4000", "4010"],
-          ),
-          tone: "gray",
-        },
-        {
-          label: t("fin.cardServiceCost"),
-          value: expenseCard(["Cost of Service"], ["5010"]),
-          tone: "red",
-        },
-      ];
-    if (businessType === "CAR_WASH")
-      return [
-        {
-          label: t("fin.cardCarWashRevenue"),
-          value: incomeCard(["Car Wash Revenue"], ["4010"]),
-          tone: "gray",
-        },
-        {
-          label: t("fin.cardEquipmentRevenue"),
-          value: incomeCard(["Equipment Revenue"], ["4110"]),
-          tone: "gray",
-        },
-        {
-          label: t("fin.cardWasherCommission"),
-          value: expenseCard(["Washer Commission Expense"], ["5040"]),
-          tone: "red",
-        },
-      ];
-    // Retail & Distribution (default)
-    return [
-      {
-        label: t("fin.cardRetailRevenue"),
-        value: incomeCard(
-          ["Sales Revenue", "Production Revenue"],
-          ["4000", "4010"],
-        ),
-        tone: "gray",
-      },
-      {
-        label: t("fin.cardCogs"),
-        value: expenseCard(
-          ["Cost of Goods Sold", "Raw Materials Cost"],
-          ["5000", "5020"],
-        ),
-        tone: "red",
-      },
-      {
-        label: t("fin.cardStockVariance"),
-        value: expenseCard(
-          ["Spoilage & Wastage", "Inventory Adjustment"],
-          ["7100", "7200"],
-        ),
-        tone: "red",
-      },
-      {
-        // Count surpluses are a gain (income 4200), not a negative expense.
-        label: t("fin.cardStockGain"),
-        value: incomeCard(["Inventory Adjustment Gain"], ["4200"]),
-        tone: "green",
-      },
-    ];
-  })();
+  const isManualIncome = (x: any) => !x.source || x.source === "MANUAL";
+  const manualIncomes = incomes.filter(isManualIncome);
+  const systemIncomes = incomes.filter((x: any) => !isManualIncome(x));
+  const manualIncomeTotal = manualIncomes.reduce((s, x) => s + x.amount, 0);
+  const systemIncomeTotal = systemIncomes.reduce((s, x) => s + x.amount, 0);
+  const visibleIncomes =
+    incomeView === "manual"
+      ? manualIncomes
+      : incomeView === "system"
+        ? systemIncomes
+        : incomes;
 
   return (
     <div className="space-y-6">
@@ -418,88 +314,27 @@ export default function FinancePage() {
         ))}
       </div>
 
-      {tab !== "Accounts" && (
-        <DateFilter
-          preset={datePreset}
-          onPresetChange={setDatePreset}
-          startDate={startDate}
-          onStartDateChange={setStartDate}
-          endDate={endDate}
-          onEndDateChange={setEndDate}
-        />
-      )}
+      <CollapsibleFilterPanel
+        showDateFilter
+        datePreset={datePreset}
+        onDatePresetChange={setDatePreset}
+        startDate={startDate}
+        onStartDateChange={setStartDate}
+        endDate={endDate}
+        onEndDateChange={setEndDate}
+        location={location}
+        onLocationChange={setLocation}
+        locations={locations}
+        showLocation={isOwner}
+      />
 
-      {tab === "Overview" && pl && (
-        <>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <p className="text-xs text-gray-400">{t("fin.colRevenue")}</p>
-              <p className="text-lg font-bold text-gray-800">
-                {money(pl.totalRevenue)}
-              </p>
-            </div>
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <p className="text-xs text-gray-400">{t("fin.cogsExpense")}</p>
-              <p className="text-lg font-bold text-red-600">
-                {money(pl.costOfGoodsSold)}
-              </p>
-            </div>
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <p className="text-xs text-gray-400">{t("fin.opExpenses")}</p>
-              <p className="text-lg font-bold text-red-600">
-                {money(pl.expenses)}
-              </p>
-            </div>
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <p className="text-xs text-gray-400">{t("fin.totalExpenses")}</p>
-              <p className="text-lg font-bold text-red-600">
-                {money(pl.totalCosts)}
-              </p>
-            </div>
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <p className="text-xs text-gray-400">{t("fin.grossProfit")}</p>
-              <p className="text-lg font-bold text-gray-800">
-                {money(pl.grossProfit)}
-              </p>
-            </div>
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <p className="text-xs text-gray-400">{t("fin.chartNetProfit")}</p>
-              <p
-                className={`text-lg font-bold ${(pl.netProfit ?? 0) >= 0 ? "text-green-700" : "text-red-600"}`}
-              >
-                {money(pl.netProfit)}
-              </p>
-            </div>
-          </div>
-          {verticalCards.length > 0 && (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              <div className="col-span-full">
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                  {t("fin.pulseHeading", { type: bizLabel })}
-                </p>
-              </div>
-              {verticalCards.map((c) => (
-                <div
-                  key={c.label}
-                  className="bg-gradient-to-b from-white to-gray-50 p-4 rounded-lg border border-gray-200"
-                >
-                  <p className="text-xs text-gray-400">{c.label}</p>
-                  <p
-                    className={`text-lg font-bold ${
-                      c.tone === "red"
-                        ? "text-red-600"
-                        : c.tone === "green"
-                          ? "text-green-600"
-                          : "text-gray-800"
-                    }`}
-                  >
-                    {c.value ? money(c.value) : "—"}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
+      {tab === "Overview" && (
+        <FinanceOverview
+          startDate={startDate}
+          endDate={endDate}
+          businessType={businessType}
+          locationId={location || undefined}
+        />
       )}
 
       {tab === "Breakdown" && (
@@ -507,11 +342,16 @@ export default function FinancePage() {
           startDate={startDate}
           endDate={endDate}
           businessType={businessType}
+          locationId={location || undefined}
         />
       )}
 
       {tab === "Comparison" && (
-        <FinanceComparison startDate={startDate} endDate={endDate} />
+        <FinanceComparison
+          startDate={startDate}
+          endDate={endDate}
+          locationId={location || undefined}
+        />
       )}
 
       {tab === "Expenses" && (
@@ -530,7 +370,7 @@ export default function FinancePage() {
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
               <div className="bg-gray-50 rounded p-3">
                 <p className="text-xs text-gray-400">
                   {t("fin.totalMoneyOut")}
@@ -547,10 +387,48 @@ export default function FinancePage() {
                   {money(expenseLedger.totals?.overheadTotal ?? 0)} ETB
                 </p>
               </div>
+              <div className="bg-gray-50 rounded p-3">
+                <p className="text-xs text-gray-400">
+                  {t("fin.procurementTotal")}
+                </p>
+                <p className="font-semibold text-gray-800">
+                  {money(expenseLedger.totals?.procurementTotal ?? 0)} ETB
+                </p>
+              </div>
+              <div className="bg-blue-50 rounded p-3">
+                <p className="text-xs text-blue-500">{t("fin.cogsTotal")}</p>
+                <p className="font-semibold text-blue-800">
+                  {money(expenseLedger.totals?.cogsTotal ?? 0)} ETB
+                </p>
+                <p className="mt-1 text-[10px] leading-tight text-blue-500">
+                  {t("fin.cogsHint")}
+                </p>
+              </div>
             </div>
           </div>
 
           <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="flex flex-wrap items-center gap-1.5 mb-3">
+              {[
+                ["all", t("fin.expenseViewAll")],
+                ["OPERATIONAL", t("fin.expenseViewOperational")],
+                ["INVENTORY_RESTOCK", t("fin.expenseViewProcurement")],
+                ["COGS", t("fin.expenseViewCogs")],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setExpenseView(value as typeof expenseView)}
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-medium ${
+                    expenseView === value
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <ul className="divide-y divide-gray-100 text-sm">
               {[
                 ...(expenseLedger.overhead ?? []).map((x: any) => ({
@@ -561,7 +439,15 @@ export default function FinancePage() {
                   ...x,
                   badge: "INVENTORY_RESTOCK",
                 })),
+                ...(expenseLedger.cogs ?? []).map((x: any) => ({
+                  ...x,
+                  badge: "COGS",
+                })),
               ]
+                .filter(
+                  (x: any) =>
+                    expenseView === "all" || x.badge === expenseView,
+                )
                 .sort(
                   (a: any, b: any) =>
                     new Date(b.date).getTime() - new Date(a.date).getTime(),
@@ -577,20 +463,59 @@ export default function FinancePage() {
                           <span className="text-[10px] font-semibold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">
                             {t("fin.badgeInventoryRestock")}
                           </span>
+                        ) : x.badge === "COGS" ? (
+                          <span className="text-[10px] font-semibold bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">
+                            {t("fin.badgeCogs")}
+                          </span>
                         ) : (
                           <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded">
                             {t("fin.badgeOperationalExpense")}
                           </span>
                         )}
                         <p className="text-gray-800 truncate">
-                          {x.categoryName ??
-                            x.description ??
-                            t("status.expense")}
+                          {x.kind === "COGS"
+                            ? x.description
+                            : x.categoryName ??
+                              x.description ??
+                              t("status.expense")}
                         </p>
                       </div>
                       <p className="text-xs text-gray-400">
-                        {x.vendor ? `${x.vendor} · ` : ""}
-                        {x.date ? new Date(x.date).toLocaleDateString() : ""}
+                        {x.kind === "COGS"
+                          ? [
+                              x.categoryName,
+                              x.source
+                                ? `${x.source}${
+                                    x.sourceId ? `-${x.sourceId}` : ""
+                                  }`
+                                : "",
+                              x.date
+                                ? new Date(x.date).toLocaleDateString()
+                                : "",
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")
+                          : x.badge === "INVENTORY_RESTOCK"
+                            ? [
+                                x.reference,
+                                x.date
+                                  ? new Date(x.date).toLocaleDateString()
+                                  : "",
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")
+                            : [
+                                x.vendor,
+                                x.paymentMethodName,
+                                x.taxAmount
+                                  ? `Tax ${money(x.taxAmount)}`
+                                  : "",
+                                x.date
+                                  ? new Date(x.date).toLocaleDateString()
+                                  : "",
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -620,7 +545,8 @@ export default function FinancePage() {
                   </li>
                 ))}
               {(expenseLedger.overhead?.length ?? 0) +
-                (expenseLedger.procurements?.length ?? 0) ===
+                (expenseLedger.procurements?.length ?? 0) +
+                (expenseLedger.cogs?.length ?? 0) ===
                 0 && (
                 <li className="text-gray-400 py-2">{t("fin.noOutgoings")}</li>
               )}
@@ -630,67 +556,149 @@ export default function FinancePage() {
       )}
 
       {tab === "Income" && (
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-gray-800">
-              {t("status.income")}{" "}
-              <span className="text-green-600 font-normal">
-                · {money(totalIncomes)}
-              </span>
-            </h2>
-            {canManage && (
-              <button
-                onClick={openNewIncome}
-                className="text-sm text-blue-600 hover:underline"
-              >
-                {t("fin.addIncome")}
-              </button>
-            )}
+        <div className="space-y-4">
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h2 className="font-semibold text-gray-800">
+                  {t("fin.incomeLedger")}
+                </h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {t("fin.incomeLedgerHint")}
+                </p>
+              </div>
+              {canManage && (
+                <button
+                  onClick={openNewIncome}
+                  className="text-sm text-blue-600 hover:underline"
+                >
+                  {t("fin.addIncome")}
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-sm">
+              <div className="bg-gray-50 rounded p-3">
+                <p className="text-xs text-gray-400">{t("fin.totalIncome")}</p>
+                <p className="font-semibold text-gray-800">
+                  {money(totalIncomes)} ETB
+                </p>
+              </div>
+              <div className="bg-green-50 rounded p-3">
+                <p className="text-xs text-green-600">
+                  {t("fin.manualIncome")}
+                </p>
+                <p className="font-semibold text-green-800">
+                  {money(manualIncomeTotal)} ETB
+                </p>
+              </div>
+              <div className="bg-blue-50 rounded p-3">
+                <p className="text-xs text-blue-600">
+                  {t("fin.systemIncome")}
+                </p>
+                <p className="font-semibold text-blue-800">
+                  {money(systemIncomeTotal)} ETB
+                </p>
+              </div>
+            </div>
           </div>
-          <ul className="divide-y divide-gray-100 text-sm">
-            {incomes.map((x) => (
-              <li
-                key={x.id}
-                className="py-2 flex items-center justify-between gap-2"
-              >
-                <div className="min-w-0">
-                  <p className="text-gray-800 truncate">
-                    {x.description ?? x.account?.name}
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    {new Date(x.incomeDate).toLocaleDateString()}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-green-600 font-medium">
-                    +{money(x.amount)}
-                  </span>
-                  {canManage && (
-                    <>
-                      <button
-                        onClick={() => openEditIncome(x)}
-                        className="text-xs text-blue-600 hover:underline"
-                      >
-                        {t("common.edit")}
-                      </button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        loading={busyKey === `inc-${x.id}`}
-                        onClick={() => deleteIncome(x)}
-                        className="!px-0 text-xs text-red-600 hover:underline"
-                      >
-                        {t("common.del")}
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </li>
-            ))}
-            {incomes.length === 0 && (
-              <li className="text-gray-400 py-2">{t("fin.noIncome")}</li>
-            )}
-          </ul>
+
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="flex flex-wrap items-center gap-1.5 mb-3">
+              {[
+                ["all", t("fin.incomeViewAll")],
+                ["manual", t("fin.incomeViewManual")],
+                ["system", t("fin.incomeViewSystem")],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setIncomeView(value as typeof incomeView)}
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-medium ${
+                    incomeView === value
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <ul className="divide-y divide-gray-100 text-sm">
+              {visibleIncomes.map((x) => {
+                const manual = isManualIncome(x);
+                const reference =
+                  x.sourceRef ??
+                  (x.source && x.sourceId
+                    ? `${x.source}-${x.sourceId}`
+                    : null);
+                return (
+                  <li
+                    key={x.id}
+                    className="py-2.5 flex items-start justify-between gap-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span
+                          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                            manual
+                              ? "bg-green-100 text-green-800"
+                              : "bg-blue-100 text-blue-800"
+                          }`}
+                        >
+                          {manual
+                            ? t("fin.manual")
+                            : x.source ?? t("fin.system")}
+                        </span>
+                        <p className="text-gray-800 truncate">
+                          {x.description ?? x.account?.name}
+                        </p>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {[
+                          x.account?.name,
+                          x.account?.code,
+                          x.paymentMethod?.name,
+                          reference,
+                          x.incomeDate
+                            ? new Date(x.incomeDate).toLocaleDateString()
+                            : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-green-600 font-medium">
+                        +{money(x.amount)}
+                      </span>
+                      {manual && canManage && (
+                        <>
+                          <button
+                            onClick={() => openEditIncome(x)}
+                            className="text-xs text-blue-600 hover:underline"
+                          >
+                            {t("common.edit")}
+                          </button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            loading={busyKey === `inc-${x.id}`}
+                            onClick={() => deleteIncome(x)}
+                            className="!px-0 text-xs text-red-600 hover:underline"
+                          >
+                            {t("common.del")}
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+              {visibleIncomes.length === 0 && (
+                <li className="text-gray-400 py-2">{t("fin.noIncome")}</li>
+              )}
+            </ul>
+          </div>
         </div>
       )}
 
@@ -699,6 +707,7 @@ export default function FinancePage() {
           startDate={startDate}
           endDate={endDate}
           businessType={businessType}
+          locationId={location || undefined}
         />
       )}
 
@@ -788,11 +797,44 @@ export default function FinancePage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">
+                  {t("fin.incomeDate")}
+                </label>
+                <input
+                  type="date"
+                  value={incForm.incomeDate ?? ""}
+                  onChange={(e) =>
+                    setIncForm({ ...incForm, incomeDate: e.target.value })
+                  }
+                  className="border border-gray-300 rounded p-2 text-sm w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  {t("de.paymentMethod")}
+                </label>
+                <select
+                  value={incForm.paymentMethodId ?? ""}
+                  onChange={(e) =>
+                    setIncForm({ ...incForm, paymentMethodId: e.target.value })
+                  }
+                  className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
+                >
+                  <option value="">{t("de.paymentMethodOptional")}</option>
+                  {paymentMethods.map((m: any) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">
                   {t("fin.amountEtb")}
                 </label>
                 <input
                   type="number"
                   step="0.01"
+                  min="0.01"
                   value={incForm.amount}
                   onChange={(e) =>
                     setIncForm({ ...incForm, amount: e.target.value })
