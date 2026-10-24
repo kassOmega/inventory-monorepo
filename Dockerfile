@@ -50,8 +50,9 @@ RUN npx prisma generate
 
 COPY inventory-backend/nest-cli.json inventory-backend/tsconfig.json inventory-backend/tsconfig.build.json inventory-backend/tsconfig.scripts.json ./
 COPY inventory-backend/src ./src
-# Deliberately `nest build` and not `npm run build`: that script can run
-# Prisma commands + backfill scripts against a live database. -> dist/main.js
+# `nest build` compiles the API. Schema and data changes are owned by the
+# entrypoint (`db push` / `migrate deploy` + idempotent backfills), never by a
+# build step. -> dist/main.js
 RUN npx nest build
 
 # Compile Prisma seed/backfill scripts to JS so production containers can run
