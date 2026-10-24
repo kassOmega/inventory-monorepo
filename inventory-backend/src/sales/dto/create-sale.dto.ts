@@ -26,6 +26,11 @@ export class CreateSaleItemDto {
   @IsInt()
   variantId?: number;
 
+  /** Unit selected for this line. Omitted = product's default sale unit. */
+  @IsOptional()
+  @IsInt()
+  unitId?: number;
+
   // Optional pre-selected batch (FIFO is used automatically otherwise).
   @IsOptional()
   @IsInt()

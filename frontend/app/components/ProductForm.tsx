@@ -7,11 +7,14 @@ import api, { markHandled } from "@/lib/api";
 import { variantLabel } from "@/lib/variantLabel";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Copy, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Plus } from "lucide-react";
 import AiAutofillCapture from "./AiAutofillCapture";
 import CatalogImageInput from "./CatalogImageInput";
 import BarcodeScanner from "./BarcodeScanner";
 import Modal from "./Modal";
+import UnitQuantityInput from "./UnitQuantityInput";
+import { formatBaseQuantity } from "@/lib/unit-display";
+import { pricePerUnitFromBase } from "@/lib/unit-stock";
 
 // Field labels stay on one line. A half-width cell (and Amharic, which runs
 // longer than English) used to break a label onto a second row, which pushed its
@@ -43,6 +46,8 @@ interface VariantRow {
   barcode: string;
   buyPrice: string;
   sellPrice: string;
+  /** Per-unit price overrides keyed by unitId (strings while editing). */
+  unitPrices: Record<string, { buyPrice: string; sellPrice: string }>;
   quantity: string;
   /** Per-variant low-stock alert number ("" → inherit the product's). */
   reorderLevel: string;
@@ -51,6 +56,22 @@ interface VariantRow {
   /** Set when editing an existing variant so the backend updates instead of cloning. */
   variantId?: number;
 }
+
+interface LowerUnitRow {
+  rowId: string;
+  unitId: string;
+  perBase: string;
+  buyPrice: string;
+  sellPrice: string;
+}
+
+const emptyLowerUnit = (): LowerUnitRow => ({
+  rowId: newVariantRowId(),
+  unitId: "",
+  perBase: "",
+  buyPrice: "",
+  sellPrice: "",
+});
 
 const newVariantRowId = (): string =>
   typeof globalThis.crypto?.randomUUID === "function"
@@ -66,6 +87,7 @@ const emptyVariant = (): VariantRow => ({
   barcode: "",
   buyPrice: "",
   sellPrice: "",
+  unitPrices: {},
   quantity: "",
   // Blank on purpose: a variant inherits the product's numbers until it is given
   // its own (0 = inherit on the backend).
@@ -95,6 +117,17 @@ const mapVariantToSlots = (v: any): VariantRow => {
     barcode: v.barcode ?? "",
     buyPrice: v.buyPrice != null ? String(v.buyPrice) : "",
     sellPrice: v.sellPrice != null ? String(v.sellPrice) : "",
+    unitPrices: Object.fromEntries(
+      Object.entries(v.unitPrices ?? {}).map(([unitId, price]: [string, any]) => [
+        unitId,
+        {
+          buyPrice:
+            price?.buyPrice != null ? String(price.buyPrice) : "",
+          sellPrice:
+            price?.sellPrice != null ? String(price.sellPrice) : "",
+        },
+      ]),
+    ),
     quantity: v.quantity != null ? String(v.quantity) : "",
     // 0 / null mean "inherit the product's numbers", so they show as blank.
     reorderLevel: v.reorderLevel ? String(v.reorderLevel) : "",
@@ -132,6 +165,9 @@ export default function ProductForm({
   const [categories, setCategories] = useState<any[]>([]);
   const [stores, setStores] = useState<any[]>([]);
   const [units, setUnits] = useState<any[]>([]);
+  const [lowerUnits, setLowerUnits] = useState<LowerUnitRow[]>([]);
+  const [defaultSaleUnitId, setDefaultSaleUnitId] = useState("");
+  const [unitsOpen, setUnitsOpen] = useState(false);
   const [showCatForm, setShowCatForm] = useState(false);
   const [newCat, setNewCat] = useState("");
   // Creating a category/unit happens in its own small prompt (Modal) so both
@@ -201,6 +237,25 @@ export default function ProductForm({
       reorderLevel: editing.reorderLevel ?? 0,
       reorderQty: editing.reorderQty ?? 0,
     });
+    const editingUnits = Array.isArray(editing.units) ? editing.units : [];
+    setLowerUnits(
+      editingUnits
+        .filter((u: any) => !u.isBase)
+        .map((u: any) => ({
+          rowId: newVariantRowId(),
+          unitId: String(u.unitId),
+          perBase: String(u.perBase ?? ""),
+          buyPrice: u.buyPrice != null ? String(u.buyPrice) : "",
+          sellPrice: u.sellPrice != null ? String(u.sellPrice) : "",
+        })),
+    );
+    setDefaultSaleUnitId(
+      String(
+        editingUnits.find((u: any) => u.isDefaultSale)?.unitId ??
+          editing.unitId ??
+          "",
+      ),
+    );
     setAttrs(
       Object.entries(editing.attributes ?? {}).map(([k, v]) => ({
         key: k,
@@ -309,6 +364,23 @@ export default function ProductForm({
       reorderLevel: p.reorderLevel ?? 0,
       reorderQty: p.reorderQty ?? 0,
     }));
+    const pUnits = Array.isArray(p.units) ? p.units : [];
+    setLowerUnits(
+      pUnits
+        .filter((u: any) => !u.isBase)
+        .map((u: any) => ({
+          rowId: newVariantRowId(),
+          unitId: String(u.unitId),
+          perBase: String(u.perBase ?? ""),
+          buyPrice: u.buyPrice != null ? String(u.buyPrice) : "",
+          sellPrice: u.sellPrice != null ? String(u.sellPrice) : "",
+        })),
+    );
+    setDefaultSaleUnitId(
+      String(
+        pUnits.find((u: any) => u.isDefaultSale)?.unitId ?? p.unitId ?? "",
+      ),
+    );
     setAttrs(
       Object.entries(p.attributes ?? {}).map(([k, v]) => ({
         key: k,
@@ -468,6 +540,11 @@ export default function ProductForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!form.unitId) {
+      toast.error(t("pf.unitRequired"));
+      return;
+    }
+
     // --- Client-side pricing + stock-target rules (custom i18n toasts, never
     // native HTML tooltips) ---------------------------------------------
     if (form.hasVariants) {
@@ -533,6 +610,31 @@ export default function ProductForm({
           ? Number(form.reorderQty)
           : null,
     };
+    if (form.unitId) {
+      payload.units = [
+        {
+          unitId: Number(form.unitId),
+          perBase: 1,
+          isBase: true,
+          isDefaultSale: defaultSaleUnitId === String(form.unitId),
+        },
+        ...lowerUnits
+          .filter((u) => u.unitId && Number(u.perBase) > 0)
+          .map((u) => ({
+            unitId: Number(u.unitId),
+            perBase: Number(u.perBase),
+            isDefaultSale: defaultSaleUnitId === u.unitId,
+            buyPrice:
+              u.buyPrice !== "" && u.buyPrice !== undefined
+                ? Number(u.buyPrice)
+                : null,
+            sellPrice:
+              u.sellPrice !== "" && u.sellPrice !== undefined
+                ? Number(u.sellPrice)
+                : null,
+          })),
+      ];
+    }
     if (!hasVariants) {
       // Plain products carry their own buy/sell prices and initial quantity.
       // Variant products omit them — pricing lives per row and the backend
@@ -559,6 +661,21 @@ export default function ProductForm({
               v.sellPrice !== "" && v.sellPrice !== undefined
                 ? Number(v.sellPrice)
                 : undefined,
+            unitPrices: Object.fromEntries(
+              Object.entries(v.unitPrices ?? {})
+                .map(([unitId, price]) => [
+                  unitId,
+                  {
+                    ...(price.buyPrice !== ""
+                      ? { buyPrice: Number(price.buyPrice) }
+                      : {}),
+                    ...(price.sellPrice !== ""
+                      ? { sellPrice: Number(price.sellPrice) }
+                      : {}),
+                  },
+                ])
+                .filter(([, price]) => Object.keys(price).length > 0),
+            ),
             quantity:
               v.quantity !== "" && v.quantity !== undefined
                 ? Number(v.quantity)
@@ -637,6 +754,30 @@ export default function ProductForm({
     );
   };
 
+  const updateVariantUnitPrice = (
+    index: number,
+    unitId: string,
+    field: "buyPrice" | "sellPrice",
+    value: string,
+  ) => {
+    setVariants((prev) =>
+      prev.map((v, i) => {
+        if (i !== index) return v;
+        const current = v.unitPrices?.[unitId] ?? {
+          buyPrice: "",
+          sellPrice: "",
+        };
+        return {
+          ...v,
+          unitPrices: {
+            ...(v.unitPrices ?? {}),
+            [unitId]: { ...current, [field]: value },
+          },
+        };
+      }),
+    );
+  };
+
   // Total Quantity = sum of the variant initial quantities (variants) or the
   // single initial quantity input (plain products).
   const totalQuantity = form.hasVariants
@@ -664,6 +805,64 @@ export default function ProductForm({
     : form.hasVariants
       ? activeVariants.some((v) => (Number(v.quantity) || 0) > 0)
       : (Number(form.quantity) || 0) > 0;
+
+  const addLowerUnitRow = () => {
+    const used = new Set([
+      String(form.unitId),
+      ...lowerUnits.map((u) => u.unitId),
+    ]);
+    const next = units.find((u: any) => !used.has(String(u.id)));
+    setLowerUnits([
+      ...lowerUnits,
+      { ...emptyLowerUnit(), unitId: next ? String(next.id) : "" },
+    ]);
+  };
+
+  const updateLowerUnit = (
+    rowId: string,
+    field: keyof LowerUnitRow,
+    value: string,
+  ) => {
+    setLowerUnits((prev) =>
+      prev.map((u) => (u.rowId === rowId ? { ...u, [field]: value } : u)),
+    );
+  };
+
+  const removeLowerUnit = (rowId: string) => {
+    setLowerUnits((prev) => prev.filter((u) => u.rowId !== rowId));
+    const removed = lowerUnits.find((u) => u.rowId === rowId);
+    if (removed && defaultSaleUnitId === removed.unitId) {
+      setDefaultSaleUnitId(String(form.unitId));
+    }
+  };
+
+  const handleBaseUnitChange = (value: string) => {
+    const previous = form.unitId;
+    setForm((f: any) => ({ ...f, unitId: value }));
+    setDefaultSaleUnitId(value);
+
+    if (!isEdit) {
+      setLowerUnits([]);
+      return;
+    }
+
+    // The previous base becomes a lower unit under the new base. Existing lower
+    // units keep their rows, but every conversion must be re-entered because the
+    // reference unit changed.
+    setLowerUnits((prev) => {
+      const next = prev
+        .filter((u) => u.unitId !== value)
+        .map((u) => ({ ...u, perBase: "" }));
+      if (
+        previous &&
+        previous !== value &&
+        !next.some((u) => u.unitId === previous)
+      ) {
+        next.push({ ...emptyLowerUnit(), unitId: previous, perBase: "" });
+      }
+      return next;
+    });
+  };
 
   const addVariantRow = () => setVariants([...variants, emptyVariant()]);
 
@@ -768,6 +967,48 @@ export default function ProductForm({
   const showSuggestions =
     !suggestDismissed && !!topSuggestion && (topSuggestion.rows ?? []).length > 0;
 
+  const baseUnit = units.find((u: any) => String(u.id) === form.unitId);
+  const baseDisplayRow = form.unitId
+    ? {
+        rowId: "base",
+        unitId: form.unitId,
+        perBase: 1,
+        isBase: true,
+        buyPrice: "",
+        sellPrice: "",
+        unit: baseUnit,
+      }
+    : null;
+  const lowerDisplayRows = form.unitId
+    ? [...lowerUnits]
+        .sort((a, b) => Number(a.perBase) - Number(b.perBase))
+        .map((u) => ({
+          ...u,
+          isBase: false,
+          unit: units.find((x: any) => String(x.id) === u.unitId),
+        }))
+    : [];
+  const unitDisplayRows = baseDisplayRow
+    ? [baseDisplayRow, ...lowerDisplayRows]
+    : [];
+  const sortedUnitRows = [...unitDisplayRows].sort(
+    (a, b) => Number(b.perBase) - Number(a.perBase),
+  );
+  const maxPerBase = Math.max(
+    1,
+    ...sortedUnitRows.map((r) => Number(r.perBase) || 1),
+  );
+  const stockUnitRow = sortedUnitRows.find(
+    (r) => Number(r.perBase) === maxPerBase,
+  );
+  const unitChainValid =
+    sortedUnitRows.length > 0 &&
+    sortedUnitRows.every((r, i) => {
+      if (i === sortedUnitRows.length - 1) return true;
+      const larger = Number(r.perBase);
+      const smaller = Number(sortedUnitRows[i + 1].perBase);
+      return larger > 0 && smaller > 0 && larger % smaller === 0;
+    });
 
   return (
     <form
@@ -865,14 +1106,17 @@ export default function ProductForm({
         </div>
       </div>
       <div className="min-w-0">
-        <label className={LABEL} title={t("pf.unit")}>
-          {t("pf.unit")}
+        <label className={LABEL} title={t("pf.baseUnit")}>
+          {t("pf.baseUnit")}
+          <span className="ml-0.5 text-red-500">*</span>
         </label>
         <div className="flex gap-2">
           <select
             value={form.unitId}
-            onChange={(e) => setForm({ ...form, unitId: e.target.value })}
+            onChange={(e) => handleBaseUnitChange(e.target.value)}
             className="border p-2 rounded-lg flex-1 min-w-0 bg-white text-sm"
+            required
+            aria-required="true"
           >
             <option value="">{t("pf.select")}</option>
             {units.map((u: any) => (
@@ -892,6 +1136,261 @@ export default function ProductForm({
           </button>
         </div>
       </div>
+      {isEdit && (
+        <p className="col-span-2 -mt-1 text-[11px] text-amber-700">
+          {t("pf.baseUnitChangeHint")}
+        </p>
+      )}
+
+      {/* i18n-ignore — 1b. Multi-unit conversion ladder ---------------------------------
+          The product's base/main unit is the reference. Only units lower than
+          it can be added; `perBase` says how many of that unit are in ONE base
+          unit. Stock is stored in the unit with the largest perBase. --- */}
+      {form.unitId && (
+        <div className="col-span-2 rounded-xl border border-gray-200 bg-white p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setUnitsOpen((open) => !open)}
+              aria-expanded={unitsOpen}
+              aria-label={
+                unitsOpen
+                  ? t("pf.collapseUnits")
+                  : t("pf.expandUnits")
+              }
+              className="flex flex-1 items-start gap-2 text-left"
+            >
+              {unitsOpen ? (
+                <ChevronDown
+                  className="mt-0.5 h-4 w-4 shrink-0 text-gray-400"
+                  aria-hidden
+                />
+              ) : (
+                <ChevronRight
+                  className="mt-0.5 h-4 w-4 shrink-0 text-gray-400"
+                  aria-hidden
+                />
+              )}
+              <span className="text-sm font-semibold">
+                {t("pf.unitsTitle")}
+              </span>
+            </button>
+            {unitsOpen && (
+              <button
+                type="button"
+                onClick={addLowerUnitRow}
+                className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+              >
+                {t("pf.addLowerUnit")}
+              </button>
+            )}
+          </div>
+
+          {unitsOpen && (
+            <>
+          <div className="mt-3 space-y-2">
+            {lowerDisplayRows.map((row) => {
+              const used = new Set([
+                String(form.unitId),
+                ...lowerUnits.map((r) => String(r.unitId)),
+              ]);
+              const options = units.filter(
+                (u: any) =>
+                  String(u.id) === String(row.unitId) ||
+                  !used.has(String(u.id)),
+              );
+              return (
+                <div
+                  key={row.rowId}
+                  className={`grid gap-2 rounded-lg border p-2 sm:grid-cols-[1.2fr_1fr_auto_1fr_1fr_auto] sm:items-end ${
+                    row.isBase
+                      ? "border-blue-200 bg-blue-50/50"
+                      : "border-gray-200 bg-gray-50/50"
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <label className="block text-[11px] font-medium text-gray-500">
+                      {row.isBase
+                        ? t("pf.baseUnit")
+                        : t("pf.lowerUnit")}
+                    </label>
+                    {row.isBase ? (
+                      <div className="truncate rounded-lg border border-blue-200 bg-white px-2 py-2 text-sm font-medium text-gray-700">
+                        {row.unit?.name ?? "—"}
+                      </div>
+                    ) : (
+                      <select
+                        value={row.unitId}
+                        onChange={(e) =>
+                          updateLowerUnit(row.rowId, "unitId", e.target.value)
+                        }
+                        className="w-full rounded-lg border bg-white p-2 text-sm"
+                      >
+                        <option value="">{t("pf.selectUnit")}</option>
+                        {options.map((u: any) => (
+                          <option key={u.id} value={u.id}>
+                            {u.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+
+                  <div className="min-w-0">
+                    <label className="block text-[11px] font-medium text-gray-500">
+                      {t("pf.perBase", { unit: baseUnit?.name ?? "" })}
+                    </label>
+                    {row.isBase ? (
+                      <div className="rounded-lg border border-blue-200 bg-white px-2 py-2 text-sm tabular-nums text-gray-700">
+                        1
+                      </div>
+                    ) : (
+                      <input
+                        type="number"
+                        min="2"
+                        step="1"
+                        value={row.perBase}
+                        onChange={(e) =>
+                          updateLowerUnit(row.rowId, "perBase", e.target.value)
+                        }
+                        className="w-full rounded-lg border p-2 text-sm tabular-nums"
+                        placeholder={t("pf.perBasePh")}
+                      />
+                    )}
+                  </div>
+
+                  <label className="flex items-center gap-1 text-[11px] text-gray-600 sm:pb-2">
+                    <input
+                      type="radio"
+                      name="defaultSaleUnit"
+                      checked={defaultSaleUnitId === String(row.unitId)}
+                      onChange={() =>
+                        setDefaultSaleUnitId(String(row.unitId))
+                      }
+                      className="accent-blue-600"
+                    />
+                    {t("pf.defaultSale")}
+                  </label>
+
+                  {row.isBase ? null : form.hasVariants ? (
+                    <div className="text-[11px] text-gray-400 sm:col-span-2 sm:pb-2">
+                      {t("pf.priceInVariant")}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="min-w-0">
+                        <label className="block text-[11px] font-medium text-gray-500">
+                          {t("pf.pricePerUnit", {
+                            price: t("pf.sellPrice"),
+                            unit: row.unit?.name ?? "",
+                          })}
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={row.sellPrice}
+                          onChange={(e) =>
+                            updateLowerUnit(row.rowId, "sellPrice", e.target.value)
+                          }
+                          className="w-full rounded-lg border p-2 text-sm"
+                          placeholder={
+                            form.currentSellPrice && row.perBase
+                              ? pricePerUnitFromBase(
+                                  Number(form.currentSellPrice),
+                                  row,
+                                ).toFixed(2)
+                              : t("pf.auto")
+                          }
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <label className="block text-[11px] font-medium text-gray-500">
+                          {t("pf.pricePerUnit", {
+                            price: t("pf.buyPrice"),
+                            unit: row.unit?.name ?? "",
+                          })}
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={row.buyPrice}
+                          onChange={(e) =>
+                            updateLowerUnit(row.rowId, "buyPrice", e.target.value)
+                          }
+                          className="w-full rounded-lg border p-2 text-sm"
+                          placeholder={
+                            form.currentBuyPrice && row.perBase
+                              ? pricePerUnitFromBase(
+                                  Number(form.currentBuyPrice),
+                                  row,
+                                ).toFixed(2)
+                              : t("pf.auto")
+                          }
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <div className="flex justify-end sm:pb-1">
+                    {!row.isBase ? (
+                      <button
+                        type="button"
+                        onClick={() => removeLowerUnit(row.rowId)}
+                        className="px-2 py-1 text-xs text-red-500 hover:text-red-700"
+                        aria-label={t("pf.removeUnit")}
+                      >
+                        {t("pf.remove")}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+            {lowerDisplayRows.length === 0 && (
+              <p className="rounded-lg border border-dashed border-gray-200 px-3 py-2 text-xs text-gray-400">
+                {t("pf.noLowerUnits")}
+              </p>
+            )}
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]">
+            <span className="text-gray-500">
+              {t("pf.stockUnit")}:{" "}
+              <strong className="text-gray-800">
+                {stockUnitRow?.unit?.name ?? "—"}
+              </strong>
+            </span>
+            {unitChainValid ? (
+              <span className="text-emerald-700">
+                {[...sortedUnitRows]
+                  .reverse()
+                  .map(
+                    (r) =>
+                      `${r.perBase} ${r.unit?.name ?? t("pf.lowerUnit")}`,
+                  )
+                  .join(" = ")}
+              </span>
+            ) : (
+              <span className="font-medium text-amber-700">
+                {t("pf.unitChainInvalid")}
+              </span>
+            )}
+            {defaultSaleUnitId !== form.unitId && (
+              <button
+                type="button"
+                onClick={() => setDefaultSaleUnitId(form.unitId)}
+                className="font-medium text-blue-600 hover:text-blue-800"
+              >
+                {t("pf.useBaseAsDefault")}
+              </button>
+            )}
+          </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* --- 1c. New category / unit prompts. They sit inside the product <form>
            (as the scanner does) and carry no <form> of their own, so Enter is
@@ -1019,9 +1518,6 @@ export default function ProductForm({
               </button>
             )}
           </div>
-          <p className="text-[11px] text-gray-400">
-            {t("pf.variantHint")}
-          </p>
           {suggestBusy && (
             <p className="text-[11px] text-gray-400">
               {t("pf.variantSuggestLoading")}
@@ -1178,21 +1674,32 @@ export default function ProductForm({
                       className="border p-2 rounded-lg text-sm bg-gray-50 text-gray-500 tabular-nums"
                       title={t("pf.useAdjustForStock")}
                     >
-                      {v.quantity || 0}
+                      {formatBaseQuantity(Number(v.quantity) || 0, unitDisplayRows as any)}
                     </div>
                   ) : (
-                    <input type="number" min="0" placeholder="0" value={v.quantity} onChange={(e) => updateVariant(i, "quantity", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
+                    <UnitQuantityInput
+                      units={unitDisplayRows}
+                      value={Number(v.quantity) || 0}
+                      onChange={(qty) => updateVariant(i, "quantity", String(qty))}
+                      inputClassName="w-full"
+                    />
                   )}
                 </div>
                 <div className="min-w-0">
                   <label className={LABEL_XS} title={t("pf.buyPrice")}>
-                    {t("pf.buyPrice")}
+                    {t("pf.pricePerUnit", {
+                      price: t("pf.buyPrice"),
+                      unit: baseUnit?.name ?? "",
+                    })}
                   </label>
                   <input type="number" placeholder="e.g. 12.50" value={v.buyPrice} onChange={(e) => updateVariant(i, "buyPrice", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
                 </div>
                 <div className="min-w-0">
                   <label className={LABEL_XS} title={t("pf.sellPrice")}>
-                    {t("pf.sellPrice")}
+                    {t("pf.pricePerUnit", {
+                      price: t("pf.sellPrice"),
+                      unit: baseUnit?.name ?? "",
+                    })}
                   </label>
                   <input type="number" placeholder="e.g. 19.99" value={v.sellPrice} onChange={(e) => updateVariant(i, "sellPrice", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
                 </div>
@@ -1209,6 +1716,88 @@ export default function ProductForm({
                   <input type="number" min="0" placeholder={t("pf.inherit")} value={v.reorderQty} onChange={(e) => updateVariant(i, "reorderQty", e.target.value)} className="border p-2 rounded-lg text-sm w-full" />
                 </div>
               </div>
+
+              {lowerDisplayRows.filter((r) => r.unitId && Number(r.perBase) > 1).length > 0 && (
+                <div className="rounded-lg border border-gray-200 bg-white p-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                    {t("pf.variantUnitPrices")}
+                  </p>
+                  <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                    {lowerDisplayRows
+                      .filter((r) => r.unitId && Number(r.perBase) > 1)
+                      .map((r) => {
+                        const price = v.unitPrices?.[r.unitId] ?? {
+                          buyPrice: "",
+                          sellPrice: "",
+                        };
+                        const baseBuy =
+                          Number(v.buyPrice) || Number(form.currentBuyPrice) || 0;
+                        const baseSell =
+                          Number(v.sellPrice) || Number(form.currentSellPrice) || 0;
+                        const derivedBuy = baseBuy
+                          ? pricePerUnitFromBase(baseBuy, r).toFixed(2)
+                          : "";
+                        const derivedSell = baseSell
+                          ? pricePerUnitFromBase(baseSell, r).toFixed(2)
+                          : "";
+                        return (
+                          <div
+                            key={r.unitId}
+                            className="rounded-md border border-gray-100 bg-gray-50/60 p-1.5"
+                          >
+                            <p className="truncate text-[11px] font-medium text-gray-700">
+                              {r.unit?.name ?? t("pf.lowerUnit")}
+                            </p>
+                            <div className="mt-1 grid grid-cols-2 gap-1">
+                              <div>
+                                <label className="block text-[9px] text-gray-400">
+                                  {t("pf.buyPrice")}
+                                </label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={price.buyPrice}
+                                  onChange={(e) =>
+                                    updateVariantUnitPrice(
+                                      i,
+                                      r.unitId,
+                                      "buyPrice",
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder={derivedBuy || t("pf.auto")}
+                                  className="w-full rounded border p-1 text-xs"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[9px] text-gray-400">
+                                  {t("pf.sellPrice")}
+                                </label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={price.sellPrice}
+                                  onChange={(e) =>
+                                    updateVariantUnitPrice(
+                                      i,
+                                      r.unitId,
+                                      "sellPrice",
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder={derivedSell || t("pf.auto")}
+                                  className="w-full rounded border p-1 text-xs"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
             </div>
           ))}
           <button type="button" onClick={addVariantRow} className="text-sm text-blue-600">
@@ -1316,30 +1905,36 @@ export default function ProductForm({
         <>
           <div>
             <label className={LABEL} title={t("pf.buyPrice")}>
-              {t("pf.buyPrice")}
+              {t("pf.pricePerUnit", {
+                price: t("pf.buyPrice"),
+                unit: baseUnit?.name ?? "",
+              })}
             </label>
             <input
               type="number"
               min="0"
               step="0.01"
-              value={form.currentBuyPrice}
+              value={form.currentBuyPrice === 0 ? "" : form.currentBuyPrice}
               onChange={(e) =>
-                setForm({ ...form, currentBuyPrice: Number(e.target.value) })
+                setForm({ ...form, currentBuyPrice: e.target.value })
               }
               className="border p-2 rounded-lg w-full text-sm"
             />
           </div>
           <div>
             <label className={LABEL} title={t("pf.sellPrice")}>
-              {t("pf.sellPrice")}
+              {t("pf.pricePerUnit", {
+                price: t("pf.sellPrice"),
+                unit: baseUnit?.name ?? "",
+              })}
             </label>
             <input
               type="number"
               min="0"
               step="0.01"
-              value={form.currentSellPrice}
+              value={form.currentSellPrice === 0 ? "" : form.currentSellPrice}
               onChange={(e) =>
-                setForm({ ...form, currentSellPrice: Number(e.target.value) })
+                setForm({ ...form, currentSellPrice: e.target.value })
               }
               className="border p-2 rounded-lg w-full text-sm"
             />
@@ -1352,17 +1947,16 @@ export default function ProductForm({
         </label>
         {form.hasVariants ? (
           <div className="border p-2 rounded-lg w-full text-sm bg-gray-50 font-medium">
-            {t("pf.sumOfVariants", { n: totalQuantity })}
+            {t("pf.sumOfVariants", {
+              n: formatBaseQuantity(totalQuantity, unitDisplayRows as any),
+            })}
           </div>
         ) : (
-          <input
-            type="number"
-            min="0"
-            value={form.quantity}
-            onChange={(e) =>
-              setForm({ ...form, quantity: Number(e.target.value) })
-            }
-            className="border p-2 rounded-lg w-full text-sm"
+          <UnitQuantityInput
+            units={unitDisplayRows}
+            value={Number(form.quantity) || 0}
+            onChange={(quantity) => setForm({ ...form, quantity })}
+            inputClassName="w-full"
           />
         )}
       </div>

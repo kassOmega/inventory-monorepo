@@ -35,6 +35,14 @@ import { addScannedToCart } from "@/lib/cart";
 import { lookupScannedProduct } from "@/lib/scanLookup";
 import { newClientRef } from "@/lib/clientRef";
 import { variantLabel } from "@/lib/variantLabel";
+import {
+  defaultSaleUnit,
+  fromStockQuantity,
+  pricePerUnitFromBase,
+  unitSellPrice,
+  unitsLargestFirst,
+} from "@/lib/unit-stock";
+import { formatStockQuantity, unitName } from "@/lib/unit-display";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/context/AuthContext";
@@ -62,7 +70,10 @@ interface Product {
   variants?: any[];
   inventory?: Array<{ quantity?: number; variantId?: number | null }>;
   category?: { id: number; name: string } | null;
+  unitId?: number | null;
   unit?: { id: number; name: string } | null;
+  units?: any[];
+  stockUnitId?: number | null;
 }
 
 interface CartItem {
@@ -71,6 +82,8 @@ interface CartItem {
   customPrice: string;
   search: string;
   catFilter: string;
+  /** Selected product unit. Empty = product's default sale unit. */
+  unitId?: string;
   variantLines?: VariantSaleLine[];
 }
 
@@ -79,6 +92,7 @@ interface SaleItemPayload {
   variantId?: number;
   quantity: number;
   customPrice?: number;
+  unitId?: number;
 }
 
 interface Props {
@@ -113,6 +127,7 @@ const blankRow = (): CartItem => ({
   customPrice: "",
   search: "",
   catFilter: "",
+  unitId: "",
 });
 
 export default function SaleForm(props: Props) {
@@ -139,10 +154,19 @@ function cartFromSale(sale: any | null): CartItem[] {
     if (!first?.variantId) {
       return {
         productId: String(first.productId),
-        quantity: its.reduce((s, it) => s + (it.quantity || 0), 0),
-        customPrice: first?.unitSellPrice ? String(first.unitSellPrice) : "",
+        quantity: its.reduce(
+          (s, it) => s + (it.unitQuantity ?? it.quantity ?? 0),
+          0,
+        ),
+        customPrice:
+          first?.unitPrice != null
+            ? String(first.unitPrice)
+            : first?.unitSellPrice
+              ? String(first.unitSellPrice)
+              : "",
         search: "",
         catFilter: "",
+        unitId: first?.unitId ? String(first.unitId) : "",
       };
     }
     return {
@@ -151,10 +175,17 @@ function cartFromSale(sale: any | null): CartItem[] {
       customPrice: "",
       search: "",
       catFilter: "",
+      unitId: first?.unitId ? String(first.unitId) : "",
       variantLines: its.map((it: any) => ({
         variantId: String(it.variantId),
-        quantity: it.quantity || 0,
-        customPrice: it.unitSellPrice ? String(it.unitSellPrice) : "",
+        quantity: it.unitQuantity ?? it.quantity ?? 0,
+        customPrice:
+          it.unitPrice != null
+            ? String(it.unitPrice)
+            : it.unitSellPrice
+              ? String(it.unitSellPrice)
+              : "",
+        unitId: it.unitId ? String(it.unitId) : "",
       })),
     };
   });
@@ -309,6 +340,63 @@ function SaleFormModal({
       0,
     );
 
+  const unitsFor = (p: any): any[] =>
+    unitsLargestFirst((p?.units ?? []) as any[]);
+
+  const selectedUnitFor = (p: any, c: CartItem) => {
+    const units = unitsFor(p);
+    if (units.length === 0) return null;
+    return (
+      units.find((u: any) => String(u.unitId) === String(c.unitId)) ??
+      defaultSaleUnit(p) ??
+      units[0]
+    );
+  };
+
+  /** Variant sale lines default to the product's base unit. */
+  const unitForVariantLine = (p: any, line: { unitId?: string }) => {
+    const units = unitsFor(p);
+    if (units.length === 0) return null;
+    return (
+      units.find((u: any) => String(u.unitId) === String(line.unitId)) ??
+      units.find((u: any) => u.isBase) ??
+      units[0] ??
+      null
+    );
+  };
+
+  /** Variant editor view of the product, expressed in the selected unit. */
+  const variantProductFor = (p: any, unit: any) => {
+    const units = unitsFor(p);
+    if (!unit || units.length === 0) return p;
+    return {
+      ...p,
+      currentSellPrice: unitSellPrice(p, unit),
+      inventory: ((p.inventory ?? []) as any[]).map((inv) => ({
+        ...inv,
+        quantity: fromStockQuantity(inv.quantity ?? 0, unit, units),
+      })),
+      variants: ((p.variants ?? []) as any[]).map((v) => {
+        const override =
+          v.unitPrices?.[String(unit.unitId)] ??
+          v.unitPrices?.[unit.unitId];
+        return {
+          ...v,
+          sellPrice:
+            override?.sellPrice ??
+            (v.sellPrice != null
+              ? pricePerUnitFromBase(Number(v.sellPrice), unit)
+              : null),
+          buyPrice:
+            override?.buyPrice ??
+            (v.buyPrice != null
+              ? pricePerUnitFromBase(Number(v.buyPrice), unit)
+              : null),
+        };
+      }),
+    };
+  };
+
   const getStockForProduct = (productId: number | string): number => {
     const id = Number(productId);
     if (!id) return 0;
@@ -338,13 +426,17 @@ function SaleFormModal({
     const p = products.find((x) => x.id === Number(c.productId));
     if (!p) return 0;
     if (p.hasVariants) {
-      return (c.variantLines ?? []).reduce(
-        (s, l) => s + variantUnitPrice(p, l) * (l.quantity || 0),
-        0,
-      );
+      return (c.variantLines ?? []).reduce((sum, l) => {
+        const unit = unitForVariantLine(p, l);
+        const pricedProduct = variantProductFor(p, unit);
+        return (
+          sum + variantUnitPrice(pricedProduct, l) * (l.quantity || 0)
+        );
+      }, 0);
     }
-    const price = Number(c.customPrice) || Number(p.currentSellPrice) || 0;
-    return price * Number(c.quantity || 1);
+    const unit = selectedUnitFor(p, c);
+    const price = Number(c.customPrice) || unitSellPrice(p, unit);
+    return price * Number(c.quantity || 0);
   };
   const total = cart.reduce((sum, c) => sum + rowTotal(c), 0);
 
@@ -365,15 +457,21 @@ function SaleFormModal({
               variantId: Number(l.variantId),
               quantity: l.quantity,
               customPrice: l.customPrice ? Number(l.customPrice) : undefined,
+              unitId: unitForVariantLine(p, l)?.unitId,
             });
           }
         }
       } else {
-        items.push({
-          productId: Number(c.productId),
-          quantity: Number(c.quantity),
-          customPrice: c.customPrice ? Number(c.customPrice) : undefined,
-        });
+        const quantity = Number(c.quantity) || 0;
+        if (quantity > 0) {
+          const unit = selectedUnitFor(p, c);
+          items.push({
+            productId: Number(c.productId),
+            quantity,
+            customPrice: c.customPrice ? Number(c.customPrice) : undefined,
+            unitId: unit?.unitId,
+          });
+        }
       }
     }
     return items;
@@ -549,9 +647,15 @@ function SaleFormModal({
       const stock = item.variantId
         ? variantStockFor(p, item.variantId)
         : getStockForProduct(item.productId);
-      const stockMax =
+      const unit =
+        (p.units ?? []).find((u: any) => u.unitId === item.unitId) ??
+        defaultSaleUnit(p);
+      const allowedStock =
         stock +
         (editing ? originalQtyFor(item.productId, item.variantId) : 0);
+      const stockMax = Math.floor(
+        fromStockQuantity(allowedStock, unit, p.units ?? []),
+      );
       if (item.quantity > stockMax) {
         const v = item.variantId
           ? (p.variants ?? []).find((vv: any) => vv.id === item.variantId)
@@ -677,10 +781,20 @@ function SaleFormModal({
           );
           const isVariantRow = !!selectedProduct?.hasVariants;
           const stock = getStockForProduct(item.productId);
+          const selectedUnit = selectedProduct
+            ? selectedUnitFor(selectedProduct, item)
+            : null;
           // While editing a sale the originally sold quantity stays allocated
           // to this line, so max allowed = current stock + original qty.
-          const stockMax =
-            stock + (editing ? originalQtyFor(item.productId) : 0);
+          const stockMax = selectedProduct
+            ? Math.floor(
+                fromStockQuantity(
+                  stock + (editing ? originalQtyFor(item.productId) : 0),
+                  selectedUnit,
+                  selectedProduct.units ?? [],
+                ),
+              )
+            : stock;
           const exceedsStock =
             item.productId && Number(item.quantity) > stockMax;
           const itemProducts = products.filter(
@@ -729,36 +843,92 @@ function SaleFormModal({
                       />
                     )}
                   </label>
-                  <SearchableSelect
-                    options={itemProducts.map((p) => ({
-                      value: String(p.id),
-                      label: `${p.brand ?? ""} ${p.baseName ?? ""} — ${productStock(p)}${
-                        p.unit ? " " + p.unit.name : ""
-                      }`,
-                      searchText: `${p.brand ?? ""} ${p.baseName ?? ""} ${
-                        p.sku ?? ""
-                      }`,
-                      disabled: cart.some(
-                        (c, i) => c.productId === String(p.id) && i !== index,
-                      ),
-                    }))}
-                    value={item.productId}
-                    onChange={(v) =>
-                      patchRow(index, { productId: v, variantLines: [] })
-                    }
-                    placeholder={t("restock.searchProduct")}
-                    required
-                    className="w-full"
-                  />
+                  <div className="flex items-start gap-2">
+                    <SearchableSelect
+                      options={itemProducts.map((p) => ({
+                        value: String(p.id),
+                        label: `${p.brand ?? ""} ${p.baseName ?? ""} — ${
+                          p.units?.length
+                            ? formatStockQuantity(productStock(p), p.units)
+                            : `${productStock(p)}${p.unit ? " " + p.unit.name : ""}`
+                        }`,
+                        searchText: `${p.brand ?? ""} ${p.baseName ?? ""} ${
+                          p.sku ?? ""
+                        }`,
+                        disabled: cart.some(
+                          (c, i) => c.productId === String(p.id) && i !== index,
+                        ),
+                      }))}
+                      value={item.productId}
+                      onChange={(v) => {
+                        const p = products.find((x) => x.id === Number(v));
+                        patchRow(index, {
+                          productId: v,
+                          variantLines: [],
+                          unitId: p
+                            ? String(defaultSaleUnit(p)?.unitId ?? "")
+                            : "",
+                        });
+                      }}
+                      placeholder={t("restock.searchProduct")}
+                      required
+                      className="flex-1"
+                    />
+                    {!isVariantRow && selectedProduct && (selectedProduct.units?.length ?? 0) > 1 ? (
+                      <select
+                        value={selectedUnit ? String(selectedUnit.unitId) : ""}
+                        onChange={(e) =>
+                          patchRow(index, {
+                            unitId: e.target.value,
+                            variantLines: [],
+                            customPrice: "",
+                          })
+                        }
+                        className="w-20 shrink-0 rounded-lg border bg-white p-2 text-xs"
+                        aria-label={t("sales.unit")}
+                      >
+                        {(selectedProduct.units ?? []).map((u: any) => (
+                          <option key={u.unitId} value={u.unitId}>
+                            {unitName(u)}
+                          </option>
+                        ))}
+                      </select>
+                    ) : !isVariantRow && selectedProduct?.unit ? (
+                      <span className="shrink-0 rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs text-gray-500">
+                        {selectedProduct.unit.name}
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
               </div>
               {isVariantRow ? (
                 <div className="w-full">
                   <VariantLinesEditor
                     product={selectedProduct}
+                    unitOptions={(selectedProduct?.units ?? []) as any[]}
+                    productForUnit={(unit: any) =>
+                      variantProductFor(selectedProduct, unit)
+                    }
                     lines={item.variantLines ?? []}
-                    originalByVariant={
-                      editing ? originalByVariantFor(item.productId) : undefined
+                    originalForUnit={
+                      editing
+                        ? (unit: any) => {
+                            return Object.fromEntries(
+                              Object.entries(
+                                originalByVariantFor(item.productId),
+                              ).map(([id, qty]) => [
+                                id,
+                                Math.floor(
+                                  fromStockQuantity(
+                                    Number(qty),
+                                    unit,
+                                    selectedProduct?.units ?? [],
+                                  ),
+                                ),
+                              ]),
+                            );
+                          }
+                        : undefined
                     }
                     onChange={(lines) =>
                       patchRow(index, { variantLines: lines })
@@ -786,23 +956,27 @@ function SaleFormModal({
                           qtyRefs.current[index] = el;
                         }}
                         type="number"
-                        min="1"
+                        min="0"
+                        step="1"
+                        inputMode="numeric"
                         max={stockMax || undefined}
-                        value={item.quantity}
-                        onChange={(e) =>
-                          patchRow(index, { quantity: Number(e.target.value) })
-                        }
+                        value={item.quantity || ""}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const next = Math.floor(Number(raw));
+                          patchRow(index, {
+                            quantity:
+                              raw === "" || !Number.isFinite(next)
+                                ? 0
+                                : Math.max(0, next),
+                          });
+                        }}
                         className={
-                          "border p-2 rounded-lg flex-1 text-sm " +
+                          "border p-2 rounded-lg flex-1 text-sm tabular-nums " +
                           (exceedsStock ? "border-red-500 bg-red-50" : "")
                         }
                         required
                       />
-                      {selectedProduct?.unit && (
-                        <span className="text-xs text-gray-500 whitespace-nowrap">
-                          {selectedProduct.unit.name}
-                        </span>
-                      )}
                     </div>
                     {item.productId && (
                       <p
@@ -815,7 +989,9 @@ function SaleFormModal({
                       >
                         {exceedsStock
                           ? t("sales.maxValue", { n: String(stockMax) })
-                          : t("sales.stockValue", { n: String(stock) })}
+                          : selectedProduct?.units?.length
+                            ? `${t("sales.stockValue", { n: String(stockMax) })} ${unitName(selectedUnit)} · ${formatStockQuantity(stock, selectedProduct.units)}`
+                            : t("sales.stockValue", { n: String(stock) })}
                       </p>
                     )}
                   </div>
@@ -833,7 +1009,10 @@ function SaleFormModal({
                       }
                       placeholder={
                         selectedProduct
-                          ? String(selectedProduct.currentSellPrice || "0.00")
+                          ? String(
+                              unitSellPrice(selectedProduct, selectedUnit) ||
+                                "0.00",
+                            )
                           : "0.00"
                       }
                       className="border p-2 rounded-lg w-full text-sm"

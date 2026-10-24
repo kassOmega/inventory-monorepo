@@ -1,6 +1,9 @@
 "use client";
 import api from "@/lib/api";
 import SearchableSelect from "@/app/components/SearchableSelect";
+import CustomerForm from "@/app/components/CustomerForm";
+import Modal from "@/app/components/Modal";
+import ProductForm from "@/app/components/ProductForm";
 import { useToast } from "@/app/components/ToastProvider";
 import { useAuth } from "@/context/AuthContext";
 import { useTranslation } from "react-i18next";
@@ -114,6 +117,16 @@ export default function DualExpenseModal({
   const [categories, setCategories] = useState<any[]>([]);
   const [units, setUnits] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [showProductForm, setShowProductForm] = useState(false);
+  const [showVendorForm, setShowVendorForm] = useState(false);
+  const [vendorTarget, setVendorTarget] = useState<"inventory" | "overhead">(
+    "overhead",
+  );
+  const [paymentMethodId, setPaymentMethodId] = useState(
+    editing?.paymentMethodId ? String(editing.paymentMethodId) : "",
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -176,7 +189,14 @@ export default function DualExpenseModal({
     setPaid(true);
     setVendor("");
     setNotes("");
-    setExpenseDate("");
+    setExpenseDate(
+      editing?.expenseDate
+        ? new Date(editing.expenseDate).toISOString().slice(0, 10)
+        : "",
+    );
+    setPaymentMethodId(
+      editing?.paymentMethodId ? String(editing.paymentMethodId) : "",
+    );
     setAmount(editing?.amount != null ? String(editing.amount) : "");
     setAccountId(editing?.accountId ? String(editing.accountId) : "");
     setVendor2(editing?.vendor ?? "");
@@ -186,12 +206,20 @@ export default function DualExpenseModal({
       api.get("/categories").catch(() => ({ data: [] })),
       api.get("/units").catch(() => ({ data: [] })),
       api.get("/locations").catch(() => ({ data: [] })),
-    ]).then(([p, c, u, l]) => {
+      api.get("/payment-methods").catch(() => ({ data: [] })),
+      api.get("/customers").catch(() => ({ data: [] })),
+    ]).then(([p, c, u, l, pm, customersRes]) => {
       const locs = l.data ?? [];
       setProducts(p.data ?? []);
       setCategories(c.data ?? []);
       setUnits(u.data ?? []);
       setLocations(locs);
+      setPaymentMethods(pm.data ?? []);
+      setCustomers(
+        Array.isArray(customersRes.data)
+          ? customersRes.data
+          : customersRes.data?.data ?? [],
+      );
       // Auto-select the single location (or the user's own location) so a
       // purchase never fails with "Location not found".
       if (locs.length === 1) {
@@ -417,6 +445,10 @@ export default function DualExpenseModal({
           amount: Number(amount),
           vendor: vendor2.trim() || undefined,
           notes: notes2.trim() || undefined,
+          ...(expenseDate ? { expenseDate } : {}),
+          ...(paymentMethodId
+            ? { paymentMethodId: Number(paymentMethodId) }
+            : {}),
         };
         if (editing?.id) await api.patch(`/finance/expenses/${editing.id}`, payload);
         else await api.post("/finance/expenses", payload);
@@ -577,7 +609,8 @@ export default function DualExpenseModal({
                     <button
                       type="button"
                       onClick={() => {
-                        setShowCreate(true);
+                        setShowProductForm(true);
+                        setShowCreate(false);
                         setProductId("");
                         setVariantId("");
                         setPurchaseLines([]);
@@ -1102,18 +1135,53 @@ export default function DualExpenseModal({
 
               {/* Vendor / Date / Notes */}
               <div className="grid grid-cols-2 gap-2">
-                <input
-                  value={vendor}
-                  onChange={(e) => setVendor(e.target.value)}
-                  placeholder={t("de.vendorPh")}
-                  className="border border-gray-300 rounded p-2 text-sm"
-                />
-                <input
-                  type="date"
-                  value={expenseDate}
-                  onChange={(e) => setExpenseDate(e.target.value)}
-                  className="border border-gray-300 rounded p-2 text-sm"
-                />
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">
+                    {t("de.vendorLabel")}
+                  </label>
+                  <div className="flex gap-1">
+                    <SearchableSelect
+                      options={customers.map((c: any) => ({
+                        value: String(c.id),
+                        label: c.phone ? `${c.name} · ${c.phone}` : c.name,
+                        searchText: `${c.name} ${c.phone ?? ""}`,
+                      }))}
+                      value={customers.find((c: any) => c.name === vendor)?.id
+                        ? String(customers.find((c: any) => c.name === vendor)?.id)
+                        : ""}
+                      onChange={(id: string) => {
+                        const customer = customers.find(
+                          (c: any) => String(c.id) === id,
+                        );
+                        setVendor(customer?.name ?? "");
+                      }}
+                      placeholder={t("de.vendorPh")}
+                      className="flex-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVendorTarget("inventory");
+                        setShowVendorForm(true);
+                      }}
+                      className="rounded-lg bg-gray-200 px-2 text-sm"
+                      title={t("de.newVendor")}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">
+                    {t("de.expenseDate")}
+                  </label>
+                  <input
+                    type="date"
+                    value={expenseDate}
+                    onChange={(e) => setExpenseDate(e.target.value)}
+                    className="border border-gray-300 rounded p-2 text-sm w-full"
+                  />
+                </div>
               </div>
               <input
                 value={notes}
@@ -1183,10 +1251,39 @@ export default function DualExpenseModal({
                 )}
               </div>
               <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  {t("de.expenseDate")}
+                </label>
+                <input
+                  type="date"
+                  value={expenseDate}
+                  onChange={(e) => setExpenseDate(e.target.value)}
+                  className="border border-gray-300 rounded p-2 text-sm w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  {t("de.paymentMethod")}
+                </label>
+                <select
+                  value={paymentMethodId}
+                  onChange={(e) => setPaymentMethodId(e.target.value)}
+                  className="border border-gray-300 rounded p-2 text-sm w-full bg-white"
+                >
+                  <option value="">{t("de.paymentMethodOptional")}</option>
+                  {paymentMethods.map((m: any) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">{t("de.amountEtb")}</label>
                 <input
                   type="number"
                   step="0.01"
+                  min="0.01"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder={t("de.amountPh")}
@@ -1194,13 +1291,40 @@ export default function DualExpenseModal({
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">{t("de.vendorLabel")}</label>
-                <input
-                  value={vendor2}
-                  onChange={(e) => setVendor2(e.target.value)}
-                  placeholder={t("de.vendorPh")}
-                  className="border border-gray-300 rounded p-2 text-sm w-full"
-                />
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  {t("de.vendorLabel")}
+                </label>
+                <div className="flex gap-1">
+                  <SearchableSelect
+                    options={customers.map((c: any) => ({
+                      value: String(c.id),
+                      label: c.phone ? `${c.name} · ${c.phone}` : c.name,
+                      searchText: `${c.name} ${c.phone ?? ""}`,
+                    }))}
+                    value={customers.find((c: any) => c.name === vendor2)?.id
+                      ? String(customers.find((c: any) => c.name === vendor2)?.id)
+                      : ""}
+                    onChange={(id: string) => {
+                      const customer = customers.find(
+                        (c: any) => String(c.id) === id,
+                      );
+                      setVendor2(customer?.name ?? "");
+                    }}
+                    placeholder={t("de.vendorPh")}
+                    className="flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVendorTarget("overhead");
+                      setShowVendorForm(true);
+                    }}
+                    className="rounded-lg bg-gray-200 px-2 text-sm"
+                    title={t("de.newVendor")}
+                  >
+                    +
+                  </button>
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">{t("de.notesLabel")}</label>
@@ -1239,6 +1363,45 @@ export default function DualExpenseModal({
           </div>
         </form>
       </div>
+
+      <Modal
+        isOpen={showProductForm}
+        onClose={() => setShowProductForm(false)}
+        title={t("de.createNewItem")}
+      >
+        <ProductForm
+          onCancel={() => setShowProductForm(false)}
+          onProductCreated={(product: any) => {
+            setProducts((prev) =>
+              prev.some((p: any) => p.id === product.id)
+                ? prev
+                : [...prev, product],
+            );
+            setProductId(String(product.id));
+            setShowProductForm(false);
+          }}
+        />
+      </Modal>
+
+      <Modal
+        isOpen={showVendorForm}
+        onClose={() => setShowVendorForm(false)}
+        title={t("de.newVendor")}
+      >
+        <CustomerForm
+          onCancel={() => setShowVendorForm(false)}
+          onCreated={(customer: any) => {
+            setCustomers((prev) =>
+              prev.some((c: any) => c.id === customer.id)
+                ? prev
+                : [...prev, customer],
+            );
+            if (vendorTarget === "inventory") setVendor(customer.name);
+            else setVendor2(customer.name);
+            setShowVendorForm(false);
+          }}
+        />
+      </Modal>
     </div>
   );
 }

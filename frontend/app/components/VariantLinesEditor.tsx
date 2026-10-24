@@ -6,12 +6,16 @@
 // added are simply not sold/requested. Helpers are pure so callers can reuse
 // them for barcode scanning, totals and payload building.
 import { useTranslation } from "react-i18next";
+import { stockPerUnit } from "@/lib/unit-stock";
+import { formatStockQuantity } from "@/lib/unit-display";
 import { variantLabel } from "@/lib/variantLabel";
 
 export interface VariantSaleLine {
   variantId: string;
   quantity: number;
   customPrice: string;
+  /** Selected unit for stock requests (quantity stays in stock units). */
+  unitId?: string;
 }
 
 interface Props {
@@ -27,6 +31,14 @@ interface Props {
   /** While editing a sale: original quantities already on the sale per variant
    *  (keyed by variant id), so allowed max = current stock + original. */
   originalByVariant?: Record<string, number>;
+  /** Stock requests: one quantity input + unit selector per variant. */
+  quantityUnits?: any[];
+  /** Sales: unit selector per variant line, defaulting to the base unit. */
+  unitOptions?: any[];
+  /** Sales: product view normalized for one variant line's selected unit. */
+  productForUnit?: (unit: any) => any;
+  /** Sales edit mode: original quantities (in stock units) for one unit. */
+  originalForUnit?: (unit: any) => Record<string, number>;
   className?: string;
 }
 
@@ -123,6 +135,10 @@ export default function VariantLinesEditor({
   allowOutOfStock = false,
   hideStock = false,
   originalByVariant = {},
+  quantityUnits = [],
+  unitOptions = [],
+  productForUnit,
+  originalForUnit,
   className = "",
 }: Props) {
   const { t } = useTranslation();
@@ -131,8 +147,20 @@ export default function VariantLinesEditor({
 
   const chosenIds = new Set(lines.map((l) => l.variantId));
   const remaining = variants.filter((v) => !chosenIds.has(String(v.id)));
-  const stockFor = (variantId: string | number) =>
-    variantStockFor(product, variantId);
+  // Sale lines are expressed in the selected unit, so never show a fractional
+  // stock caption such as 93.333… after summing location rows.
+  const stockFor = (productValue: any, variantId: string | number) =>
+    Math.floor(variantStockFor(productValue, variantId));
+  const useUnitSelect = quantityUnits.length > 0;
+  const quantityBaseUnit =
+    quantityUnits.find((u: any) => u.isBase) ?? quantityUnits[0] ?? null;
+  const useSaleUnits = unitOptions.length > 0;
+  const saleBaseUnit =
+    unitOptions.find((u: any) => u.isBase) ?? unitOptions[0] ?? null;
+  const baseProduct =
+    useSaleUnits && productForUnit
+      ? productForUnit(saleBaseUnit)
+      : product;
   const columns = hidePrice
     ? "sm:grid-cols-[minmax(0,1fr)_auto_auto]"
     : "sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]";
@@ -146,11 +174,39 @@ export default function VariantLinesEditor({
       {lines.map((line) => {
         const v = variants.find((x) => x.id === Number(line.variantId));
         if (!v) return null;
-        const stock = stockFor(v.id);
-        const extra = originalByVariant[String(v.id)] ?? 0;
+        const saleUnit =
+          unitOptions.find(
+            (u: any) => String(u.unitId) === String(line.unitId),
+          ) ?? saleBaseUnit;
+        const lineProduct =
+          useSaleUnits && productForUnit
+            ? productForUnit(saleUnit)
+            : product;
+        const stock = stockFor(lineProduct, v.id);
+        const extraMap =
+          useSaleUnits && originalForUnit
+            ? originalForUnit(saleUnit)
+            : originalByVariant;
+        const extra = extraMap[String(v.id)] ?? 0;
         const allowed = stock + extra;
         const over = !allowOutOfStock && line.quantity > allowed;
-        const price = variantUnitPrice(product, line);
+        const price = variantUnitPrice(lineProduct, line);
+        const selectedUnit =
+          quantityUnits.find(
+            (u: any) => String(u.unitId) === String(line.unitId),
+          ) ?? quantityBaseUnit;
+        const stockPerSelected = selectedUnit
+          ? stockPerUnit(selectedUnit, quantityUnits)
+          : 1;
+        const displayQuantity = Math.round(
+          (line.quantity / stockPerSelected) * 1e6,
+        ) / 1e6;
+        const updateLine = (patch: Partial<VariantSaleLine>) =>
+          onChange(
+            lines.map((l) =>
+              l.variantId === line.variantId ? { ...l, ...patch } : l,
+            ),
+          );
         return (
             <div
               key={line.variantId}
@@ -195,59 +251,124 @@ export default function VariantLinesEditor({
                   <span className="block text-[10px] font-medium text-gray-500 mb-1">
                     {t("common.qty")}
                   </span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onChange(
-                          setVariantLineQty(
-                            lines,
-                            line.variantId,
-                            Math.max(1, (line.quantity || 1) - 1),
-                          ),
-                        )
-                      }
-                      className="border rounded px-1.5 py-1 text-sm leading-none hover:bg-gray-50"
-                      aria-label={t("common.qty") + " -1"}
-                    >
-                      −
-                    </button>
-                    <input
-                      type="number"
-                      min="1"
-                      value={line.quantity}
-                      onChange={(e) => {
-                        const n = parseInt(e.target.value, 10);
-                        onChange(
-                          setVariantLineQty(
-                            lines,
-                            line.variantId,
-                            Number.isNaN(n) || n < 1 ? 1 : n,
-                          ),
-                        );
-                      }}
-                      className={
-                        "w-10 sm:w-16 border p-1.5 rounded text-center text-sm " +
-                        (over ? "border-red-500 bg-red-50" : "")
-                      }
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onChange(
-                          setVariantLineQty(
-                            lines,
-                            line.variantId,
-                            (line.quantity || 0) + 1,
-                          ),
-                        )
-                      }
-                      className="border rounded px-1.5 py-1 text-sm leading-none hover:bg-gray-50"
-                      aria-label={t("common.qty") + " +1"}
-                    >
-                      +
-                    </button>
-                  </div>
+                  {useUnitSelect ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        inputMode="numeric"
+                        value={displayQuantity || ""}
+                        onChange={(e) => {
+                          const entered =
+                            Number(e.target.value.replace(/[^0-9]/g, "")) || 0;
+                          updateLine({
+                            quantity: entered * stockPerSelected,
+                            unitId: String(selectedUnit?.unitId ?? ""),
+                          });
+                        }}
+                        className={
+                          "w-16 border p-1.5 rounded text-right text-sm tabular-nums " +
+                          (over ? "border-red-500 bg-red-50" : "")
+                        }
+                      />
+                      {selectedUnit && (
+                        <select
+                          value={String(selectedUnit.unitId)}
+                          onChange={(e) =>
+                            updateLine({ unitId: e.target.value })
+                          }
+                          className="w-16 rounded border bg-white p-1.5 text-[11px]"
+                          aria-label={t("common.unit")}
+                        >
+                          {quantityUnits.map((u: any) => (
+                            <option key={u.unitId} value={u.unitId}>
+                              {u.unit?.name ?? u.name ?? u.unitId}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onChange(
+                            setVariantLineQty(
+                              lines,
+                              line.variantId,
+                              Math.max(1, (line.quantity || 1) - 1),
+                            ),
+                          )
+                        }
+                        className="border rounded px-1.5 py-1 text-sm leading-none hover:bg-gray-50"
+                        aria-label={t("common.qty") + " -1"}
+                      >
+                        −
+                      </button>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        inputMode="numeric"
+                        value={line.quantity || ""}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const n = parseInt(raw, 10);
+                          onChange(
+                            setVariantLineQty(
+                              lines,
+                              line.variantId,
+                              raw === "" || Number.isNaN(n)
+                                ? 0
+                                : Math.max(0, n),
+                            ),
+                          );
+                        }}
+                        className={
+                          "w-10 sm:w-16 border p-1.5 rounded text-center text-sm tabular-nums " +
+                          (over ? "border-red-500 bg-red-50" : "")
+                        }
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onChange(
+                            setVariantLineQty(
+                              lines,
+                              line.variantId,
+                              (line.quantity || 0) + 1,
+                            ),
+                          )
+                        }
+                        className="border rounded px-1.5 py-1 text-sm leading-none hover:bg-gray-50"
+                        aria-label={t("common.qty") + " +1"}
+                      >
+                        +
+                      </button>
+                      {useSaleUnits && saleUnit && (
+                        <select
+                          value={String(saleUnit.unitId)}
+                          onChange={(e) =>
+                            updateLine({
+                              unitId: e.target.value,
+                              // Let the price re-derive for the newly selected unit.
+                              customPrice: "",
+                            })
+                          }
+                          className="w-16 rounded border bg-white p-1.5 text-[11px]"
+                          aria-label={t("common.unit")}
+                        >
+                          {unitOptions.map((u: any) => (
+                            <option key={u.unitId} value={u.unitId}>
+                              {u.unit?.name ?? u.name ?? u.unitId}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  )}
                   {!hideStock && (
                     <span
                       className={
@@ -255,7 +376,10 @@ export default function VariantLinesEditor({
                         (over ? "text-red-500 font-semibold" : "text-gray-400")
                       }
                     >
-                      {t("sv.stock")}: {stock}
+                      {t("sv.stock")}:{" "}
+                      {useUnitSelect
+                        ? formatStockQuantity(stock, quantityUnits)
+                        : stock}
                     </span>
                   )}
                 </div>
@@ -312,8 +436,12 @@ export default function VariantLinesEditor({
       {remaining.length > 0 && (
         <div className="flex flex-wrap gap-1.5 pt-2">
           {remaining.map((v) => {
-            const stock = stockFor(v.id);
-            const extra = originalByVariant[String(v.id)] ?? 0;
+            const stock = stockFor(baseProduct, v.id);
+            const extraMap =
+              useSaleUnits && originalForUnit
+                ? originalForUnit(saleBaseUnit)
+                : originalByVariant;
+            const extra = extraMap[String(v.id)] ?? 0;
             const allowed = stock + extra;
             const out = !allowOutOfStock && allowed <= 0;
             return (

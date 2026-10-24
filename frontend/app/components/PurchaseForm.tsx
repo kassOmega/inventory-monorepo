@@ -37,9 +37,9 @@ export type PurchaseMode = "PAID" | "CREDIT";
 /** One bought line: what, how many and at what buying price. */
 interface CartLine {
   productName: string;
-  quantity: number;
-  unitPrice: number;
-  sellPrice: number;
+  quantity: string;
+  unitPrice: string;
+  sellPrice: string;
 }
 
 interface Props {
@@ -59,9 +59,9 @@ interface Props {
 /** A pristine cart row: the form keeps at least one so it is never empty. */
 const blankLine = (): CartLine => ({
   productName: "",
-  quantity: 1,
-  unitPrice: 0,
-  sellPrice: 0,
+  quantity: "1",
+  unitPrice: "0",
+  sellPrice: "0",
 });
 
 export default function PurchaseForm(props: Props) {
@@ -323,7 +323,7 @@ function PurchaseFormModal({
                   min="1"
                   value={line.quantity}
                   onChange={(e) =>
-                    setLine(index, { quantity: Number(e.target.value) })
+                    setLine(index, { quantity: e.target.value })
                   }
                   className="border p-2 rounded-lg w-full text-sm"
                   required
@@ -339,7 +339,7 @@ function PurchaseFormModal({
                   min="0"
                   value={line.unitPrice}
                   onChange={(e) =>
-                    setLine(index, { unitPrice: Number(e.target.value) })
+                    setLine(index, { unitPrice: e.target.value })
                   }
                   className="border p-2 rounded-lg w-full text-sm"
                   required
@@ -357,7 +357,7 @@ function PurchaseFormModal({
                   min="0"
                   value={line.sellPrice}
                   onChange={(e) =>
-                    setLine(index, { sellPrice: Number(e.target.value) })
+                    setLine(index, { sellPrice: e.target.value })
                   }
                   className="border p-2 rounded-lg w-full text-sm"
                   required

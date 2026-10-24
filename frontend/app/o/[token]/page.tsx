@@ -11,9 +11,20 @@ import PublicFooter from "@/app/components/PublicFooter";
 import ReservationForm from "@/app/components/ReservationForm";
 import ServiceBookingForm from "@/app/components/ServiceBookingForm";
 import api from "@/lib/api";
+import { fmtCurrency } from "@/lib/currency";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+
+interface PublicUnit {
+  unitId: number;
+  name: string;
+  symbol: string | null;
+  perBase: number;
+  isBase: boolean;
+  isDefaultSale: boolean;
+  price: number;
+}
 
 interface PublicItem {
   ref: string;
@@ -21,12 +32,15 @@ interface PublicItem {
   name: string;
   description: string | null;
   price: number;
+  category?: string | null;
   image?: string | null;
+  units?: PublicUnit[];
   variants?: Array<{
     ref: string;
     name: string;
     price: number;
     image?: string | null;
+    units?: PublicUnit[];
   }>;
   meta?: Record<string, unknown>;
 }
@@ -45,7 +59,28 @@ interface EntryView {
   items: PublicItem[];
   services: Array<{ key: string; label: string; items: PublicItem[] }>;
 }
-type Cart = Record<string, number>;
+interface CartEntry {
+  ref: string;
+  unitId: number | null;
+  qty: number;
+}
+type Cart = Record<string, CartEntry>;
+
+const lineKey = (ref: string, unitId: number | null) =>
+  unitId == null ? ref : `${ref}::${unitId}`;
+
+/** The unit a line uses when the guest has not picked one yet. */
+const defaultUnitFor = (
+  item: { units?: PublicUnit[] } | null | undefined,
+): PublicUnit | null => {
+  const units = item?.units ?? [];
+  return (
+    units.find((unit) => unit.isDefaultSale) ??
+    units.find((unit) => unit.isBase) ??
+    units[0] ??
+    null
+  );
+};
 
 export default function PublicOrderPage() {
   const { t } = useTranslation();
@@ -56,6 +91,12 @@ export default function PublicOrderPage() {
   const [error, setError] = useState("");
   const [entry, setEntry] = useState<EntryView | null>(null);
   const [cart, setCart] = useState<Cart>({});
+  // Per-item selected unit (ref -> unitId). Defaults to the product's default
+  // sale unit so legacy products without an explicit choice keep working.
+  const [unitChoice, setUnitChoice] = useState<Record<string, number>>({});
+  // Public catalog filters.
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [identityMode, setIdentityMode] = useState<"TABLE" | "PHONE">("TABLE");
   const [tableNumber, setTableNumber] = useState("");
   const [name, setName] = useState("");
@@ -130,6 +171,7 @@ export default function PublicOrderPage() {
           name: v.name,
           price: v.price,
           image: v.image,
+          units: v.units ?? item.units,
           variants: undefined,
         });
       }
@@ -147,6 +189,29 @@ export default function PublicOrderPage() {
     return entry?.items ?? [];
   }, [entry, tab]);
 
+  // Public catalog filters: category chips + free-text search.
+  const categories = useMemo(() => {
+    const found = new Set<string>();
+    for (const item of visibleItems) {
+      if (item.category) found.add(item.category);
+    }
+    return [...found];
+  }, [visibleItems]);
+  const activeCategory = categories.includes(categoryFilter)
+    ? categoryFilter
+    : "";
+  const filteredItems = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return visibleItems.filter((item) => {
+      if (activeCategory && item.category !== activeCategory) return false;
+      if (!query) return true;
+      return (
+        item.name.toLowerCase().includes(query) ||
+        (item.description ?? "").toLowerCase().includes(query)
+      );
+    });
+  }, [visibleItems, activeCategory, search]);
+
   const isCarwash = entry?.kind === "CARWASH_BAY";
   const isAccommodation =
     entry?.kind === "HOTEL" || entry?.serviceType === "ACCOMMODATION";
@@ -155,16 +220,86 @@ export default function PublicOrderPage() {
     entry?.kind === "TABLE" || entry?.serviceType === "FOOD_AND_BEVERAGE";
   const isCart = !isCarwash && !isAccommodation && !isService;
 
-  const cartLines = Object.entries(cart)
-    .filter(([, q]) => q > 0)
-    .map(([ref, q]) => ({ item: itemsByRef.get(ref), qty: q }))
-    .filter((l) => l.item);
-  const total = cartLines.reduce((s, l) => s + l.item!.price * l.qty, 0);
+  /** The unit currently selected for an item/variant ref. */
+  const unitFor = (ref: string): PublicUnit | null => {
+    const item = itemsByRef.get(ref);
+    const units = item?.units ?? [];
+    return (
+      units.find((unit) => unit.unitId === unitChoice[ref]) ??
+      defaultUnitFor(item)
+    );
+  };
+  const qtyFor = (ref: string) => {
+    const unit = unitFor(ref);
+    return cart[lineKey(ref, unit?.unitId ?? null)]?.qty ?? 0;
+  };
 
-  const add = (ref: string) =>
-    setCart((c) => ({ ...c, [ref]: (c[ref] ?? 0) + 1 }));
-  const sub = (ref: string) =>
-    setCart((c) => ({ ...c, [ref]: Math.max(0, (c[ref] ?? 0) - 1) }));
+  const cartLines = Object.values(cart)
+    .filter((line) => line.qty > 0)
+    .map((line) => {
+      const item = itemsByRef.get(line.ref);
+      if (!item) return null;
+      const unit =
+        (item.units ?? []).find((u) => u.unitId === line.unitId) ?? null;
+      return {
+        ...line,
+        item,
+        unit,
+        unitPrice: unit ? unit.price : item.price,
+      };
+    })
+    .filter((line): line is NonNullable<typeof line> => line !== null);
+  const total = cartLines.reduce(
+    (sum, line) => sum + line.unitPrice * line.qty,
+    0,
+  );
+
+  const add = (ref: string) => {
+    const unit = unitFor(ref);
+    const key = lineKey(ref, unit?.unitId ?? null);
+    setCart((current) => ({
+      ...current,
+      [key]: {
+        ref,
+        unitId: unit?.unitId ?? null,
+        qty: (current[key]?.qty ?? 0) + 1,
+      },
+    }));
+  };
+  const sub = (ref: string) => {
+    const unit = unitFor(ref);
+    const key = lineKey(ref, unit?.unitId ?? null);
+    setCart((current) => {
+      const line = current[key];
+      if (!line) return current;
+      const next = { ...current };
+      if (line.qty <= 1) delete next[key];
+      else next[key] = { ...line, qty: line.qty - 1 };
+      return next;
+    });
+  };
+  // Switching unit moves the quantity the guest already picked onto the new
+  // unit, so the line they see keeps its count.
+  const setUnit = (ref: string, unitId: number) => {
+    const item = itemsByRef.get(ref);
+    if (!item?.units?.length) return;
+    const previousUnit = unitFor(ref);
+    const previousKey = lineKey(ref, previousUnit?.unitId ?? null);
+    const nextKey = lineKey(ref, unitId);
+    setUnitChoice((current) => ({ ...current, [ref]: unitId }));
+    setCart((current) => {
+      const qty = current[previousKey]?.qty ?? 0;
+      if (!qty || previousKey === nextKey) return current;
+      const next = { ...current };
+      delete next[previousKey];
+      next[nextKey] = {
+        ref,
+        unitId,
+        qty: (next[nextKey]?.qty ?? 0) + qty,
+      };
+      return next;
+    });
+  };
 
   const submit = async () => {
     if (cartLines.length === 0) return;
@@ -180,7 +315,11 @@ export default function PublicOrderPage() {
     setError("");
     try {
       const r = await api.post(`/public/entry/${token}/orders`, {
-        items: cartLines.map((l) => ({ ref: l.item!.ref, quantity: l.qty })),
+        items: cartLines.map((line) => ({
+          ref: line.item.ref,
+          quantity: line.qty,
+          ...(line.unitId != null ? { unitId: line.unitId } : {}),
+        })),
         ...(isFnb
           ? {
               identityMode,
@@ -599,20 +738,64 @@ export default function PublicOrderPage() {
             </div>
           )}
 
-          {visibleItems.map((it) => (
+          {/* Catalog filters: search + category chips. */}
+          <div className="bg-white rounded-xl border p-2 space-y-2">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t("public.searchPlaceholder")}
+              className="border border-gray-300 rounded-lg p-2 text-sm w-full"
+              inputMode="search"
+            />
+            {categories.length > 0 && (
+              <div className="flex gap-1 overflow-x-auto pb-1">
+                <button
+                  onClick={() => setCategoryFilter("")}
+                  className={
+                    "px-3 py-1.5 rounded-full text-sm whitespace-nowrap " +
+                    (!activeCategory
+                      ? "bg-blue-600 text-white"
+                      : "bg-white text-gray-600 border")
+                  }
+                >
+                  {t("public.allCategories")}
+                </button>
+                {categories.map((category) => (
+                  <button
+                    key={category}
+                    onClick={() => setCategoryFilter(category)}
+                    className={
+                      "px-3 py-1.5 rounded-full text-sm whitespace-nowrap " +
+                      (activeCategory === category
+                        ? "bg-blue-600 text-white"
+                        : "bg-white text-gray-600 border")
+                    }
+                  >
+                    {category}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {filteredItems.map((it) => (
             <ItemCard
               key={it.ref}
               item={it}
-              cart={cart}
+              qtyFor={qtyFor}
               add={add}
               sub={sub}
+              setUnit={setUnit}
+              unitChoice={unitChoice}
               t={t}
               showPrices={entry?.showPrices ?? false}
             />
           ))}
-          {visibleItems.length === 0 && (
+          {filteredItems.length === 0 && (
             <p className="text-center text-gray-400 text-sm py-10">
-              {t("public.empty")}
+              {search.trim() || activeCategory
+                ? t("public.noResults")
+                : t("public.empty")}
             </p>
           )}
 
@@ -673,18 +856,21 @@ export default function PublicOrderPage() {
           <div className="mx-auto max-w-md space-y-2">
             {/* Read-only summary so guests see each selected line (incl. variants). */}
             <div className="max-h-40 overflow-y-auto space-y-1">
-              {cartLines.map((l) => (
+              {cartLines.map((line) => (
                 <div
-                  key={l.item!.ref}
+                  key={`${line.ref}|${line.unitId ?? ""}`}
                   className="flex items-center justify-between gap-3 text-sm text-gray-700"
                 >
                   <span className="min-w-0 truncate">
-                    {l.item!.name}{" "}
-                    <span className="text-gray-400">× {l.qty}</span>
+                    {line.item.name}
+                    {line.unit ? (
+                      <span className="text-gray-500"> · {line.unit.name}</span>
+                    ) : null}{" "}
+                    <span className="text-gray-400">× {line.qty}</span>
                   </span>
                   {entry?.showPrices && (
                     <span className="font-medium whitespace-nowrap">
-                      {(l.item!.price * l.qty).toLocaleString()}
+                      {fmtCurrency(line.unitPrice * line.qty)}
                     </span>
                   )}
                 </div>
@@ -693,7 +879,7 @@ export default function PublicOrderPage() {
             <div className="flex items-center justify-between gap-3">
               {entry?.showPrices && (
                 <span className="text-sm font-semibold text-gray-800">
-                  {t("public.total")}: {total.toLocaleString()}
+                  {t("public.total")}: {fmtCurrency(total)}
                 </span>
               )}
               <Button
@@ -727,32 +913,30 @@ function Thumb({ src }: { src?: string | null }) {
   );
 }
 
-/** Add/remove quantity control (module-scope; `code` is the item/variant ref). */
+/** Add/remove quantity control for the unit currently selected on a line. */
 function Qty({
-  code,
-  cart,
+  qty,
   add,
   sub,
   t,
 }: {
-  code: string;
-  cart: Cart;
-  add: (ref: string) => void;
-  sub: (ref: string) => void;
+  qty: number;
+  add: () => void;
+  sub: () => void;
   t: (k: string, o?: Record<string, unknown>) => string;
 }) {
-  if (cart[code]) {
+  if (qty > 0) {
     return (
       <div className="flex items-center gap-2">
         <button
-          onClick={() => sub(code)}
+          onClick={sub}
           className="w-7 h-7 rounded-full border text-gray-600"
         >
           −
         </button>
-        <span className="w-5 text-center text-sm">{cart[code]}</span>
+        <span className="w-5 text-center text-sm">{qty}</span>
         <button
-          onClick={() => add(code)}
+          onClick={add}
           className="w-7 h-7 rounded-full bg-blue-600 text-white"
         >
           +
@@ -762,7 +946,7 @@ function Qty({
   }
   return (
     <button
-      onClick={() => add(code)}
+      onClick={add}
       className="bg-blue-600 text-white rounded-lg px-3 py-1.5 text-sm"
     >
       {t("public.add")}
@@ -770,24 +954,66 @@ function Qty({
   );
 }
 
+/** Compact unit picker; each option shows that unit's own price. */
+function UnitSelect({
+  units,
+  value,
+  onChange,
+  showPrices,
+}: {
+  units: PublicUnit[];
+  value: number | null | undefined;
+  onChange: (unitId: number) => void;
+  showPrices: boolean;
+}) {
+  return (
+    <select
+      value={value ?? ""}
+      onChange={(e) => onChange(Number(e.target.value))}
+      onClick={(e) => e.stopPropagation()}
+      className="max-w-32 rounded-lg border border-gray-300 bg-white px-1.5 py-1 text-xs text-gray-700"
+    >
+      {units.map((unit) => (
+        <option key={unit.unitId} value={unit.unitId}>
+          {unit.name}
+          {showPrices ? ` · ${fmtCurrency(unit.price)}` : ""}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 /** One catalog line: image + name/price; products with variants expand. */
 function ItemCard({
   item,
-  cart,
+  qtyFor,
   add,
   sub,
+  setUnit,
+  unitChoice,
   t,
   showPrices,
 }: {
   item: PublicItem;
-  cart: Cart;
+  qtyFor: (ref: string) => number;
   add: (ref: string) => void;
   sub: (ref: string) => void;
+  setUnit: (ref: string, unitId: number) => void;
+  unitChoice: Record<string, number>;
   t: (k: string, o?: Record<string, unknown>) => string;
   showPrices: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const hasVariants = (item.variants?.length ?? 0) > 0;
+  const unit =
+    (item.units ?? []).find((u) => u.unitId === unitChoice[item.ref]) ??
+    defaultUnitFor(item);
+  const hasUnitChoice = (item.units?.length ?? 0) > 1;
+  const displayPrice = hasVariants
+    ? item.price
+    : unit
+      ? unit.price
+      : item.price;
 
   return (
     <div className="bg-white rounded-xl border p-3">
@@ -820,18 +1046,30 @@ function ItemCard({
               {item.description}
             </p>
           )}
-          {showPrices && (
-            <p className="text-sm text-gray-700 mt-0.5">
-              {hasVariants ? `${t("public.from")} ` : ""}
-              {item.price.toLocaleString()}
-              {item.meta?.availableCount != null && (
-                <span className="ml-2 text-[11px] text-emerald-600">
-                  {t("public.roomsFree", {
-                    count: item.meta.availableCount as number,
-                  })}
-                </span>
+          {(showPrices || (!hasVariants && hasUnitChoice)) && (
+            <div className="mt-0.5 flex flex-wrap items-center gap-2">
+              {showPrices && (
+                <p className="text-sm text-gray-700">
+                  {hasVariants ? `${t("public.from")} ` : ""}
+                  {fmtCurrency(displayPrice)}
+                  {item.meta?.availableCount != null && (
+                    <span className="ml-2 text-[11px] text-emerald-600">
+                      {t("public.roomsFree", {
+                        count: item.meta.availableCount as number,
+                      })}
+                    </span>
+                  )}
+                </p>
               )}
-            </p>
+              {!hasVariants && hasUnitChoice && (
+                <UnitSelect
+                  units={item.units!}
+                  value={unit?.unitId}
+                  onChange={(unitId) => setUnit(item.ref, unitId)}
+                  showPrices={showPrices}
+                />
+              )}
+            </div>
           )}
         </div>
         {hasVariants ? (
@@ -845,26 +1083,56 @@ function ItemCard({
             {open ? t("public.hideVariants") : t("public.variants")}
           </button>
         ) : (
-          <Qty code={item.ref} cart={cart} add={add} sub={sub} t={t} />
+          <Qty
+            qty={qtyFor(item.ref)}
+            add={() => add(item.ref)}
+            sub={() => sub(item.ref)}
+            t={t}
+          />
         )}
       </div>
 
       {hasVariants && open && (
         <ul className="mt-2 divide-y divide-gray-100 border-t pt-1">
-          {item.variants!.map((v) => (
-            <li key={v.ref} className="flex items-center gap-2 py-2">
-              <Thumb src={v.image} />
-              <span className="min-w-0 flex-1 text-sm text-gray-700 truncate">
-                {v.name}
-              </span>
-              {showPrices && (
-                <span className="text-sm text-gray-600">
-                  {v.price.toLocaleString()}
-                </span>
-              )}
-              <Qty code={v.ref} cart={cart} add={add} sub={sub} t={t} />
-            </li>
-          ))}
+          {item.variants!.map((v) => {
+            const variantUnit =
+              (v.units ?? []).find(
+                (u) => u.unitId === unitChoice[v.ref],
+              ) ?? defaultUnitFor(v);
+            const variantHasUnitChoice = (v.units?.length ?? 0) > 1;
+            const variantPrice = variantUnit ? variantUnit.price : v.price;
+            return (
+              <li key={v.ref} className="flex items-center gap-2 py-2">
+                <Thumb src={v.image} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-gray-700 truncate">{v.name}</p>
+                  {(showPrices || variantHasUnitChoice) && (
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                      {showPrices && (
+                        <span className="text-xs text-gray-500">
+                          {fmtCurrency(variantPrice)}
+                        </span>
+                      )}
+                      {variantHasUnitChoice && (
+                        <UnitSelect
+                          units={v.units!}
+                          value={variantUnit?.unitId}
+                          onChange={(unitId) => setUnit(v.ref, unitId)}
+                          showPrices={showPrices}
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+                <Qty
+                  qty={qtyFor(v.ref)}
+                  add={() => add(v.ref)}
+                  sub={() => sub(v.ref)}
+                  t={t}
+                />
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

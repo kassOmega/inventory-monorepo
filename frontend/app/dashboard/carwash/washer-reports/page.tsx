@@ -1,7 +1,7 @@
 "use client";
 
 import api from "@/lib/api";
-import FilterPanel from "@/app/components/FilterPanel";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
 import { getDateRange, type DatePreset } from "@/app/components/DateFilter";
 import { useTranslation } from "react-i18next";
 import { useEffect, useState, Fragment } from "react";
@@ -68,7 +68,7 @@ export default function CarWashWasherReportsPage() {
       <h1 className="text-2xl font-bold text-gray-800">{t("carwash.washerReports")}</h1>
       {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
 
-      <FilterPanel
+      <CollapsibleFilterPanel
         showDateFilter
         datePreset={datePreset}
         onDatePresetChange={setDatePreset}

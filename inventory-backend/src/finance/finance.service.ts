@@ -479,9 +479,26 @@ export class FinanceService {
    * swaps (Debit Inventory <-> Credit Cash/AP) so they appear here for
    * visibility, but only overhead counts toward the P&L.
    */
-  async getExpenseLedger(startDate?: string, endDate?: string, tenantId?: string) {
+  async getExpenseLedger(
+    startDate?: string,
+    endDate?: string,
+    tenantId?: string,
+    locationId?: number,
+  ) {
     const tenant = tenantId ? Number(tenantId) : this.tenant();
-    const [expenses, procurements] = await Promise.all([
+    const saleIds = locationId
+      ? (
+          await this.prisma.sale.findMany({
+            where: {
+              tenantId: tenant,
+              shopId: locationId,
+              ...this.dateWhere('saleDate', startDate, endDate),
+            },
+            select: { id: true },
+          })
+        ).map((sale) => sale.id)
+      : null;
+    const [expenses, procurements, cogsEntries] = await Promise.all([
       this.prisma.expense.findMany({
         where: { tenantId: tenant, ...this.dateWhere('expenseDate', startDate, endDate) },
         include: { account: true, paymentMethod: true },
@@ -490,6 +507,7 @@ export class FinanceService {
       this.prisma.journalEntry.findMany({
         where: {
           tenantId: tenant,
+          ...(locationId ? { locationId } : {}),
           ...this.dateWhere('entryDate', startDate, endDate),
           OR: [
             { reference: { startsWith: 'PUR-' } },
@@ -500,6 +518,32 @@ export class FinanceService {
         include: { lines: true },
         orderBy: { entryDate: 'desc' },
       }),
+      saleIds
+        ? saleIds.length
+          ? this.prisma.cogsEntry.findMany({
+              where: {
+                tenantId: tenant,
+                saleId: { in: saleIds },
+                ...this.dateWhere('entryDate', startDate, endDate),
+              },
+              include: {
+                product: { include: { category: true } },
+                menuItem: true,
+              },
+              orderBy: { entryDate: 'desc' },
+            })
+          : []
+        : this.prisma.cogsEntry.findMany({
+            where: {
+              tenantId: tenant,
+              ...this.dateWhere('entryDate', startDate, endDate),
+            },
+            include: {
+              product: { include: { category: true } },
+              menuItem: true,
+            },
+            orderBy: { entryDate: 'desc' },
+          }),
     ]);
 
     const overhead = expenses.map((e) => ({
@@ -508,7 +552,9 @@ export class FinanceService {
       accountId: e.accountId,
       categoryName: e.account?.name ?? null,
       vendor: e.vendor ?? null,
+      paymentMethodName: e.paymentMethod?.name ?? null,
       notes: e.notes ?? null,
+      taxAmount: e.taxAmount ?? 0,
       amount: e.amount,
       date: e.expenseDate,
     }));
@@ -518,23 +564,45 @@ export class FinanceService {
         id: j.id,
         kind: 'INVENTORY_RESTOCK' as const,
         description: j.description ?? '',
+        reference: j.reference ?? null,
         vendor: null as string | null,
         amount: round2(j.lines.reduce((s, l) => s + (l.credit ?? 0), 0)),
         date: j.entryDate,
       }))
       .filter((p) => p.amount > 0);
 
+    const cogs = cogsEntries.map((entry) => ({
+      kind: 'COGS' as const,
+      id: entry.id,
+      description:
+        entry.product
+          ? `${entry.product.brand} ${entry.product.baseName}`.trim()
+          : entry.description ?? entry.menuItem?.name ?? 'Cost of Goods Sold',
+      categoryName:
+        entry.product?.category?.name ??
+        entry.menuItem?.name ??
+        entry.description ??
+        null,
+      quantity: entry.quantity,
+      amount: entry.amount,
+      date: entry.entryDate,
+      source: entry.source ?? null,
+      sourceId: entry.sourceId ?? null,
+    }));
     const overheadTotal = round2(expenses.reduce((s, e) => s + e.amount, 0));
     const procurementTotal = round2(
       procurementsList.reduce((s, p) => s + p.amount, 0),
     );
+    const cogsTotal = round2(cogs.reduce((s, row) => s + row.amount, 0));
 
     return {
       overhead,
       procurements: procurementsList,
+      cogs,
       totals: {
         overheadTotal,
         procurementTotal,
+        cogsTotal,
         totalMoneyOut: round2(overheadTotal + procurementTotal),
       },
     };
@@ -658,13 +726,68 @@ export class FinanceService {
   }
 
   // --- Other income ---
+  /**
+   * Repair sales that were booked before their sale-income postings existed.
+   * Idempotent: postSaleIncome skips any sale that already has a SALE income.
+   */
+  private async backfillSaleIncome(startDate?: string, endDate?: string) {
+    const tenantId = this.tenant();
+    const sales = await this.prisma.sale.findMany({
+      where: {
+        tenantId,
+        totalAmount: { gt: 0 },
+        ...this.dateWhere('saleDate', startDate, endDate),
+      },
+      select: { id: true },
+    });
+    if (sales.length === 0) return;
+    const ids = sales.map((sale) => sale.id);
+    const posted = await this.prisma.otherIncome.findMany({
+      where: { tenantId, source: 'SALE', sourceId: { in: ids } },
+      select: { sourceId: true },
+    });
+    const postedIds = new Set(posted.map((row) => row.sourceId));
+    for (const sale of sales) {
+      if (postedIds.has(sale.id)) continue;
+      try {
+        await this.postSaleIncome(sale.id, tenantId);
+      } catch (err) {
+        this.logger.warn(
+          `Could not backfill income for sale #${sale.id}: ${
+            (err as Error).message
+          }`,
+        );
+      }
+    }
+  }
+
   async listIncomes(startDate?: string, endDate?: string) {
     const tenantId = this.tenant();
-    return this.prisma.otherIncome.findMany({
+    await this.backfillSaleIncome(startDate, endDate);
+    const rows = await this.prisma.otherIncome.findMany({
       where: { tenantId, ...this.dateWhere('incomeDate', startDate, endDate) },
-      include: { account: true },
+      include: { account: true, paymentMethod: true },
       orderBy: { incomeDate: 'desc' },
     });
+    const saleIds = [
+      ...new Set(
+        rows
+          .filter((row) => row.source === 'SALE' && row.sourceId != null)
+          .map((row) => row.sourceId as number),
+      ),
+    ];
+    if (saleIds.length === 0) return rows;
+    const liveSales = await this.prisma.sale.findMany({
+      where: { tenantId, id: { in: saleIds } },
+      select: { id: true },
+    });
+    const liveSaleIds = new Set(liveSales.map((sale) => sale.id));
+    return rows.filter(
+      (row) =>
+        row.source !== 'SALE' ||
+        row.sourceId == null ||
+        liveSaleIds.has(row.sourceId),
+    );
   }
 
   async createIncome(dto: CreateIncomeDto, userId: number) {
@@ -686,6 +809,7 @@ export class FinanceService {
           description: dto.description,
           amount: dto.amount,
           incomeDate: dto.incomeDate ? new Date(dto.incomeDate) : undefined,
+          paymentMethodId: dto.paymentMethodId,
           createdById: userId,
         },
       });
@@ -3160,8 +3284,62 @@ export class FinanceService {
   }
 
   // --- Profit & Loss ---
-  async getProfitAndLoss(startDate?: string, endDate?: string) {
+  async getProfitAndLoss(
+    startDate?: string,
+    endDate?: string,
+    locationId?: number,
+  ) {
     const tenantId = this.tenant();
+
+    if (locationId) {
+      const lines = await this.prisma.journalLine.findMany({
+        where: {
+          journalEntry: {
+            tenantId,
+            locationId,
+            postingStatus: JournalPostingStatus.POSTED,
+            ...this.dateWhere('entryDate', startDate, endDate),
+          },
+        },
+        select: {
+          debit: true,
+          credit: true,
+          account: { select: { type: true, name: true, code: true } },
+        },
+      });
+      let totalRevenue = 0;
+      let cogs = 0;
+      let totalExpenses = 0;
+      for (const line of lines) {
+        const debit = Number(line.debit) || 0;
+        const credit = Number(line.credit) || 0;
+        if (line.account.type === AccountType.INCOME) {
+          totalRevenue += credit - debit;
+        } else if (line.account.type === AccountType.EXPENSE) {
+          const amount = debit - credit;
+          totalExpenses += amount;
+          if (
+            line.account.name === 'Cost of Goods Sold' ||
+            String(line.account.code ?? '').startsWith('5000')
+          ) {
+            cogs += amount;
+          }
+        }
+      }
+      const expenses = totalExpenses - cogs;
+      return {
+        salesRevenue: round2(totalRevenue),
+        orderRevenue: 0,
+        otherIncome: 0,
+        hotelRevenue: 0,
+        totalRevenue: round2(totalRevenue),
+        costOfGoodsSold: round2(cogs),
+        expenses: round2(expenses),
+        totalCosts: round2(totalExpenses),
+        grossProfit: round2(totalRevenue - cogs),
+        netProfit: round2(totalRevenue - totalExpenses),
+      };
+    }
 
     const [salesAgg, ordersAgg, orderItems, incomeAgg, expenseAgg, folioAgg] =
       await Promise.all([
@@ -4306,18 +4484,119 @@ export class FinanceService {
 
   async updateExpense(id: number, dto: UpdateExpenseDto) {
     const tenantId = this.tenant();
-    await this.prisma.expense.updateMany({
-      where: { id, tenantId },
-      data: {
-        accountId: dto.accountId,
-        vendor: dto.vendor,
-        amount: dto.amount,
-        paymentMethodId: dto.paymentMethodId,
-        notes: dto.notes,
-        expenseDate: dto.expenseDate ? new Date(dto.expenseDate) : undefined,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.expense.findFirst({
+        where: { id, tenantId },
+      });
+      if (!existing) throw new BadRequestException('Expense not found');
+
+      const accountId = dto.accountId ?? existing.accountId;
+      const amount = dto.amount ?? existing.amount;
+      const expenseDate = dto.expenseDate
+        ? new Date(dto.expenseDate)
+        : existing.expenseDate;
+      const account = await tx.account.findFirst({
+        where: { id: accountId, tenantId },
+      });
+      const cash = await tx.account.findFirst({
+        where: {
+          tenantId,
+          name: 'Cash',
+          type: AccountType.ASSET,
+          isSystem: true,
+        },
+      });
+      if (!account) throw new BadRequestException('Expense account not found');
+      const systemManagedAccounts = new Set([
+        'Inventory Asset',
+        'Accounts Payable',
+        'Cost of Goods Sold',
+        'Spoilage & Wastage',
+      ]);
+      if (systemManagedAccounts.has(account.name)) {
+        throw new BadRequestException(
+          tr('errors.accountManagedByInventory', { name: account.name }),
+        );
+      }
+
+      const inputVat = await tx.account.findFirst({
+        where: { tenantId, name: 'Input VAT Receivable' },
+      });
+      let taxAmount = 0;
+      let taxRateId: number | null = null;
+      let netAmount = amount;
+      if (inputVat) {
+        const taxCtx = await resolveTax(tx, tenantId, TaxDirection.INPUT);
+        if (taxCtx.enabled && taxCtx.rate > 0) {
+          const split = splitTax(amount, taxCtx.rate, taxCtx.inclusive);
+          taxAmount = split.tax;
+          netAmount = split.net;
+          taxRateId = taxCtx.rateId;
+        }
+      }
+
+      const updated = await tx.expense.update({
+        where: { id },
+        data: {
+          accountId,
+          vendor: dto.vendor === undefined ? existing.vendor : dto.vendor,
+          amount: round2(netAmount),
+          taxAmount,
+          taxRateId,
+          paymentMethodId:
+            dto.paymentMethodId === undefined
+              ? existing.paymentMethodId
+              : dto.paymentMethodId,
+          notes: dto.notes === undefined ? existing.notes : dto.notes,
+          expenseDate,
+        },
+      });
+
+      await tx.journalEntry.deleteMany({
+        where: { tenantId, reference: `EXP-${id}` },
+      });
+      const pair = await this.mappingOverride('EXPENSE', tx);
+      const debitAccountId = pair.debitAccountId ?? accountId;
+      const creditAccountId = pair.creditAccountId ?? cash?.id ?? null;
+      if (creditAccountId) {
+        const entry = await tx.journalEntry.create({
+          data: {
+            tenantId,
+            reference: `EXP-${id}`,
+            description: account.name ?? 'Expense',
+            entryDate: expenseDate,
+            createdById: existing.createdById,
+          },
+        });
+        const lines = [
+          {
+            tenantId,
+            journalEntryId: entry.id,
+            accountId: debitAccountId,
+            debit: round2(netAmount),
+            credit: 0,
+          },
+          {
+            tenantId,
+            journalEntryId: entry.id,
+            accountId: creditAccountId,
+            debit: 0,
+            credit: round2(netAmount + taxAmount),
+          },
+        ];
+        if (taxAmount > 0 && inputVat) {
+          lines.push({
+            tenantId,
+            journalEntryId: entry.id,
+            accountId: inputVat.id,
+            debit: taxAmount,
+            credit: 0,
+          });
+        }
+        await tx.journalLine.createMany({ data: lines });
+      }
+      return updated;
     });
-    return this.prisma.expense.findFirst({ where: { id, tenantId } });
   }
 
   async deleteExpense(id: number) {
@@ -4333,28 +4612,109 @@ export class FinanceService {
 
   async updateIncome(id: number, dto: UpdateIncomeDto) {
     const tenantId = this.tenant();
-    await this.prisma.otherIncome.updateMany({
-      where: { id, tenantId },
-      data: {
-        accountId: dto.accountId,
-        description: dto.description,
-        amount: dto.amount,
-        incomeDate: dto.incomeDate ? new Date(dto.incomeDate) : undefined,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.otherIncome.findFirst({
+        where: { id, tenantId },
+      });
+      if (!existing) throw new BadRequestException('Income not found');
+      if (existing.source) {
+        throw new BadRequestException(
+          'System-generated income cannot be edited',
+        );
+      }
+
+      const accountId = dto.accountId ?? existing.accountId;
+      const amount = dto.amount ?? existing.amount;
+      const incomeDate = dto.incomeDate
+        ? new Date(dto.incomeDate)
+        : existing.incomeDate;
+      const description =
+        dto.description === undefined ? existing.description : dto.description;
+      const account = await tx.account.findFirst({
+        where: { id: accountId, tenantId },
+      });
+      const cash = await tx.account.findFirst({
+        where: {
+          tenantId,
+          name: 'Cash',
+          type: AccountType.ASSET,
+          isSystem: true,
+        },
+      });
+
+      const updated = await tx.otherIncome.update({
+        where: { id },
+        data: {
+          accountId,
+          amount,
+          description,
+          incomeDate,
+          paymentMethodId:
+            dto.paymentMethodId === undefined
+              ? existing.paymentMethodId
+              : dto.paymentMethodId,
+        },
+      });
+
+      await tx.journalEntry.deleteMany({
+        where: { tenantId, reference: `INC-${id}` },
+      });
+      const pair = await this.mappingOverride('INCOME', tx);
+      const debitAccountId = pair.debitAccountId ?? cash?.id ?? null;
+      const creditAccountId = pair.creditAccountId ?? accountId;
+      if (debitAccountId) {
+        const entry = await tx.journalEntry.create({
+          data: {
+            tenantId,
+            reference: `INC-${id}`,
+            description: description ?? account?.name ?? 'Other income',
+            entryDate: incomeDate,
+            createdById: existing.createdById,
+          },
+        });
+        await tx.journalLine.createMany({
+          data: [
+            {
+              tenantId,
+              journalEntryId: entry.id,
+              accountId: debitAccountId,
+              debit: amount,
+              credit: 0,
+            },
+            {
+              tenantId,
+              journalEntryId: entry.id,
+              accountId: creditAccountId,
+              debit: 0,
+              credit: amount,
+            },
+          ],
+        });
+      }
+      return updated;
     });
-    return this.prisma.otherIncome.findFirst({ where: { id, tenantId } });
   }
 
   async deleteIncome(id: number) {
     const tenantId = this.tenant();
-    await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.otherIncome.findFirst({
+        where: { id, tenantId },
+      });
+      if (!existing) throw new BadRequestException('Income not found');
+      if (existing.source) {
+        throw new BadRequestException(
+          'System-generated income cannot be deleted',
+        );
+      }
       await tx.journalEntry.deleteMany({
         where: { tenantId, reference: `INC-${id}` },
       });
-      await tx.otherIncome.deleteMany({ where: { id, tenantId } });
+      await tx.otherIncome.delete({ where: { id } });
+      return { id };
     });
-    return { id };
   }
+
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;

@@ -256,6 +256,17 @@ NODE
       fi
     done
   fi
+
+  # Multi-unit rollout: `db push` creates the schema but does not execute the
+  # data statements in committed migrations. This backfill is idempotent and is
+  # also safe to re-run after `migrate deploy` or when no legacy rows exist.
+  if [ -f dist/prisma/backfill-product-units.js ]; then
+    echo "[entrypoint] backfilling existing product unit data"
+    if ! node dist/prisma/backfill-product-units.js; then
+      echo "[entrypoint] WARNING: product unit backfill failed; continuing (idempotent, safe to re-run)" >&2
+    fi
+  fi
+
   write_status "migrations:${MIGRATION_PATH:-unknown}" "1" ""
 }
 

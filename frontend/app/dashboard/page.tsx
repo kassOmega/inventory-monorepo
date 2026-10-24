@@ -1,7 +1,7 @@
 "use client";
 import { getDateRange } from "@/app/components/DateFilter";
 import FilterBar from "@/app/components/FilterBar";
-import FilterPanel from "@/app/components/FilterPanel";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
 import SalesReport from "@/app/components/SalesReport";
 import HospitalityDashboard from "@/app/components/HospitalityDashboard";
 import ManufacturingDashboard from "@/app/components/ManufacturingDashboard";
@@ -459,7 +459,7 @@ export default function DashboardPage() {
           {t("home.welcomeBack", { name: t("common.owner") })}
         </p>
       </div>
-      <FilterPanel
+      <CollapsibleFilterPanel
         showDateFilter
         datePreset={datePreset}
         onDatePresetChange={setDatePreset}

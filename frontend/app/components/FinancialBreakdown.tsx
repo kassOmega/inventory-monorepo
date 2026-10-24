@@ -295,7 +295,13 @@ export default function FinancialBreakdown({
       {/* Retail / inventory table */}
       {data.tenantType === "PRODUCT_CATEGORY" && (
         <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-          <table className="w-full text-left text-xs sm:text-sm">
+          <div className="border-b px-4 py-3">
+            <h3 className="text-sm font-semibold text-gray-800">
+              {t("fin.bdTitle")}
+            </h3>
+          </div>
+          <div className="overflow-x-auto">
+          <table className="min-w-[760px] w-full text-left text-xs sm:text-sm">
             <thead className="bg-gray-50 border-b text-[10px] sm:text-xs uppercase text-gray-400">
               <tr>
                 <th className="p-2 sm:p-3">{t("fin.bdColCategory")}</th>
@@ -320,6 +326,7 @@ export default function FinancialBreakdown({
               </tbody>
             )}
           </table>
+          </div>
         </div>
       )}
     </div>

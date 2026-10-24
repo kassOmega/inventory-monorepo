@@ -62,7 +62,14 @@ export class CreditSalesService {
   async findOne(id: number) {
     const row = await this.prisma.creditSale.findUnique({
       where: { id },
-      include: { items: { include: { product: true } }, customer: true },
+      include: {
+        items: {
+          include: {
+            product: { include: { units: { include: { unit: true } } } },
+          },
+        },
+        customer: true,
+      },
     });
     if (!row) return null;
     return {

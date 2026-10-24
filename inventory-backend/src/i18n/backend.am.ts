@@ -128,6 +128,7 @@ export const amMessages: Record<string, any> = {
     reqDispatchOverRequested:
       'ለ{{product}} ከተጠየቀው መጠን ({{amount}}) በላይ መላክ አይቻልም',
     reqInsufficientStockProduct: 'ለ{{product}} በቂ ክምችት የለም',
+    reqDispatchQtyTooSmall: 'ለ{{product}} የተሰጠው ብዛት በጣም ትንሽ ነው',
     requestAlreadyClosed: 'ጥያቄው ቀድሞውኑ ተዘግቷል',
     reqConfirmReceiptReceiver: 'ደረሰኝ ማረጋገጥ የሚችለው ተቀባዩ ቦታ ተጠቃሚ ብቻ ነው',
     reqConfirmReceiptCreator: 'ደረሰኝ ማረጋገጥ የሚችለው የጥያቄው ፈጣሪ ብቻ ነው',

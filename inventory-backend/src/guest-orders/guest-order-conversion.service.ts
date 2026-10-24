@@ -34,7 +34,16 @@ export class GuestOrderConversionService {
    * `actor` is a synthetic JwtPayload for the privileged user who accepted it.
    */
   async convert(
-    order: GuestOrder & { items: Array<{ itemKind: string; itemId: number | null; quantity: number; notes: string | null }> },
+    order: GuestOrder & {
+      items: Array<{
+        itemKind: string;
+        itemId: number | null;
+        variantId?: number | null;
+        quantity: number;
+        unitId?: number | null;
+        notes: string | null;
+      }>;
+    },
     actor: JwtPayload,
     opts: {
       locationId?: number;
@@ -61,7 +70,11 @@ export class GuestOrderConversionService {
         customerName: order.customerName ?? undefined,
         items: order.items
           .filter((i: any) => i.itemKind === 'MENU_ITEM')
-          .map((i: any) => ({ menuItemId: i.itemId, quantity: i.quantity, notes: i.notes ?? undefined })),
+          .map((i: any) => ({
+            menuItemId: i.itemId,
+            quantity: i.quantity,
+            notes: i.notes ?? undefined,
+          })),
       },
       actor,
     );
@@ -86,7 +99,8 @@ export class GuestOrderConversionService {
     const shopId =
       opts.locationId ??
       order.routes?.find((r: any) => r.status === 'ACCEPTED')?.locationId;
-    if (!shopId) throw new BadRequestException('Assign a branch before converting');
+    if (!shopId)
+      throw new BadRequestException('Assign a branch before converting');
     const saleType = (opts.saleType ?? 'FULLY_PAID') as any;
 
     // Credit/partial sales need a customer who may take credit. The caller may
@@ -96,7 +110,9 @@ export class GuestOrderConversionService {
       if (!customerId) {
         const customer = await this.ensureCreditCustomer(order);
         if (!customer) {
-          throw new BadRequestException('Customer is required for credit/partial sales');
+          throw new BadRequestException(
+            'Customer is required for credit/partial sales',
+          );
         }
         customerId = customer.id;
       } else {
@@ -105,15 +121,22 @@ export class GuestOrderConversionService {
           where: { id: customerId },
           select: { id: true, name: true, canTakeCredit: true },
         });
-        if (!customer) throw new BadRequestException(tr('errors.customerNotFound'));
+        if (!customer)
+          throw new BadRequestException(tr('errors.customerNotFound'));
         if (!customer.canTakeCredit) {
-          throw new BadRequestException(tr('errors.customerCreditBlocked', { name: customer.name }));
+          throw new BadRequestException(
+            tr('errors.customerCreditBlocked', { name: customer.name }),
+          );
         }
       }
     }
 
     // A synthetic shop-scoped actor so SalesService uses the chosen branch.
-    const shopActor: JwtPayload = { ...actor, locationId: shopId, locationType: 'SHOP' as any };
+    const shopActor: JwtPayload = {
+      ...actor,
+      locationId: shopId,
+      locationType: 'SHOP' as any,
+    };
     const created = await this.sales.createSale(
       {
         shopId,
@@ -123,7 +146,12 @@ export class GuestOrderConversionService {
         paidAmount: opts.paidAmount,
         items: order.items
           .filter((i: any) => i.itemKind === 'PRODUCT')
-          .map((i: any) => ({ productId: i.itemId, quantity: i.quantity })),
+          .map((i: any) => ({
+            productId: i.itemId,
+            variantId: i.variantId ?? undefined,
+            quantity: i.quantity,
+            unitId: i.unitId ?? undefined,
+          })),
       } as any,
       shopActor,
     );
@@ -145,13 +173,21 @@ export class GuestOrderConversionService {
    */
   async ensureCreditCustomer(
     order: any,
-  ): Promise<{ id: number; name: string; phone: string | null; canTakeCredit: boolean } | null> {
+  ): Promise<{
+    id: number;
+    name: string;
+    phone: string | null;
+    canTakeCredit: boolean;
+  } | null> {
     const name = (order.customerName ?? '').trim();
     const phone = (order.customerPhone ?? '').trim();
 
-    let customer:
-      | { id: number; name: string; phone: string | null; canTakeCredit: boolean }
-      | null = null;
+    let customer: {
+      id: number;
+      name: string;
+      phone: string | null;
+      canTakeCredit: boolean;
+    } | null = null;
     if (order.customerId) {
       customer = await this.prisma.customer.findFirst({
         where: { id: order.customerId },
@@ -198,7 +234,11 @@ export class GuestOrderConversionService {
     const checkOut = order.checkOut
       ? new Date(order.checkOut)
       : new Date(checkIn.getTime() + 24 * 60 * 60 * 1000);
-    if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime()) || !(checkOut > checkIn)) {
+    if (
+      Number.isNaN(checkIn.getTime()) ||
+      Number.isNaN(checkOut.getTime()) ||
+      !(checkOut > checkIn)
+    ) {
       throw new BadRequestException('Invalid stay dates');
     }
 
@@ -242,7 +282,9 @@ export class GuestOrderConversionService {
   }
 
   private async toBooking(order: any, actor: JwtPayload) {
-    const serviceItem = order.items.find((i: any) => i.itemKind === 'SERVICE_ITEM');
+    const serviceItem = order.items.find(
+      (i: any) => i.itemKind === 'SERVICE_ITEM',
+    );
     if (!serviceItem) throw new BadRequestException('No service selected');
     // Guest-chosen start time; legacy rows fall back to now.
     const startsAt = order.startsAt ? new Date(order.startsAt) : new Date();
@@ -279,14 +321,16 @@ export class GuestOrderConversionService {
         return {
           vehicleType: meta.vehicleType ?? 'Car',
           plateNumber: meta.plateNumber ?? null,
-          washTypeId: meta.washTypeId ?? (i.itemId ?? null),
+          washTypeId: meta.washTypeId ?? i.itemId ?? null,
           washerId: meta.washerId ?? null,
           amount: Number(i.unitPrice) || Number(meta.amount) || 0,
           startsAt: meta.startsAt ?? order.startsAt,
         };
       });
     if (lines.length === 0) {
-      throw new BadRequestException('Nothing to convert for this guest booking');
+      throw new BadRequestException(
+        'Nothing to convert for this guest booking',
+      );
     }
 
     // Resolve or create the customer so the booking shows their name + phone.

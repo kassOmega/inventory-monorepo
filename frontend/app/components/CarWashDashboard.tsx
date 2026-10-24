@@ -3,7 +3,8 @@
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { getDateRange } from "@/app/components/DateFilter";
-import FilterPanel, { FilterSelect } from "@/app/components/FilterPanel";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
+import { FilterSelect } from "@/app/components/FilterPanel";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -98,7 +99,7 @@ export default function CarWashDashboard() {
 
   // --- Shared filter panel (same component every business uses) ---
   const filterBar = (
-    <FilterPanel
+    <CollapsibleFilterPanel
       showDateFilter
       datePreset={datePreset}
       onDatePresetChange={setDatePreset}

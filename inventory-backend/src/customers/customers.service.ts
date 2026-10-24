@@ -302,13 +302,18 @@ export class CustomersService {
     return customer ?? null;
   }
 
-  async findOne(id: number, _shopId?: number) {
+  async findOne(id: number, shopId?: number) {
     const c = await this.prisma.customer.findUnique({
       where: { id },
       include: {
         creditSales: {
+          where: shopId ? { shopId } : undefined,
           include: {
-            items: { include: { product: true } },
+            items: {
+              include: {
+                product: { include: { units: { include: { unit: true } } } },
+              },
+            },
             shop: true,
             sale: {
               select: {
@@ -332,7 +337,10 @@ export class CustomersService {
         // Items taken on credit from this vendor + the payments we made back.
         // Credit purchases are Purchases with paymentType = CREDIT.
         vendorPurchases: {
-          where: { paymentType: 'CREDIT' },
+          where: {
+            paymentType: 'CREDIT',
+            ...(shopId ? { shopId } : {}),
+          },
           // The payback lines carry their method name, so a payback reads the
           // same here as it does in the purchase detail modal the rows open.
           include: {
@@ -390,9 +398,11 @@ export class CustomersService {
     // customer still earns and how much they have spent overall.
     const [loyaltyProgram, salesCount, recentSales] = await Promise.all([
       this.loyalty.getProgram(),
-      this.prisma.sale.count({ where: { customerId: id } }),
+      this.prisma.sale.count({
+        where: { customerId: id, ...(shopId ? { shopId } : {}) },
+      }),
       this.prisma.sale.findMany({
-        where: { customerId: id },
+        where: { customerId: id, ...(shopId ? { shopId } : {}) },
         select: {
           id: true,
           invoiceNumber: true,

@@ -34,7 +34,12 @@ export class PublicController {
     @Param('token') token: string,
     @Body()
     body: {
-      items: Array<{ ref: string; quantity: number; notes?: string }>;
+      items: Array<{
+        ref: string;
+        quantity: number;
+        unitId?: number;
+        notes?: string;
+      }>;
       customerName?: string;
       customerPhone?: string;
       tableNumber?: string;

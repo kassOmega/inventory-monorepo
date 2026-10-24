@@ -135,6 +135,7 @@ export const enMessages: Record<string, any> = {
     reqDispatchOverRequested:
       'Cannot dispatch more than the requested amount ({{amount}}) for {{product}}',
     reqInsufficientStockProduct: 'Insufficient stock for {{product}}',
+    reqDispatchQtyTooSmall: 'The quantity is too small for {{product}}',
     requestAlreadyClosed: 'Request is already closed',
     reqConfirmReceiptReceiver: 'Only the receiving location user can confirm receipt',
     reqConfirmReceiptCreator: 'Only the request creator can confirm receipt',

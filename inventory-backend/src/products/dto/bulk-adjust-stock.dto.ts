@@ -5,6 +5,7 @@ import {
   IsArray,
   IsInt,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   Min,
@@ -44,6 +45,16 @@ export class BulkAdjustStockItemDto {
   @IsNumber()
   @Min(0)
   sellPrice?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  buyPrice?: number;
+
+  /** Optional per-unit selling price overrides keyed by unitId. */
+  @IsOptional()
+  @IsObject()
+  unitPrices?: Record<string, { buyPrice?: number; sellPrice?: number }>;
 }
 
 /**

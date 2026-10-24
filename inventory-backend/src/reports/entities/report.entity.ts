@@ -2,11 +2,16 @@
 // Report response DTO / entity types
 // ---------------------------------------------------------------------------
 
+import type { UnitValuationLine } from '../../common/inventory-valuation.util';
+
 export interface InventoryVariantRow {
   id: number | null;
   sku: string | null;
   attributes: Record<string, any>;
   quantity: number;
+  quantityText?: string;
+  /** Per-unit price/count lines used by the UI and exports. */
+  unitLines?: UnitValuationLine[];
   locations: Record<string, number>;
   /** Unit catalog sell price — always returned. */
   unitSellPrice?: number;
@@ -25,8 +30,14 @@ export interface InventoryBreakdownRow {
   category: string;
   total: number;
   locations: Record<string, number>;
+  quantityText?: string;
+  /** Present only when all stock belongs to one variant (or no variants). */
+  unitLines?: UnitValuationLine[];
   /** Per-variant × per-location breakdown for expandable report rows. */
   variants: InventoryVariantRow[];
+  /** Product-specific unit ladder (base + lower units). */
+  units?: any[];
+  stockUnitId?: number | null;
   /** Unit catalog sell price — always returned. */
   unitSellPrice?: number;
   /** Cost fields below are only returned when the caller holds

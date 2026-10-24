@@ -6,6 +6,7 @@ import {
   IsDateString,
   IsInt,
   IsNumber,
+  IsObject,
   IsOptional,
   IsPositive,
   IsString,
@@ -49,6 +50,11 @@ export class BatchRestockItemDto {
   @IsNumber()
   @Min(0)
   sellPrice?: number;
+
+  /** Optional per-unit buy/sell price overrides keyed by unitId. */
+  @IsOptional()
+  @IsObject()
+  unitPrices?: Record<string, { buyPrice?: number; sellPrice?: number }>;
 
   // Perishables must carry batch + expiry, exactly like the single-item restock.
   @IsOptional()

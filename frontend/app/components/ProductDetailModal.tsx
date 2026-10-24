@@ -1,12 +1,27 @@
 "use client";
 import Modal from "./Modal";
+import ProductUnitPrices from "./ProductUnitPrices";
 import { QRCodeSVG } from "qrcode.react";
 import { variantLabel } from "@/lib/variantLabel";
+import { formatStockQuantity } from "@/lib/unit-display";
+import { maxPerBase } from "@/lib/unit-stock";
+import { formatUnitPriceLines, type ProductValuation } from "@/lib/inventory-valuation";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import { fmtCurrency } from "@/lib/currency";
+import { statusLabel } from "@/lib/statusLabel";
 import { useTranslation } from "react-i18next";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
+
+interface UnitRow {
+  unitId: number;
+  perBase: number;
+  isBase?: boolean | null;
+  isDefaultSale?: boolean | null;
+  sellPrice?: number | null;
+  buyPrice?: number | null;
+  unit?: { name?: string | null; symbol?: string | null } | null;
+}
 
 export default function ProductDetailModal({
   product,
@@ -45,11 +60,33 @@ export default function ProductDetailModal({
   );
   const priceHistory = detail?.priceHistory ?? [];
 
-  // Gated cost/margin figures (only shown to roles with sales.view-profit).
-  const unitCost = d?.currentBuyPrice ?? 0;
-  const unitSell = d?.currentSellPrice ?? 0;
-  const totalCostValue = totalStock * unitCost;
-  const estProfit = totalStock * (unitSell - unitCost);
+  const stockFactor = maxPerBase(d?.units ?? []);
+  const stockLabel = (qty: number) =>
+    (d?.units?.length ?? 0) > 0
+      ? formatStockQuantity(qty, d.units)
+      : `${qty}${d?.unit?.name ? " " + d.unit.name : ""}`;
+  const units: UnitRow[] = d?.units ?? [];
+  const baseBuyPrice = Number(d?.currentBuyPrice) || 0;
+  const baseSellPrice = Number(d?.currentSellPrice) || 0;
+  // Backend-computed per-variant, per-unit valuation.
+  const valuation = detail?.valuation as ProductValuation | undefined;
+  const variantById = new Map<number, any>(
+    (d?.variants ?? []).map((v: any) => [v.id, v]),
+  );
+  const variantOf = (variantId: number | null) =>
+    variantId == null ? null : (variantById.get(variantId) ?? null);
+  const baseUnitName =
+    d?.unit?.name ??
+    units.find((u) => u.isBase)?.unit?.name ??
+    units[0]?.unit?.name ??
+    "";
+  const defaultUnitName =
+    units.find((u) => u.isDefaultSale)?.unit?.name ?? baseUnitName;
+  const stockUnitName =
+    d?.stockUnit?.name ??
+    units.find((u) => (Number(u.perBase) || 1) === stockFactor)?.unit
+      ?.name ??
+    "";
 
   // Group inventory rows by location so each location appears exactly once,
   // with its summed total. Expanding a location reveals the per-variant rows.
@@ -64,9 +101,6 @@ export default function ProductDetailModal({
     }
     return Array.from(map.values());
   })();
-
-  const variantOf = (variantId: number | null) =>
-    (d?.variants ?? []).find((v: any) => v.id === variantId) ?? null;
 
   const toggleLocation = (key: number) => {
     setExpandedLocations((prev) => {
@@ -99,58 +133,206 @@ export default function ProductDetailModal({
             <span
               className={
                 "px-2 py-1 rounded-full text-xs font-bold " +
-                (d.reorderLevel > 0 && totalStock < d.reorderLevel
+                (d.reorderLevel > 0 && totalStock <= d.reorderLevel
                   ? "bg-red-100 text-red-600"
                   : "bg-green-100 text-green-700")
               }
             >
-              {t("pdm.inStock", { n: totalStock })}
+              {t("pdm.inStock", { n: stockLabel(totalStock) })}
             </span>
           </div>
           {d.reorderLevel > 0 && (
             <p className="text-xs text-gray-500">
-              {t("pdm.lowStockAlert", { n: d.reorderLevel })}
-              {d.reorderQty ? t("pdm.suggestedReorder", { n: d.reorderQty }) : ""}
+              {t("pdm.lowStockAlert", { n: stockLabel(d.reorderLevel) })}
+              {d.reorderQty
+                ? t("pdm.suggestedReorder", { n: stockLabel(d.reorderQty) })
+                : ""}
             </p>
           )}
 
-          {/* Pricing summary. Buy Price / Total Cost Value / Est. Profit are
-              RBAC-gated (sales.view-profit); everyone sees the sell price. */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {canViewProfit && (
-              <div className="border rounded-lg p-2">
-                <p className="text-[11px] text-gray-400 font-medium">{t("pdm.buyPrice")}</p>
-                <p className="text-sm font-semibold text-gray-800">
-                  {fmtCurrency(unitCost)}
-                </p>
-              </div>
+          {/* Unit configuration at a glance. */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <InfoCard
+              label={t("pf.baseUnit")}
+              value={baseUnitName || "—"}
+            />
+            <InfoCard
+              label={t("pf.stockUnit")}
+              value={stockUnitName || "—"}
+            />
+            <InfoCard
+              label={t("pf.defaultSale")}
+              value={defaultUnitName || "—"}
+            />
+            <InfoCard
+              label={t("pf.lowStockLevel")}
+              value={stockLabel(d.reorderLevel ?? 0)}
+            />
+            <InfoCard
+              label={t("pf.perishable")}
+              value={d.isPerishable ? t("common.yes") : t("common.no")}
+            />
+            {d.kind && (
+              <InfoCard
+                label={t("common.type")}
+                value={statusLabel(d.kind)}
+              />
             )}
-            <div className="border rounded-lg p-2">
-              <p className="text-[11px] text-gray-400 font-medium">{t("pdm.sellPrice")}</p>
-              <p className="text-sm font-semibold text-gray-800">
-                {fmtCurrency(unitSell)}
-              </p>
-            </div>
-            {canViewProfit && (
-              <>
+            {d.barcode && (
+              <InfoCard label={t("pdm.barcode")} value={d.barcode} mono />
+            )}
+          </div>
+
+          {/* Exact totals from the backend per-variant, per-unit valuation. */}
+          {valuation && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {canViewProfit && (
                 <div className="border rounded-lg p-2">
-                  <p className="text-[11px] text-gray-400 font-medium">{t("pdm.totalCostValue")}</p>
+                  <p className="text-[11px] text-gray-400 font-medium">
+                    {t("pdm.buyTotal")}
+                  </p>
                   <p className="text-sm font-semibold text-gray-800">
-                    {fmtCurrency(totalCostValue)}
+                    {fmtCurrency(valuation.totals.buyTotal)}
                   </p>
                 </div>
+              )}
+              <div className="border rounded-lg p-2">
+                <p className="text-[11px] text-gray-400 font-medium">
+                  {t("pdm.sellTotal")}
+                </p>
+                <p className="text-sm font-semibold text-gray-800">
+                  {fmtCurrency(valuation.totals.sellTotal)}
+                </p>
+              </div>
+              {canViewProfit && (
                 <div className="border rounded-lg p-2">
-                  <p className="text-[11px] text-gray-400 font-medium">{t("pdm.estProfit")}</p>
+                  <p className="text-[11px] text-gray-400 font-medium">
+                    {t("pdm.profit")}
+                  </p>
                   <p
                     className={
                       "text-sm font-semibold " +
-                      (estProfit >= 0 ? "text-green-600" : "text-red-500")
+                      (valuation.totals.profit >= 0
+                        ? "text-green-600"
+                        : "text-red-500")
                     }
                   >
-                    {fmtCurrency(estProfit)}
+                    {fmtCurrency(valuation.totals.profit)}
                   </p>
                 </div>
-              </>
+              )}
+            </div>
+          )}
+
+          {valuation && (
+            <div>
+              <h4 className="font-medium text-gray-700 mb-2">
+                {t("pdm.valuationTitle")}
+              </h4>
+              <p className="text-[11px] text-gray-400 mb-2">
+                {detail?.inventoryScope === "ALL"
+                  ? t("pdm.scopeAllLocations")
+                  : t("pdm.scopeYourLocation")}{" · "}
+                {t("pdm.valuationHint")}
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm whitespace-nowrap">
+                  <thead>
+                    <tr>
+                      <th className="text-left p-1">{t("pdm.variants")}</th>
+                      <th className="text-right p-1">{t("pdm.colQty")}</th>
+                      {canViewProfit && (
+                        <th className="text-right p-1">
+                          {t("pdm.buyPricePerUnit")}
+                        </th>
+                      )}
+                      <th className="text-right p-1">
+                        {t("pdm.sellPricePerUnit")}
+                      </th>
+                      {canViewProfit && (
+                        <th className="text-right p-1">{t("pdm.buyTotal")}</th>
+                      )}
+                      <th className="text-right p-1">{t("pdm.sellTotal")}</th>
+                      {canViewProfit && (
+                        <th className="text-right p-1">{t("pdm.profit")}</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {valuation.rows.map((row) => (
+                      <tr key={row.variantId ?? "standard"} className="border-t">
+                        <td className="p-1">
+                          {row.variant
+                            ? variantLabel(row.variant) || t("pdm.standard")
+                            : t("pdm.standard")}
+                        </td>
+                        <td className="p-1 text-right">{row.quantityText}</td>
+                        {canViewProfit && (
+                          <td className="p-1 text-right">
+                            {formatUnitPriceLines(row.unitLines, "buyPrice")}
+                          </td>
+                        )}
+                        <td className="p-1 text-right">
+                          {formatUnitPriceLines(row.unitLines, "sellPrice")}
+                        </td>
+                        {canViewProfit && (
+                          <td className="p-1 text-right">
+                            {fmtCurrency(row.buyTotal)}
+                          </td>
+                        )}
+                        <td className="p-1 text-right">
+                          {fmtCurrency(row.sellTotal)}
+                        </td>
+                        {canViewProfit && (
+                          <td className="p-1 text-right">
+                            {fmtCurrency(row.profit)}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t font-semibold">
+                      <td className="p-1" colSpan={2}>
+                        {t("common.total")}
+                      </td>
+                      {canViewProfit && <td />}
+                      <td />
+                      {canViewProfit && (
+                        <td className="p-1 text-right">
+                          {fmtCurrency(valuation.totals.buyTotal)}
+                        </td>
+                      )}
+                      <td className="p-1 text-right">
+                        {fmtCurrency(valuation.totals.sellTotal)}
+                      </td>
+                      {canViewProfit && (
+                        <td className="p-1 text-right">
+                          {fmtCurrency(valuation.totals.profit)}
+                        </td>
+                      )}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <h4 className="font-medium text-gray-700 mb-2">
+              {t("pf.unitsTitle")}
+            </h4>
+            {units.length > 0 ? (
+              <ProductUnitPrices
+                units={units}
+                baseSellPrice={baseSellPrice}
+                baseBuyPrice={baseBuyPrice}
+                canViewProfit={canViewProfit}
+              />
+            ) : (
+              <p className="text-sm text-gray-400">
+                {t("pf.noLowerUnits")}
+              </p>
             )}
           </div>
 
@@ -188,8 +370,16 @@ export default function ProductDetailModal({
                       <th className="text-left p-1">{t("pdm.colAttributes")}</th>
                       <th className="text-left p-1">{t("pdm.colBarcode")}</th>
                       <th className="text-left p-1">{t("pdm.colSku")}</th>
-                      {canViewProfit && <th className="text-right p-1">{t("pdm.colBuy")}</th>}
-                      <th className="text-right p-1">{t("pdm.colSell")}</th>
+                      {canViewProfit && (
+                        <th className="text-right p-1">
+                          {t("pdm.colBuy")}
+                          {baseUnitName ? ` / ${baseUnitName}` : ""}
+                        </th>
+                      )}
+                      <th className="text-right p-1">
+                        {t("pdm.colSell")}
+                        {baseUnitName ? ` / ${baseUnitName}` : ""}
+                      </th>
                       <th className="text-right p-1">{t("pdm.colStock")}</th>
                     </tr>
                   </thead>
@@ -207,17 +397,23 @@ export default function ProductDetailModal({
                           <td className="p-1 font-mono text-xs">{v.sku}</td>
                           {canViewProfit && (
                             <td className="p-1 text-right">
-                              {v.buyPrice != null ? v.buyPrice : "—"}
+                              {v.buyPrice != null
+                                ? fmtCurrency(v.buyPrice)
+                                : "—"}
                             </td>
                           )}
                           <td className="p-1 text-right">
-                            {v.sellPrice != null ? v.sellPrice : "—"}
+                            {v.sellPrice != null
+                              ? fmtCurrency(v.sellPrice)
+                              : "—"}
                           </td>
                           <td className="p-1 text-right font-semibold">
-                            {qty}
+                            {stockLabel(qty)}
                             {v.reorderLevel > 0 && (
                               <span className="block text-[10px] font-normal text-gray-400">
-                                {t("pdm.lowStockAlert", { n: v.reorderLevel })}
+                                {t("pdm.lowStockAlert", {
+                                  n: stockLabel(v.reorderLevel),
+                                })}
                               </span>
                             )}
                           </td>
@@ -230,6 +426,41 @@ export default function ProductDetailModal({
             </div>
           )}
 
+          {d.hasVariants &&
+            (d.variants?.length ?? 0) > 0 &&
+            units.length > 0 && (
+              <div>
+                <h4 className="font-medium text-gray-700 mb-2">
+                  {t("pf.variantUnitPrices")}
+                </h4>
+                <div className="space-y-2">
+                  {(d.variants ?? []).map((v: any) => (
+                    <details
+                      key={v.id}
+                      className="rounded-lg border border-gray-200 bg-white"
+                    >
+                      <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 px-2 py-1.5 text-sm text-gray-700">
+                        <span className="min-w-0 truncate">
+                          {variantLabel(v) || t("pdm.standard")}
+                        </span>
+                        <span className="font-mono text-[11px] text-gray-400">
+                          {v.sku}
+                        </span>
+                      </summary>
+                      <div className="border-t border-gray-100 p-2">
+                        <ProductUnitPrices
+                          units={units}
+                          baseSellPrice={v.sellPrice ?? baseSellPrice}
+                          baseBuyPrice={v.buyPrice ?? baseBuyPrice}
+                          canViewProfit={canViewProfit}
+                          variantUnitPrices={v.unitPrices ?? null}
+                        />
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              </div>
+            )}
 
           {(d.batches?.length ?? 0) > 0 && (
             <div>
@@ -253,7 +484,7 @@ export default function ProductDetailModal({
                             : "—"}
                         </td>
                         <td className="p-1 text-right font-semibold">
-                          {b.quantity}
+                          {stockLabel(b.quantity)}
                         </td>
                       </tr>
                     ))}
@@ -268,6 +499,7 @@ export default function ProductDetailModal({
             {locationsGrouped.length === 0 ? (
               <p className="text-sm text-gray-400">{t("pdm.noInventory")}</p>
             ) : (
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr>
@@ -302,7 +534,7 @@ export default function ProductDetailModal({
                             {entry.location?.name ?? "—"}
                           </td>
                           <td className="p-1 text-right font-semibold">
-                            {entry.total}
+                            {stockLabel(entry.total)}
                           </td>
                         </tr>
                         {expanded && (
@@ -328,7 +560,7 @@ export default function ProductDetailModal({
                                           {variantLabel(v) || t("pdm.standard")}
                                         </td>
                                         <td className="p-1 text-right">
-                                          {i.quantity ?? 0}
+                                          {stockLabel(i.quantity ?? 0)}
                                         </td>
                                       </tr>
                                     );
@@ -343,6 +575,7 @@ export default function ProductDetailModal({
                   })}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
 
@@ -350,7 +583,8 @@ export default function ProductDetailModal({
           {priceHistory.length > 0 && (
             <div>
               <h4 className="font-medium text-gray-700 mb-2">{t("pdm.priceHistory")}</h4>
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto">
+              <table className="w-full text-sm whitespace-nowrap">
                 <thead>
                   <tr>
                     <th className="text-left p-1">{t("pdm.colDate")}</th>
@@ -366,19 +600,46 @@ export default function ProductDetailModal({
                       <td className="p-1 text-xs">
                         {new Date(h.updatedAt).toLocaleDateString()}
                       </td>
-                      <td className="p-1 text-right">{h.oldBuyPrice}</td>
-                      <td className="p-1 text-right">{h.newBuyPrice}</td>
-                      <td className="p-1 text-right">{h.oldSellPrice}</td>
-                      <td className="p-1 text-right">{h.newSellPrice}</td>
+                      <td className="p-1 text-right">{fmtCurrency(h.oldBuyPrice)}</td>
+                      <td className="p-1 text-right">{fmtCurrency(h.newBuyPrice)}</td>
+                      <td className="p-1 text-right">{fmtCurrency(h.oldSellPrice)}</td>
+                      <td className="p-1 text-right">{fmtCurrency(h.newSellPrice)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
         </div>
       )}
     </Modal>
+  );
+}
+
+function InfoCard({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-gray-200 p-2">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
+        {label}
+      </p>
+      <p
+        className={
+          "break-words text-sm text-gray-800 " +
+          (mono ? "break-all font-mono text-xs" : "")
+        }
+      >
+        {value}
+      </p>
+    </div>
   );
 }
 

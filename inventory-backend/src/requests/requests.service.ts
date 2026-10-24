@@ -16,6 +16,12 @@ import {
 } from '../common/business-number.util';
 import { assertNotDuplicate } from '../common/duplicate.util';
 import { inventoryFind, inventoryUpsert } from '../common/inventory.util';
+import {
+  maxPerBase as maxPerBaseOfUnits,
+  splitStockQuantity,
+  stockPerUnit,
+  stockPriceFromBase,
+} from '../common/unit-stock.util';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { getCurrentTenantId, requireTenantId } from '../common/tenant/tenant.context';
 import { parsePaging, pagedResult } from '../common/pagination.util';
@@ -29,7 +35,7 @@ import { ConfirmSaleDto } from './dto/confirm-sale.dto';
 
 /** Relation set returned for every stock request read/create. */
 const REQUEST_INCLUDE = {
-  items: { include: { product: true, variant: true, batch: true } },
+  items: { include: { product: { include: { units: { include: { unit: true } } } }, variant: true, batch: true } },
   shop: true,
   store: true,
   fromStore: true,
@@ -166,7 +172,11 @@ export class RequestsService {
       const inventory = await inventoryFind(
         this.prisma,
         { productId: item.productId, variantId: item.variantId ?? null, locationId },
-        { product: true },
+        {
+          product: {
+            include: { units: { select: { perBase: true } } },
+          },
+        },
       );
 
       const productName = inventory?.product
@@ -179,7 +189,12 @@ export class RequestsService {
         problems.push(tr('errors.reqNotAvailableAt', { product: productName, label }));
       } else if (requested !== null && requested > available) {
         problems.push(
-          tr('errors.reqOnlyAvailableAt', { product: productName, available, label, requested }),
+          tr('errors.reqOnlyAvailableAt', {
+            product: productName,
+            available,
+            label,
+            requested,
+          }),
         );
       }
     }
@@ -290,7 +305,7 @@ export class RequestsService {
     return this.prisma.stockRequest.findUnique({
       where: { id },
       include: {
-        items: { include: { product: true, variant: true, batch: true } },
+        items: { include: { product: { include: { units: { include: { unit: true } } } }, variant: true, batch: true } },
         shop: true,
         store: true,
         fromStore: true,
@@ -392,7 +407,7 @@ export class RequestsService {
     return this.prisma.stockRequest.findUnique({
       where: { id: requestId },
       include: {
-        items: { include: { product: true, variant: true, batch: true } },
+        items: { include: { product: { include: { units: { include: { unit: true } } } }, variant: true, batch: true } },
         shop: true,
         store: true,
         fromStore: true,
@@ -569,7 +584,7 @@ export class RequestsService {
       ? await this.prisma.stockRequest.findMany({
           where: { id: { in: orderedIds } },
           include: {
-            items: { include: { product: true, variant: true, batch: true } },
+            items: { include: { product: { include: { units: { include: { unit: true } } } }, variant: true, batch: true } },
             shop: true,
             store: true,
             fromStore: true,
@@ -669,7 +684,7 @@ export class RequestsService {
     const req = await this.prisma.stockRequest.findUnique({
       where: { id },
       include: {
-        items: { include: { product: true, variant: true, batch: true } },
+        items: { include: { product: { include: { units: { include: { unit: true } } } }, variant: true, batch: true } },
         shop: true,
         store: true,
         fromStore: true,
@@ -761,7 +776,7 @@ export class RequestsService {
   ) {
     const request = await this.prisma.stockRequest.findUnique({
       where: { id: requestId },
-      include: { items: { include: { product: true, variant: true, batch: true } } },
+      include: { items: { include: { product: { include: { units: { include: { unit: true } } } }, variant: true, batch: true } } },
     });
     if (!request) throw new NotFoundException(tr('errors.requestNotFound'));
     if (request.status === RequestStatus.CLOSED || request.status === RequestStatus.COMPLETED) {
@@ -807,7 +822,7 @@ export class RequestsService {
             }
             const requestedQty = item.quantityRequested ?? qty;
             const totalStored = (item.quantityStored || 0) + qty;
-            if (totalStored > requestedQty) {
+            if (totalStored > requestedQty + 1e-9) {
               throw new BadRequestException(
                 tr('errors.reqStoreOverRequested', { amount: requestedQty, product: `${item.product.brand} ${item.product.baseName}` }),
               );
@@ -963,7 +978,7 @@ export class RequestsService {
   ) {
     const request = await this.prisma.stockRequest.findUnique({
       where: { id: requestId },
-      include: { items: { include: { product: true, variant: true, batch: true } } },
+      include: { items: { include: { product: { include: { units: { include: { unit: true } } } }, variant: true, batch: true } } },
     });
     if (!request) throw new NotFoundException(tr('errors.requestNotFound'));
     const isStoreToStore = request.requestType === RequestType.STORE_TO_STORE;
@@ -1002,18 +1017,30 @@ export class RequestsService {
           continue;
         }
         const requestedQty = item.quantityRequested ?? data.quantityDispatched;
-        if (item.quantityDispatched + data.quantityDispatched > requestedQty) {
+        if (
+          item.quantityDispatched + data.quantityDispatched >
+          requestedQty + 1e-9
+        ) {
           throw new BadRequestException(
             tr('errors.reqDispatchOverRequested', { amount: requestedQty, product: `${item.product?.brand ?? ''} ${item.product?.baseName ?? ''}` }),
           );
         }
 
+        // Request quantities are already canonical stock units.
+        const dispatchStockQty = Math.round(data.quantityDispatched);
+        if (dispatchStockQty <= 0) {
+          throw new BadRequestException(
+            tr('errors.reqDispatchQtyTooSmall', {
+              product: item.product.baseName,
+            }),
+          );
+        }
         const storeInventory = await inventoryFind(tx, {
           productId: item.productId,
           variantId: item.variantId ?? null,
           locationId: sourceLocationId,
         });
-        if (!storeInventory || storeInventory.quantity < data.quantityDispatched) {
+        if (!storeInventory || storeInventory.quantity < dispatchStockQty) {
           throw new BadRequestException(tr('errors.reqInsufficientStockProduct', { product: item.product.baseName }));
         }
 
@@ -1021,7 +1048,9 @@ export class RequestsService {
         // receiver only gains the quantity it actually confirms on arrival.
         await tx.inventory.update({
           where: { id: storeInventory.id },
-          data: { quantity: { decrement: data.quantityDispatched } },
+          data: {
+            quantity: { decrement: dispatchStockQty },
+          },
         });
 
         await tx.requestItem.update({
@@ -1083,7 +1112,7 @@ export class RequestsService {
     const request = await this.prisma.stockRequest.findUnique({
       where: { id: requestId },
       include: {
-        items: { include: { product: true, variant: true, batch: true } },
+        items: { include: { product: { include: { units: { include: { unit: true } } } }, variant: true, batch: true } },
         store: true,
       },
     });
@@ -1136,7 +1165,7 @@ export class RequestsService {
         if (receivedQty <= 0) {
           throw new BadRequestException(tr('errors.reqReceivedQtyPositive'));
         }
-        if (receivedQty > outstanding) {
+        if (receivedQty > outstanding + 1e-9) {
           throw new BadRequestException(
             tr('errors.reqConfirmOverDispatched', { amount: outstanding, product: `${item.product?.brand ?? ''} ${item.product?.baseName ?? ''}` }),
           );
@@ -1144,18 +1173,25 @@ export class RequestsService {
 
         if (isStoreToOwner) {
           // Owner's goods arrive at the store — no source deduction.
+          const receiveStockQty = Math.round(receivedQty);
           await inventoryUpsert(tx, {
             tenantId,
             productId: item.productId,
             variantId: item.variantId ?? null,
             locationId: request.storeId,
-            increment: receivedQty,
-            unitCost: item.product.currentBuyPrice ?? null,
+            increment: receiveStockQty,
+            unitCost:
+              item.product.currentBuyPrice != null
+                ? stockPriceFromBase(
+                    item.product.currentBuyPrice,
+                    item.product.units,
+                  )
+                : null,
           });
           if (item.batchId != null) {
             await tx.productBatch.update({
               where: { id: item.batchId },
-              data: { quantity: { increment: receivedQty } },
+              data: { quantity: { increment: receiveStockQty } },
             });
           }
 
@@ -1180,18 +1216,25 @@ export class RequestsService {
           // receiver only gains what actually arrived.
           const receiverId = isStoreToStore ? request.storeId : request.shopId;
           if (receiverId) {
+            const receiveStockQty = Math.round(receivedQty);
             await inventoryUpsert(tx, {
               tenantId,
               productId: item.productId,
               variantId: item.variantId ?? null,
               locationId: receiverId,
-              increment: receivedQty,
-              unitCost: item.product.currentBuyPrice ?? null,
+              increment: receiveStockQty,
+              unitCost:
+                item.product.currentBuyPrice != null
+                  ? stockPriceFromBase(
+                    item.product.currentBuyPrice,
+                    item.product.units,
+                  )
+                  : null,
             });
             if (item.batchId != null) {
               await tx.productBatch.update({
                 where: { id: item.batchId },
-                data: { quantity: { increment: receivedQty } },
+                data: { quantity: { increment: receiveStockQty } },
               });
             }
           }
@@ -1326,7 +1369,7 @@ export class RequestsService {
   ) {
     const request = await this.prisma.stockRequest.findUnique({
       where: { id: requestId },
-      include: { items: { include: { product: true, variant: true, batch: true } } },
+      include: { items: { include: { product: { include: { units: { include: { unit: true } } } }, variant: true, batch: true } } },
     });
     if (!request) throw new NotFoundException(tr('errors.requestNotFound'));
     if (request.requestType !== RequestType.SHOP_TO_STORE) {
@@ -1357,6 +1400,7 @@ export class RequestsService {
         variantId?: number;
         quantity: number;
         customPrice?: number;
+        unitId?: number;
       }[] = [];
 
       for (const sold of dto.items) {
@@ -1376,13 +1420,13 @@ export class RequestsService {
         if (receivedQty <= 0) {
           throw new BadRequestException(tr('errors.reqReceivedQtyGreaterZero'));
         }
-        if (receivedQty > outstanding) {
+        if (receivedQty > outstanding + 1e-9) {
           throw new BadRequestException(
             tr('errors.reqReceiveOverDispatched', { amount: outstanding, product: `${item.product?.brand ?? ''} ${item.product?.baseName ?? ''}` }),
           );
         }
         const soldQty = sold.quantity ?? receivedQty;
-        if (soldQty < 0 || soldQty > receivedQty) {
+        if (soldQty < 0 || soldQty > receivedQty + 1e-9) {
           throw new BadRequestException(
             tr('errors.reqSoldQtyRange', { amount: receivedQty, product: `${item.product?.brand ?? ''} ${item.product?.baseName ?? ''}` }),
           );
@@ -1390,18 +1434,25 @@ export class RequestsService {
 
         // Destination (shop) receives what actually arrived. The source store
         // was already deducted at dispatch time.
+        const receiveStockQty = Math.round(receivedQty);
         await inventoryUpsert(tx, {
           tenantId: requireTenantId(),
           productId: item.productId,
           variantId: item.variantId ?? null,
           locationId: shopId,
-          increment: receivedQty,
-          unitCost: item.product.currentBuyPrice ?? null,
+          increment: receiveStockQty,
+          unitCost:
+            item.product.currentBuyPrice != null
+              ? stockPriceFromBase(
+                  item.product.currentBuyPrice,
+                  item.product.units,
+                )
+              : null,
         });
         if (item.batchId != null) {
           await tx.productBatch.update({
             where: { id: item.batchId },
-            data: { quantity: { increment: receivedQty } },
+            data: { quantity: { increment: receiveStockQty } },
           });
         }
 
@@ -1423,14 +1474,59 @@ export class RequestsService {
         });
 
         if (soldQty > 0) {
-          saleItemInputs.push({
-            productId: item.productId,
-            variantId: item.variantId ?? undefined,
-            quantity: soldQty,
-            ...(sold.unitSellPrice != null
-              ? { customPrice: sold.unitSellPrice }
-              : {}),
-          });
+          const units = ((item.product.units ?? []) as any[]);
+          const stockToSell = Math.round(soldQty);
+          if (stockToSell <= 0) {
+            throw new BadRequestException(
+              tr('errors.reqDispatchQtyTooSmall', {
+                product: item.product.baseName,
+              }),
+            );
+          }
+
+          if (units.length === 0) {
+            saleItemInputs.push({
+              productId: item.productId,
+              variantId: item.variantId ?? undefined,
+              quantity: soldQty,
+              ...(sold.unitSellPrice != null
+                ? { customPrice: sold.unitSellPrice }
+                : {}),
+            });
+          } else {
+            // Split the sold stock quantity into whole per-unit sale lines.
+            const lines = splitStockQuantity(stockToSell, units);
+            const max = maxPerBaseOfUnits(units);
+            const allocated = lines.reduce(
+              (sum, line) =>
+                sum +
+                line.quantity *
+                  stockPerUnit(Number(line.unit.perBase) || 1, max),
+              0,
+            );
+            if (Math.abs(allocated - stockToSell) > 1e-6) {
+              throw new BadRequestException(
+                tr('errors.reqDispatchQtyTooSmall', {
+                  product: item.product.baseName,
+                }),
+              );
+            }
+            for (const line of lines) {
+              saleItemInputs.push({
+                productId: item.productId,
+                variantId: item.variantId ?? undefined,
+                quantity: line.quantity,
+                unitId: Number(line.unit.unitId),
+                ...(sold.unitSellPrice != null
+                  ? {
+                      customPrice:
+                        sold.unitSellPrice /
+                        (Number(line.unit.perBase) || 1),
+                    }
+                  : {}),
+              });
+            }
+          }
         }
 
         // A gap between what was pending and what actually arrived is reported

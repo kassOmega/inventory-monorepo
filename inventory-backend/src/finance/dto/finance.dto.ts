@@ -33,6 +33,7 @@ export class CreateIncomeDto {
   @IsString() @IsOptional() description?: string;
   @IsNumber() @Type(() => Number) amount!: number;
   @IsString() @IsOptional() incomeDate?: string;
+  @IsInt() @IsOptional() paymentMethodId?: number;
 }
 
 export class JournalLineDto {
@@ -69,6 +70,7 @@ export class UpdateIncomeDto {
   @IsString() @IsOptional() description?: string;
   @IsNumber() @Type(() => Number) @IsOptional() amount?: number;
   @IsString() @IsOptional() incomeDate?: string;
+  @IsInt() @IsOptional() paymentMethodId?: number;
 }
 
 export class UpsertAccountMappingDto {

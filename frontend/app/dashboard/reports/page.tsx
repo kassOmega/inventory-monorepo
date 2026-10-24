@@ -1,10 +1,8 @@
 "use client";
 import DateFilter, { getDateRange } from "@/app/components/DateFilter";
-import FilterPanel from "@/app/components/FilterPanel";
+import CollapsibleFilterPanel from "@/app/components/CollapsibleFilterPanel";
 import ActivityAuditReport from "@/app/components/ActivityAuditReport";
-import FinancialBreakdown from "@/app/components/FinancialBreakdown";
-import FinanceComparison from "@/app/components/FinanceComparison";
-import ItemizedPerformanceTable from "@/app/components/ItemizedPerformanceTable";
+import FinanceOverview from "@/app/components/FinanceOverview";
 import ProfitLossSummary from "@/app/components/ProfitLossSummary";
 import HospitalityInventoryReport from "@/app/components/HospitalityInventoryReport";
 import HospitalityReport from "@/app/components/HospitalityReport";
@@ -15,6 +13,8 @@ import SalesReport from "@/app/components/SalesReport";
 import { useToast } from "@/app/components/ToastProvider";
 import { useAuth } from "@/context/AuthContext";
 import { variantLabel } from "@/lib/variantLabel";
+import { formatStockQuantity } from "@/lib/unit-display";
+import { formatUnitPriceLines } from "@/lib/inventory-valuation";
 import { getVerticalFeatures } from "@/lib/verticals";
 import { useSingleLocationAutofill } from "@/lib/singleLocation";
 import useDebouncedValue from "@/lib/useDebouncedValue";
@@ -143,6 +143,8 @@ export default function ReportsPage() {
   // cells for roles that lack the permission on the backend.
   const showCostValuation = canViewCost && !!inventoryData.valuation;
   const valCols = showCostValuation ? 5 : 1;
+  const fmtStock = (q: any, units: any[] | undefined) =>
+    Number(q) ? formatStockQuantity(Number(q), units) : "0";
   const fmtMoney = (n: any) =>
     Number(n ?? 0).toLocaleString(undefined, {
       minimumFractionDigits: 2,
@@ -315,7 +317,7 @@ export default function ReportsPage() {
             />
           </div>
         ) : (
-          <FilterPanel
+          <CollapsibleFilterPanel
             showDateFilter={isCarWash || tab === "sales" || tab === "production" || tab === "finance" || tab === "inventory"}
             datePreset={datePreset}
             onDatePresetChange={setDatePreset}
@@ -405,26 +407,14 @@ export default function ReportsPage() {
 
       {/* FINANCE */}
       {tab === "finance" && (
-        <div className="space-y-6">
-          <ProfitLossSummary startDate={startDate} endDate={endDate} />
-          <ItemizedPerformanceTable
-            startDate={startDate}
-            endDate={endDate}
-            businessType={activeMembership?.businessType ?? user?.businessType ?? ""}
-            locationId={location || undefined}
-          />
-          <FinancialBreakdown
-            startDate={startDate}
-            endDate={endDate}
-            businessType={activeMembership?.businessType ?? user?.businessType ?? ""}
-            locationId={location || undefined}
-          />
-          <FinanceComparison
-            startDate={startDate}
-            endDate={endDate}
-            locationId={location || undefined}
-          />
-        </div>
+        <FinanceOverview
+          startDate={startDate}
+          endDate={endDate}
+          businessType={
+            activeMembership?.businessType ?? user?.businessType ?? ""
+          }
+          locationId={location || undefined}
+        />
       )}
 
 
@@ -469,6 +459,11 @@ export default function ReportsPage() {
                 </p>
               </div>
             </div>
+          )}
+          {canViewCost && inventoryData.valuation && (
+            <p className="text-[11px] text-gray-400 mb-3">
+              {t("reports.valuationHint")}
+            </p>
           )}
           <div className="bg-white rounded-xl shadow-sm border overflow-x-auto w-full">
           <table className="w-full text-left text-sm min-w-[1200px] whitespace-nowrap">
@@ -533,20 +528,30 @@ export default function ReportsPage() {
                       <td
                         className={`p-2 sm:p-3 md:p-4 text-center font-bold ${r.total < 10 ? "text-red-500" : "text-blue-600"}`}
                       >
-                        {r.total}
+                        {fmtStock(r.total, r.units)}
                       </td>
                       {inventoryData.columns?.map((col: string) => (
                         <td key={col} className="p-2 sm:p-3 md:p-4 text-center text-gray-600">
-                          {r.locations[col] || 0}
+                          {r.locations[col]
+                            ? fmtStock(r.locations[col], r.units)
+                            : "0"}
                         </td>
                       ))}
                       <td className="p-2 sm:p-3 md:p-4 text-right text-gray-700">
-                        {fmtMoney(r.unitSellPrice)}
+                        {r.unitLines?.length
+                          ? formatUnitPriceLines(r.unitLines, "sellPrice")
+                          : r.variants?.length > 1
+                            ? t("reports.variesByVariant")
+                            : fmtMoney(r.unitSellPrice)}
                       </td>
                       {showCostValuation && (
                         <>
                           <td className="p-2 sm:p-3 md:p-4 text-right text-gray-700">
-                            {fmtMoney(r.unitBuyPrice)}
+                            {r.unitLines?.length
+                              ? formatUnitPriceLines(r.unitLines, "buyPrice")
+                              : r.variants?.length > 1
+                                ? t("reports.variesByVariant")
+                                : fmtMoney(r.unitBuyPrice)}
                           </td>
                           <td className="p-2 sm:p-3 md:p-4 text-right text-gray-700">
                             {fmtMoney(r.buyTotal)}
@@ -617,23 +622,35 @@ export default function ReportsPage() {
                                     }) || t("reports.standard")}
                                   </td>
                                   <td className="p-1 text-right font-semibold">
-                                    {vr.quantity}
+                                    {fmtStock(vr.quantity, r.units)}
                                   </td>
                                   {inventoryData.columns?.map((col: string) => (
                                     <td
                                       key={col}
                                       className="p-1 text-right text-gray-600"
                                     >
-                                      {vr.locations?.[col] || 0}
+                                      {vr.locations?.[col]
+                                        ? fmtStock(vr.locations[col], r.units)
+                                        : "0"}
                                     </td>
                                   ))}
                                   <td className="p-1 text-right text-gray-600">
-                                    {fmtMoney(vr.unitSellPrice)}
+                                    {vr.unitLines?.length
+                                      ? formatUnitPriceLines(
+                                          vr.unitLines,
+                                          "sellPrice",
+                                        )
+                                      : fmtMoney(vr.unitSellPrice)}
                                   </td>
                                   {showCostValuation && (
                                     <>
                                       <td className="p-1 text-right text-gray-600">
-                                        {fmtMoney(vr.unitBuyPrice)}
+                                        {vr.unitLines?.length
+                                          ? formatUnitPriceLines(
+                                              vr.unitLines,
+                                              "buyPrice",
+                                            )
+                                          : fmtMoney(vr.unitBuyPrice)}
                                       </td>
                                       <td className="p-1 text-right text-gray-600">
                                         {fmtMoney(vr.buyTotal)}
@@ -794,7 +811,7 @@ export default function ReportsPage() {
                                     }) || t("reports.standard")}
                                   </td>
                                   <td className="p-1 text-right font-semibold">
-                                    {vr.quantity}
+                                    {fmtStock(vr.quantity, r.units)}
                                     {vr.reorderLevel ? (
                                       <span className="ml-1 text-[10px] font-normal text-red-500">
                                         (
@@ -948,7 +965,7 @@ export default function ReportsPage() {
       {/* AUDIT TRAIL */}
       {tab === "audit-trail" && canViewFull && (
         <>
-          <FilterPanel
+          <CollapsibleFilterPanel
             showDateFilter
             datePreset={datePreset}
             onDatePresetChange={setDatePreset}

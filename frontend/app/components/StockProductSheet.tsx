@@ -12,17 +12,19 @@
 // The cards are only layout. Underneath, the sheet is the flat list of
 // (product · variant-or-base · location) cells the bulk endpoints already take, so
 // validation, the payload and per-row error mapping are unchanged.
+import { fmtCurrency } from "@/lib/currency";
+import { formatBaseQuantity, formatStockQuantity } from "@/lib/unit-display";
+import { pricePerUnitFromBase } from "@/lib/unit-stock";
+import type useStockSheet from "@/lib/useStockSheet";
+import type { StockSheetProduct, StockSheetRow } from "@/lib/useStockSheet";
+import { variantLabel } from "@/lib/variantLabel";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import BarcodeScanner from "./BarcodeScanner";
+import { useConfirm } from "./ConfirmProvider";
 import Modal from "./Modal";
 import SearchableSelect from "./SearchableSelect";
-import { useConfirm } from "./ConfirmProvider";
 import { useToast } from "./ToastProvider";
-import { fmtCurrency } from "@/lib/currency";
-import { variantLabel } from "@/lib/variantLabel";
-import type useStockSheet from "@/lib/useStockSheet";
-import type { StockSheetProduct, StockSheetRow } from "@/lib/useStockSheet";
 
 type Sheet = ReturnType<typeof useStockSheet>;
 
@@ -100,10 +102,7 @@ export function lowStockColumns(
 ): string[] {
   const wanted = new Set(wantedVariantIds.map(Number));
   const variantLocations = (row.variants ?? [])
-    .filter(
-      (v) =>
-        wanted.size === 0 || wanted.has(Number(v.variantId)),
-    )
+    .filter((v) => wanted.size === 0 || wanted.has(Number(v.variantId)))
     .flatMap((v) => v.locationIds ?? []);
   const ids = [...(row.locationIds ?? []), ...variantLocations].filter(
     (id) => Number.isFinite(id) && id > 0,
@@ -134,21 +133,25 @@ function QtyCell({
   focusKey?: string | null;
   onFocused?: () => void;
 }) {
-  const { t } = useTranslation();
   const row: StockSheetRow | undefined = sheet.rowFor(
     productId,
     variantId,
     locationId,
   );
   const value = row?.counted ?? "";
-  const system = sheet.systemFor({
+  const product = sheet.productById.get(productId);
+  const units = sheet.unitsForProduct(productId);
+  const stockUnits = sheet.stockUnitsFor({
     productId: String(productId),
     variantId,
     locationId,
   });
+  const stockBreakdown =
+    units.length > 1
+      ? formatStockQuantity(stockUnits, units)
+      : `${stockUnits}${product?.unit?.name ? " " + product.unit.name : ""}`;
   const error = row ? sheet.rowErrors[row.key] : undefined;
   const touched = row?.touched === true && value !== "";
-  const delta = touched ? Number(value) - system : null;
   const inputId = `cell-${productId}-${variantId || "base"}-${locationId}`;
 
   useEffect(() => {
@@ -160,48 +163,76 @@ function QtyCell({
 
   return (
     <div>
-      <input
-        id={inputId}
-        inputMode="numeric"
-        value={value}
-        onChange={(e) =>
-          sheet.setCounted(
-            String(productId),
-            variantId,
-            locationId,
-            digitsOnly(e.target.value),
-          )
-        }
-        placeholder={String(system)}
-        className={`w-20 border rounded-lg px-2 py-1.5 text-right text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 ${
-          error
-            ? "border-red-400 bg-red-50"
-            : touched
-              ? "border-blue-400 bg-blue-50/50"
-              : "border-gray-300"
-        }`}
-      />
-      <div className="text-[10px] leading-tight mt-0.5 whitespace-nowrap">
+      {units.length > 1 ? (
+        <div className="space-y-0.5">
+          {units.map((u: any, unitIndex: number) => {
+            const unitId = String(u.unitId);
+            const unitLabel = u.unit?.name ?? u.name ?? unitId;
+            return (
+              <div key={unitId} className="flex items-center gap-1">
+                <span
+                  className="w-12 truncate text-[9px] text-gray-500"
+                  title={unitLabel}
+                >
+                  {unitLabel}
+                </span>
+                <input
+                  id={unitIndex === 0 ? inputId : undefined}
+                  inputMode="numeric"
+                  value={row?.unitCounts?.[unitId] ?? ""}
+                  onChange={(e) =>
+                    sheet.setUnitCount(
+                      String(productId),
+                      variantId,
+                      locationId,
+                      unitId,
+                      digitsOnly(e.target.value),
+                    )
+                  }
+                  placeholder="0"
+                  className={`w-14 border rounded-lg px-1.5 py-1 text-right text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/40 ${
+                    error
+                      ? "border-red-400 bg-red-50"
+                      : touched
+                        ? "border-blue-400 bg-blue-50/50"
+                        : "border-gray-300"
+                  }`}
+                />
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <input
+          id={inputId}
+          inputMode="numeric"
+          value={value}
+          onChange={(e) =>
+            sheet.setCounted(
+              String(productId),
+              variantId,
+              locationId,
+              digitsOnly(e.target.value),
+            )
+          }
+          placeholder="0"
+          className={`w-24 border rounded-lg px-2 py-1.5 text-right text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 ${
+            error
+              ? "border-red-400 bg-red-50"
+              : touched
+                ? "border-blue-400 bg-blue-50/50"
+                : "border-gray-300"
+          }`}
+        />
+      )}
+      <div
+        className="mt-0.5 max-w-[9rem] text-[10px] leading-tight text-gray-400"
+        title={stockBreakdown}
+      >
         {error ? (
           <span className="text-red-600">{error}</span>
-        ) : delta !== null ? (
-          <span
-            className={
-              delta === 0
-                ? "text-gray-400"
-                : delta > 0
-                  ? "text-green-600"
-                  : "text-red-600"
-            }
-          >
-            {system} → {value}
-          </span>
-        ) : kind === "count" ? (
-          <span className="text-gray-400">
-            {t("sc.onHand", { count: system })}
-          </span>
         ) : (
-          <span className="text-transparent">·</span>
+          <span>{stockBreakdown}</span>
         )}
       </div>
     </div>
@@ -285,10 +316,7 @@ export default function StockProductSheet({
   );
 
   /** Picking a product on a card: the card fills in with its locations. */
-  const handlePickProduct = (
-    productId: string,
-    draftKey?: string,
-  ) => {
+  const handlePickProduct = (productId: string, draftKey?: string) => {
     addToSheet(productId);
     if (draftKey) {
       setDrafts((prev) => prev.filter((d) => d.key !== draftKey));
@@ -327,9 +355,7 @@ export default function StockProductSheet({
    */
   const productOptionsFor = (categoryId: string, selfId?: number) =>
     products
-      .filter(
-        (p) => !categoryId || String(p.categoryId) === String(categoryId),
-      )
+      .filter((p) => !categoryId || String(p.categoryId) === String(categoryId))
       .map((p) => ({
         value: String(p.id),
         label: `${productName(p)}${p.sku ? ` · ${p.sku}` : ""}`,
@@ -372,16 +398,50 @@ export default function StockProductSheet({
   const summary = useMemo(() => {
     const map = new Map<
       string,
-      { name: string; cells: number; units: number; zeros: number }
+      {
+        name: string;
+        cells: number;
+        zeros: number;
+        rows: {
+          key: string;
+          name: string;
+          variant: string;
+          before: number;
+          after: number;
+          delta: number;
+          units: any[];
+        }[];
+      }
     >();
     for (const row of sheet.touchedRows) {
-      const acc =
-        map.get(row.locationId) ??
-        { name: locationName(row.locationId), cells: 0, units: 0, zeros: 0 };
-      const counted = Number(row.counted);
+      const product = sheet.productById.get(Number(row.productId));
+      const units = sheet.unitsForProduct(row.productId);
+      const before = sheet.systemFor(row);
+      const after = Number(row.counted) || 0;
+      const delta = isCount ? after - before : after;
+      const acc = map.get(row.locationId) ?? {
+        name: locationName(row.locationId),
+        cells: 0,
+        zeros: 0,
+        rows: [],
+      };
       acc.cells += 1;
-      acc.units += isCount ? counted - sheet.systemFor(row) : counted;
-      if (isCount && counted === 0) acc.zeros += 1;
+      if (isCount && after === 0) acc.zeros += 1;
+      acc.rows.push({
+        key: row.key,
+        name: productName(product),
+        variant: row.variantId
+          ? variantLabel(
+              (product?.variants ?? []).find(
+                (v: any) => String(v.id) === String(row.variantId),
+              ),
+            )
+          : "",
+        before,
+        after,
+        delta,
+        units,
+      });
       map.set(row.locationId, acc);
     }
     return Array.from(map.values());
@@ -399,17 +459,42 @@ export default function StockProductSheet({
       <p className="text-gray-600">
         {isCount ? t("sc.confirmCount") : t("sc.confirmIn")}
       </p>
-      <ul className="space-y-1">
+      <ul className="space-y-2">
         {summary.map((s) => (
-          <li
-            key={s.name}
-            className="flex items-center justify-between gap-3 border-b border-gray-100 pb-1"
-          >
-            <span className="text-gray-700">{s.name}</span>
-            <span className="text-gray-500 text-xs">
-              {t("sc.cellsCounted", { count: s.cells })} ·{" "}
-              {s.units >= 0 ? `+${s.units}` : s.units} {t("sc.units")}
-            </span>
+          <li key={s.name} className="border-b border-gray-100 pb-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium text-gray-700">{s.name}</span>
+              <span className="text-gray-500 text-xs">
+                {t("sc.cellsCounted", { count: s.cells })}
+              </span>
+            </div>
+            <div className="mt-1 space-y-0.5">
+              {s.rows.map((row) => (
+                <div
+                  key={row.key}
+                  className="flex items-start justify-between gap-3 text-xs"
+                >
+                  <span className="min-w-0 text-gray-600">
+                    {row.name}
+                    {row.variant ? ` · ${row.variant}` : ""}
+                  </span>
+                  <span className="shrink-0 text-right text-gray-500 tabular-nums">
+                    {isCount ? (
+                      <>
+                        {formatBaseQuantity(row.before, row.units)} →{" "}
+                        <strong className="text-gray-800">
+                          {formatBaseQuantity(row.after, row.units)}
+                        </strong>
+                      </>
+                    ) : (
+                      <strong className="text-green-700">
+                        +{formatBaseQuantity(row.delta, row.units)}
+                      </strong>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
           </li>
         ))}
       </ul>
@@ -564,7 +649,10 @@ export default function StockProductSheet({
                     {t("sc.item")}
                   </label>
                   <SearchableSelect
-                    options={productOptionsFor(categoryFor(product), product.id)}
+                    options={productOptionsFor(
+                      categoryFor(product),
+                      product.id,
+                    )}
                     value={String(product.id)}
                     onChange={(value) =>
                       void handleReplaceProduct(product.id, value)
@@ -632,7 +720,7 @@ export default function StockProductSheet({
             </div>
 
             {/* Which locations this item is being worked on. */}
-            <div className="flex flex-wrap items-center gap-1 px-3 pt-2">
+            <div className="flex overflow-x-auto whitespace-nowrap items-center gap-1 px-3 py-2">
               <span className="text-[11px] text-gray-500">
                 {t("sc.locationsForItem")}
               </span>
@@ -643,7 +731,7 @@ export default function StockProductSheet({
                     key={loc.id}
                     type="button"
                     onClick={() => sheet.toggleProductLocation(product, loc.id)}
-                    className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                    className={`text-[11px] px-2 py-2 rounded-full border ${
                       on
                         ? "bg-blue-600 border-blue-600 text-white"
                         : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
@@ -671,7 +759,9 @@ export default function StockProductSheet({
                       <th className="p-1 font-medium">{t("sc.colBuyPrice")}</th>
                     )}
                     {showSell && (
-                      <th className="p-1 font-medium">{t("sc.colSellPrice")}</th>
+                      <th className="p-1 font-medium">
+                        {t("sc.colSellPrice")}
+                      </th>
                     )}
                     {!isCount && product.isPerishable && (
                       <>
@@ -686,6 +776,7 @@ export default function StockProductSheet({
                 <tbody>
                   {variantIds.map((variantId) => {
                     const variant = variantOf(variantId);
+                    const priceUnits = sheet.unitsForProduct(product.id);
                     return (
                       <tr
                         key={variantId || "base"}
@@ -710,57 +801,159 @@ export default function StockProductSheet({
                           </td>
                         ))}
                         {showCost && (
-                          <td className="p-1">
-                            <input
-                              type="number"
-                              inputMode="decimal"
-                              step="0.01"
-                              min="0"
-                              value={sheet.variantFieldFor(
-                                product.id,
-                                variantId,
-                                "buyPrice",
-                              )}
-                              onChange={(e) =>
-                                sheet.setVariantField(
+                          <td className="p-1 align-top">
+                            {priceUnits.length > 1 ? (
+                              <div className="space-y-1">
+                                {priceUnits.map((u: any) => {
+                                  const unitId = String(u.unitId);
+                                  const base =
+                                    Number(variant?.buyPrice ?? baseBuy) || 0;
+                                  const derived = base
+                                    ? pricePerUnitFromBase(base, u).toFixed(2)
+                                    : "";
+                                  const override =
+                                    sheet.variantUnitPriceFor(
+                                      product.id,
+                                      variantId,
+                                      unitId,
+                                      "buyPrice",
+                                    );
+                                  return (
+                                    <div
+                                      key={unitId}
+                                      className="flex items-center gap-1"
+                                    >
+                                      <span className="w-10 truncate text-[9px] text-gray-400">
+                                        {u.unit?.name ?? u.name ?? unitId}
+                                      </span>
+                                      <input
+                                        type="number"
+                                        inputMode="decimal"
+                                        step="0.01"
+                                        min="0"
+                                        value={override || derived}
+                                        onChange={(e) =>
+                                          sheet.setVariantUnitPrice(
+                                            product.id,
+                                            variantId,
+                                            unitId,
+                                            "buyPrice",
+                                            e.target.value,
+                                          )
+                                        }
+                                        placeholder={t("pf.auto")}
+                                        className="w-20 rounded border px-1.5 py-1 text-right text-xs"
+                                      />
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                step="0.01"
+                                min="0"
+                                value={sheet.variantFieldFor(
                                   product.id,
                                   variantId,
                                   "buyPrice",
-                                  e.target.value,
-                                )
-                              }
-                              placeholder={String(variant?.buyPrice ?? baseBuy)}
-                              className="w-24 border rounded-lg px-2 py-1.5 text-right text-sm"
-                            />
+                                )}
+                                onChange={(e) =>
+                                  sheet.setVariantField(
+                                    product.id,
+                                    variantId,
+                                    "buyPrice",
+                                    e.target.value,
+                                  )
+                                }
+                                placeholder={String(
+                                  variant?.buyPrice ?? baseBuy,
+                                )}
+                                className="w-24 border rounded-lg px-2 py-1.5 text-right text-sm"
+                              />
+                            )}
                           </td>
                         )}
                         {showSell && (
-                          <td className="p-1">
-                            <input
-                              type="number"
-                              inputMode="decimal"
-                              step="0.01"
-                              min="0"
-                              value={sheet.variantFieldFor(
-                                product.id,
-                                variantId,
-                                "sellPrice",
-                              )}
-                              onChange={(e) =>
-                                sheet.setVariantField(
-                                  product.id,
-                                  variantId,
-                                  "sellPrice",
-                                  e.target.value,
-                                )
-                              }
-                              placeholder={String(variant?.sellPrice ?? baseSell)}
-                              className="w-24 border rounded-lg px-2 py-1.5 text-right text-sm"
-                            />
-                            {isCount && (
-                              <div className="text-[10px] text-gray-400 mt-0.5">
-                                {t("sc.keepPrice")}
+                          <td className="p-1 align-top">
+                            {priceUnits.length > 1 ? (
+                              <div className="space-y-1">
+                                {priceUnits.map((u: any) => {
+                                  const unitId = String(u.unitId);
+                                  const base =
+                                    Number(variant?.sellPrice ?? baseSell) || 0;
+                                  const derived = base
+                                    ? pricePerUnitFromBase(base, u).toFixed(2)
+                                    : "";
+                                  const override =
+                                    sheet.variantUnitPriceFor(
+                                      product.id,
+                                      variantId,
+                                      unitId,
+                                      "sellPrice",
+                                    );
+                                  return (
+                                    <div
+                                      key={unitId}
+                                      className="flex items-center gap-1"
+                                    >
+                                      <span className="w-10 truncate text-[9px] text-gray-400">
+                                        {u.unit?.name ?? u.name ?? unitId}
+                                      </span>
+                                      <input
+                                        type="number"
+                                        inputMode="decimal"
+                                        step="0.01"
+                                        min="0"
+                                        value={override || derived}
+                                        onChange={(e) =>
+                                          sheet.setVariantUnitPrice(
+                                            product.id,
+                                            variantId,
+                                            unitId,
+                                            "sellPrice",
+                                            e.target.value,
+                                          )
+                                        }
+                                        placeholder={t("pf.auto")}
+                                        className="w-20 rounded border px-1.5 py-1 text-right text-xs"
+                                      />
+                                    </div>
+                                  );
+                                })}
                               </div>
+                            ) : (
+                              <>
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  step="0.01"
+                                  min="0"
+                                  value={sheet.variantFieldFor(
+                                    product.id,
+                                    variantId,
+                                    "sellPrice",
+                                  )}
+                                  onChange={(e) =>
+                                    sheet.setVariantField(
+                                      product.id,
+                                      variantId,
+                                      "sellPrice",
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder={String(
+                                    variant?.sellPrice ?? baseSell,
+                                  )}
+                                  className="w-24 border rounded-lg px-2 py-1.5 text-right text-sm"
+                                />
+                                {isCount && (
+                                  <div className="text-[10px] text-gray-400 mt-0.5">
+                                    {t("sc.keepPrice")}
+                                  </div>
+                                )}
+                              </>
                             )}
                           </td>
                         )}

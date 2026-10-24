@@ -23,6 +23,7 @@ import { useParams } from "next/navigation";
 import { formatBusinessNumber } from "@/lib/bizNumber";
 import { variantLabel } from "@/lib/variantLabel";
 import { attachSaleVariants, groupSaleItemsByProduct } from "@/lib/saleItems";
+import { formatSaleLineQuantity } from "@/lib/unit-display";
 import type { LedgerLine } from "@/lib/saleItems";
 import {
   groupPurchasesByDayAndShop,
@@ -498,6 +499,9 @@ export default function CustomerDetailPage() {
       {tab === "sales" && (
         <CreditLedgerList
           entries={salesEntries}
+          quantityLabel={(item) =>
+            formatSaleLineQuantity(item, item.product)
+          }
           dayLabel={(date, count) =>
             count === 1
               ? t("credits.salesGroupHeader", { date, count })
@@ -885,7 +889,7 @@ export default function CustomerDetailPage() {
         onClose={() => setShowSaleModal(false)}
         title={t("credits.addCreditSale")}
         defaultSaleType="CREDITED"
-        defaultCustomerId={Number(id)}
+        defaultCustomerId={customer?.id ?? null}
         defaultCustomerName={customer?.name ?? ""}
         creditCustomersOnly
         onSaved={() => {

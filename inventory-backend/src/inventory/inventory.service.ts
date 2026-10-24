@@ -6,6 +6,10 @@ import { FinanceService } from '../finance/finance.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { tr } from '../i18n/i18n.service';
 import { RecordWastageDto } from './dto/record-wastage.dto';
+import {
+  baseToStockQuantity,
+  stockPriceFromBase,
+} from '../common/unit-stock.util';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -41,9 +45,11 @@ export class InventoryService {
         baseName: true,
         currentBuyPrice: true,
         unit: { select: { name: true } },
+        units: { select: { perBase: true } },
       },
     });
     if (!product) throw new NotFoundException(tr('errors.productNotFound'));
+    const stockQuantity = baseToStockQuantity(dto.quantity, product.units);
 
     // Resolve the target inventory row: explicit location, otherwise the
     // location holding the most stock of this product.
@@ -71,7 +77,7 @@ export class InventoryService {
       },
     });
     const available = inv?.quantity ?? 0;
-    if (available < dto.quantity) {
+    if (available < stockQuantity) {
       throw new BadRequestException(
         tr('errors.insufficientStockAtLocation', { available }),
       );
@@ -79,13 +85,17 @@ export class InventoryService {
 
     // Value the write-off at the inventory row's weighted-average cost
     // (fallback: the product's current buy price).
-    const unitCost = inv?.avgCost ?? product.currentBuyPrice ?? 0;
-    const totalValue = round2(dto.quantity * unitCost);
+    const unitCost =
+      inv?.avgCost ??
+      (product.currentBuyPrice != null
+        ? stockPriceFromBase(product.currentBuyPrice, product.units)
+        : 0);
+    const totalValue = round2(stockQuantity * unitCost);
 
     return this.prisma.$transaction(async (tx) => {
       await tx.inventory.update({
         where: { id: inv!.id },
-        data: { quantity: { decrement: dto.quantity } },
+        data: { quantity: { decrement: stockQuantity } },
       });
 
       const entry = await tx.wastageEntry.create({
@@ -93,7 +103,7 @@ export class InventoryService {
           tenantId,
           productId,
           locationId: targetLocationId,
-          quantity: dto.quantity,
+          quantity: stockQuantity,
           unitCost,
           totalValue,
           reason: dto.reason ?? null,

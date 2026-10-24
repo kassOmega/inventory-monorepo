@@ -4,6 +4,11 @@ import { getCurrentTenantId } from '../common/tenant/tenant.context';
 import PDFDocument from 'pdfkit';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { PrismaService } from '../prisma/prisma.service';
+import { stockPriceFromBase } from '../common/unit-stock.util';
+import {
+  valueVariantQuantity,
+  type UnitValuationLine,
+} from '../common/inventory-valuation.util';
 import {
   AuditLogResponse,
   InventoryBreakdownResponse,
@@ -83,18 +88,47 @@ export class ReportsService {
             baseName: true,
             currentBuyPrice: true,
             currentSellPrice: true,
+            unit: { select: { name: true } },
             category: { select: { name: true } },
+            units: {
+              select: {
+                unitId: true,
+                perBase: true,
+                isBase: true,
+                isDefaultSale: true,
+                buyPrice: true,
+                sellPrice: true,
+                unit: { select: { name: true } },
+              },
+              orderBy: { sortOrder: 'asc' },
+            },
           },
         },
         location: true,
         variant: {
-          select: { sku: true, attributes: true, buyPrice: true, sellPrice: true },
+          select: {
+            sku: true,
+            attributes: true,
+            buyPrice: true,
+            sellPrice: true,
+            unitPrices: true,
+          },
         },
       },
     });
 
     const locations = await this.prisma.location.findMany();
     const productMap = new Map<number, InventoryBreakdownRow>();
+    const productInfo = new Map<
+      number,
+      {
+        currentBuyPrice: number;
+        currentSellPrice: number;
+        unit: { name?: string | null } | null;
+        units: any[];
+      }
+    >();
+    const variantInfo = new Map<string, any>();
 
     for (const inv of inventories) {
       let data = productMap.get(inv.productId);
@@ -108,20 +142,17 @@ export class ReportsService {
           total: 0,
           locations: {},
           variants: [],
+          units: inv.product.units ?? [],
         };
         productMap.set(inv.productId, data);
+        productInfo.set(inv.productId, {
+          currentBuyPrice: Number(inv.product.currentBuyPrice) || 0,
+          currentSellPrice: Number(inv.product.currentSellPrice) || 0,
+          unit: (inv.product as any).unit ?? null,
+          units: inv.product.units ?? [],
+        });
       }
 
-      // Unit prices come from the exact variant sold where available, falling
-      // back to the product's catalog price (legacy rows without prices).
-      const variantBuy = Number(inv.variant?.buyPrice ?? 0);
-      const variantSell = Number(inv.variant?.sellPrice ?? 0);
-      const unitBuyPrice =
-        variantBuy > 0 ? variantBuy : Number(inv.product.currentBuyPrice) || 0;
-      const unitSellPrice =
-        variantSell > 0
-          ? variantSell
-          : Number(inv.product.currentSellPrice) || 0;
       const qty = Number(inv.quantity) || 0;
 
       // Aggregate correctly: a product can have several variant inventory rows
@@ -140,28 +171,46 @@ export class ReportsService {
           attributes: (inv.variant?.attributes as Record<string, any>) ?? {},
           quantity: 0,
           locations: {},
-          unitBuyPrice,
-          unitSellPrice,
-          buyTotal: 0,
-          sellTotal: 0,
         };
         data.variants.push(variantRow);
       }
       variantRow.quantity += qty;
       variantRow.locations[inv.location.name] =
         (variantRow.locations[inv.location.name] ?? 0) + qty;
-      variantRow.buyTotal = r2((variantRow.buyTotal ?? 0) + unitBuyPrice * qty);
-      variantRow.sellTotal = r2(
-        (variantRow.sellTotal ?? 0) + unitSellPrice * qty,
-      );
+      variantInfo.set(`${inv.productId}:${variantKey}`, inv.variant ?? null);
     }
 
-    // Roll variant valuations up to the product row and compute the grand
-    // totals over everything currently in scope.
+    // Value each variant from its own unit ladder and prices, then roll up.
     let grandTotalBuyingValue = 0;
     let grandTotalSellingValue = 0;
     const rows = Array.from(productMap.values());
     for (const data of rows) {
+      const info = productInfo.get(data.productId);
+      if (!info) continue;
+
+      for (const v of data.variants) {
+        const variant = variantInfo.get(`${data.productId}:${v.id}`) ?? null;
+        const valuation = valueVariantQuantity(
+          {
+            currentBuyPrice: info.currentBuyPrice,
+            currentSellPrice: info.currentSellPrice,
+            unit: info.unit,
+            units: info.units,
+          },
+          variant,
+          v.quantity,
+        );
+        v.unitLines = valuation.unitLines;
+        v.quantityText = valuation.quantityText;
+        v.buyTotal = valuation.buyTotal;
+        v.sellTotal = valuation.sellTotal;
+        v.estimatedProfit = valuation.profit;
+        v.unitBuyPrice =
+          v.quantity > 0 ? r2(valuation.buyTotal / v.quantity) : 0;
+        v.unitSellPrice =
+          v.quantity > 0 ? r2(valuation.sellTotal / v.quantity) : 0;
+      }
+
       const buy = r2(
         data.variants.reduce(
           (s: number, v: any) => s + (Number(v.buyTotal) || 0),
@@ -177,29 +226,12 @@ export class ReportsService {
       data.buyTotal = buy;
       data.sellTotal = sell;
       data.estimatedProfit = r2(sell - buy);
-
-      // Each variant row also reports its own profit (sell total − buy total).
-      for (const v of data.variants) {
-        v.estimatedProfit = r2(
-          (Number(v.sellTotal) || 0) - (Number(v.buyTotal) || 0),
-        );
-      }
-
-      // Product-level unit price: quantity-weighted average across the exact
-      // units held, or a simple mean over variant rows when nothing is stocked.
-      const weightedUnit = (rowKey: string, totalValue: number) =>
-        data.total > 0
-          ? r2(totalValue / data.total)
-          : data.variants.length > 0
-            ? r2(
-                data.variants.reduce(
-                  (s: number, v: any) => s + (Number(v[rowKey]) || 0),
-                  0,
-                ) / data.variants.length,
-              )
-            : 0;
-      data.unitBuyPrice = weightedUnit('unitBuyPrice', buy);
-      data.unitSellPrice = weightedUnit('unitSellPrice', sell);
+      data.unitBuyPrice = data.total > 0 ? r2(buy / data.total) : 0;
+      data.unitSellPrice = data.total > 0 ? r2(sell / data.total) : 0;
+      data.quantityText =
+        data.variants.length === 1 ? data.variants[0].quantityText : undefined;
+      data.unitLines =
+        data.variants.length === 1 ? data.variants[0].unitLines : [];
 
       grandTotalBuyingValue += buy;
       grandTotalSellingValue += sell;
@@ -272,7 +304,16 @@ export class ReportsService {
       this.prisma.inventory.findMany({
         where: inventoryWhere,
         include: {
-          product: { include: { category: true, unit: true } },
+          product: {
+            include: {
+              category: true,
+              unit: true,
+              units: {
+                include: { unit: true },
+                orderBy: { sortOrder: 'asc' },
+              },
+            },
+          },
           location: true,
           variant: true,
         },
@@ -302,7 +343,10 @@ export class ReportsService {
 
     const items = inventories.map((inv) => {
       const quantity = inv.quantity;
-      const buyPrice = inv.product?.currentBuyPrice ?? 0;
+      const buyPrice = stockPriceFromBase(
+        inv.product?.currentBuyPrice ?? 0,
+        (inv.product as any)?.units ?? [],
+      );
       // The low-stock number and the suggested reorder qty resolve per stock row:
       // a variant's own settings win, otherwise the product's applies (0 = no
       // alert). This keeps the report in step with what actually raises alerts.
@@ -315,6 +359,8 @@ export class ReportsService {
         name: `${inv.product?.brand ?? ''} ${inv.product?.baseName ?? ''}`.trim() || `Product #${inv.productId}`,
         category: inv.product?.category?.name ?? 'Uncategorized',
         unit: inv.product?.unit?.name ?? null,
+        units: (inv.product as any)?.units ?? [],
+        stockUnitId: (inv.product as any)?.stockUnitId ?? null,
         quantity,
         currentBuyPrice: buyPrice,
         stockValue: round2(quantity * buyPrice),
@@ -1794,11 +1840,32 @@ export class ReportsService {
       take: AUDIT_TRAIL_LIMIT,
     });
 
+    // Older sale audit rows stored the numeric "Shop ID 9". Resolve those IDs
+    // at read time so the audit page shows the location name even for history
+    // written before the sale service started storing names.
+    const legacyShopIds = new Set<number>();
+    for (const log of logs) {
+      const matches = String(log.details ?? '').matchAll(/Shop ID (\d+)/g);
+      for (const match of matches) legacyShopIds.add(Number(match[1]));
+    }
+    const legacyLocations = legacyShopIds.size
+      ? await this.prisma.location.findMany({
+          where: { id: { in: [...legacyShopIds] } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const legacyNameById = new Map(
+      legacyLocations.map((loc) => [loc.id, loc.name]),
+    );
+
     return logs.map((log) => ({
       id: log.id,
       userId: log.userId,
       action: log.action,
-      details: log.details,
+      details: String(log.details ?? '').replace(
+        /Shop ID (\d+)/g,
+        (_match, id) => legacyNameById.get(Number(id)) ?? `Shop #${id}`,
+      ),
       createdAt: log.createdAt,
       // Null-safe: a deleted user must not crash the trail.
       user: log.user
@@ -2279,19 +2346,38 @@ export class ReportsService {
    *  hold reports.view_cost_valuation). */
   private inventoryValuationColumns(data: InventoryBreakdownResponse) {
     const hasValuation = !!data.valuation;
+    const priceText = (
+      lines: UnitValuationLine[] | undefined,
+      side: 'buyPrice' | 'sellPrice',
+    ) =>
+      lines && lines.length > 0
+        ? lines
+            .map((line) => `${line.name} ${Number(line[side]).toFixed(2)}`)
+            .join(', ')
+        : 'Varies by variant';
     const headers = hasValuation
-      ? ['Buy Price', 'Sell Price', 'Buy Value', 'Sell Value', 'Est. Profit']
+      ? [
+          'Buy Price / Unit',
+          'Sell Price / Unit',
+          'Buy Value',
+          'Sell Value',
+          'Est. Profit',
+        ]
       : ['Sell Price'];
     const cells = (r: any) =>
       hasValuation
         ? [
-            r.unitBuyPrice ?? '',
-            r.unitSellPrice ?? '',
+            priceText(r.unitLines, 'buyPrice'),
+            priceText(r.unitLines, 'sellPrice'),
             r.buyTotal ?? '',
             r.sellTotal ?? '',
             r.estimatedProfit ?? '',
           ]
-        : [r.unitSellPrice ?? ''];
+        : [
+            r.unitLines?.length
+              ? priceText(r.unitLines, 'sellPrice')
+              : (r.unitSellPrice ?? ''),
+          ];
     return { headers, cells };
   }
 
