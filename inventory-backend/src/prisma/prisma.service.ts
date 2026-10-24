@@ -193,15 +193,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
         }
       };
 
-      /** True when a row matching `where` exists inside the CURRENT tenant. */
-      const existsInTenant = async (where: unknown): Promise<boolean> => {
-        const row = await modelDelegate?.findFirst({
-          where: { ...(where as object), [field]: tenantId },
-          select: { [field]: true },
-        });
-        return row != null;
-      };
-
       if (action === 'create') {
         if (args.data && typeof args.data === 'object') {
           args.data[field] = tenantId;
@@ -239,13 +230,13 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
           action === 'findUnique' ? 'findFirst' : 'findFirstOrThrow';
         addTenantFilter();
       } else if (action === 'update' || action === 'delete') {
-        // Mutations take a unique selector, not a general filter — verify the
-        // target belongs to the active tenant before touching it. A row owned by
-        // another tenant (or missing) surfaces as a 404 so existence is never
-        // leaked.
-        if (!(await existsInTenant(args.where))) {
-          throw new NotFoundException(tr('errors.notFound'));
-        }
+        // Combine the unique selector with the tenant predicate. Prisma's
+        // extended where-unique support lets update/delete use non-unique fields
+        // alongside the id. This is also transaction-safe: a separate existence
+        // check on the outer client cannot see a row created inside the same
+        // interactive transaction, which previously produced false 404s (e.g.
+        // create washer -> link user -> update washer).
+        addTenantFilter();
         if (action === 'update' && args.data && typeof args.data === 'object') {
           args.data[field] = tenantId;
         }
