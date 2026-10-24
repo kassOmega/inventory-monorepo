@@ -13,21 +13,34 @@ export function stockBreakdownCounts(
   stockQty: number,
   units: ProductUnitInfo[] | null | undefined,
 ): Record<string, number> {
-  const qty = Math.round(Number(stockQty) || 0);
   const list = units ?? [];
   if (list.length === 0) return {};
   const max = maxPerBase(list);
   const ordered = unitsLargestFirst(list);
-  let remaining = Math.abs(qty);
+  let remaining = Math.abs(Number(stockQty) || 0);
   const out: Record<string, number> = {};
-  for (const unit of ordered) {
+  for (let i = 0; i < ordered.length; i++) {
+    const unit = ordered[i];
     const factor = max / (Number(unit.perBase) || 1);
     if (!Number.isFinite(factor) || factor <= 0) continue;
-    const count = Math.floor(remaining / factor);
+    const raw = remaining / factor;
+    const isSmallest = i === ordered.length - 1;
+    // Keep the fractional remainder in the smallest unit instead of rounding
+    // it away (e.g. 0.5 Meter).
+    const count = isSmallest
+      ? Math.round(raw * 1e6) / 1e6
+      : Math.floor(raw + 1e-9);
     out[String(unit.unitId)] = count;
     remaining -= count * factor;
   }
   return out;
+}
+
+function formatCount(n: number): string {
+  const rounded = Math.round((Number(n) || 0) * 1e6) / 1e6;
+  return Number.isInteger(rounded)
+    ? String(rounded)
+    : String(rounded).replace(/\.?0+$/, "");
 }
 
 export function formatStockQuantity(
@@ -46,7 +59,10 @@ export function formatStockQuantity(
   const counts = stockBreakdownCounts(qty, list);
   const parts = ordered
     .filter((unit) => (counts[String(unit.unitId)] ?? 0) > 0)
-    .map((unit) => `${counts[String(unit.unitId)]} ${unitName(unit)}`);
+    .map(
+      (unit) =>
+        `${formatCount(counts[String(unit.unitId)])} ${unitName(unit)}`,
+    );
   if (parts.length === 0) {
     const smallest = ordered[ordered.length - 1];
     return `0 ${unitName(smallest)}`;

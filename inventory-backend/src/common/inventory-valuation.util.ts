@@ -1,5 +1,3 @@
-import { splitStockQuantity } from './unit-stock.util';
-
 /** ProductUnit row shape used for valuation (prices are per unit). */
 export interface ValuationUnit {
   unitId: number;
@@ -61,6 +59,16 @@ export interface ProductValuation {
 }
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+const roundTo = (n: number, digits: number) => {
+  const factor = 10 ** digits;
+  return Math.round((Number(n) || 0) * factor) / factor;
+};
+const formatCount = (n: number) => {
+  const rounded = roundTo(n, 6);
+  return Number.isInteger(rounded)
+    ? String(rounded)
+    : String(rounded).replace(/\.?0+$/, '');
+};
 
 /**
  * Price for one unit.
@@ -118,30 +126,33 @@ export function valueVariantQuantity(
   const units = product.units ?? [];
   const qty = Number(quantity) || 0;
 
+  const sign = qty < 0 ? -1 : 1;
+  const absQty = Math.abs(qty);
+
   // Legacy products without a ProductUnit ladder: one price, one line.
   if (units.length === 0) {
-    const buyPrice = resolveUnitPrice(product, variant, {
+    const buyPrice = round2(resolveUnitPrice(product, variant, {
       unitId: 0,
       perBase: 1,
       unit: product.unit ?? null,
-    }, 'buyPrice');
-    const sellPrice = resolveUnitPrice(product, variant, {
+    }, 'buyPrice'));
+    const sellPrice = round2(resolveUnitPrice(product, variant, {
       unitId: 0,
       perBase: 1,
       unit: product.unit ?? null,
-    }, 'sellPrice');
-    const buyTotal = round2(qty * buyPrice);
-    const sellTotal = round2(qty * sellPrice);
+    }, 'sellPrice'));
+    const buyTotal = round2(sign * absQty * buyPrice);
+    const sellTotal = round2(sign * absQty * sellPrice);
     const name = product.unit?.name ?? '';
     return {
       quantity: qty,
-      quantityText: `${qty}${name ? ` ${name}` : ''}`,
+      quantityText: `${sign < 0 ? '-' : ''}${formatCount(absQty)}${name ? ` ${name}` : ''}`,
       unitLines: [
         {
           unitId: 0,
           name,
           perBase: 1,
-          count: qty,
+          count: absQty,
           buyPrice,
           sellPrice,
           buyTotal,
@@ -157,13 +168,20 @@ export function valueVariantQuantity(
   const ordered = [...units].sort(
     (a, b) => (Number(a.perBase) || 1) - (Number(b.perBase) || 1),
   );
-  const parts = splitStockQuantity(qty, ordered);
+  const max = Math.max(1, ...ordered.map((unit) => Number(unit.perBase) || 1));
   const countByUnit = new Map<number, number>();
-  for (const part of parts) {
-    countByUnit.set(
-      Number(part.unit.unitId),
-      (countByUnit.get(Number(part.unit.unitId)) ?? 0) + part.quantity,
-    );
+  let remaining = absQty;
+  for (let i = 0; i < ordered.length; i++) {
+    const unit = ordered[i];
+    const perUnit = max / (Number(unit.perBase) || 1);
+    const isSmallest = i === ordered.length - 1;
+    const rawCount = perUnit > 0 ? remaining / perUnit : 0;
+    // Keep the smallest unit fractional so 0.5 Meter is not rounded away.
+    const count = isSmallest
+      ? roundTo(rawCount, 6)
+      : Math.floor(rawCount + 1e-9);
+    countByUnit.set(Number(unit.unitId), count);
+    remaining -= count * perUnit;
   }
 
   // Include every configured unit in the price line so the UI can show
@@ -171,17 +189,21 @@ export function valueVariantQuantity(
   const unitLines: UnitValuationLine[] = ordered.map((unit) => {
     const unitId = Number(unit.unitId);
     const count = countByUnit.get(unitId) ?? 0;
-    const buyPrice = resolveUnitPrice(product, variant, unit, 'buyPrice');
-    const sellPrice = resolveUnitPrice(product, variant, unit, 'sellPrice');
+    const buyPrice = round2(
+      resolveUnitPrice(product, variant, unit, 'buyPrice'),
+    );
+    const sellPrice = round2(
+      resolveUnitPrice(product, variant, unit, 'sellPrice'),
+    );
     return {
       unitId,
       name: unitName(unit),
       perBase: Number(unit.perBase) || 1,
       count,
-      buyPrice: round2(buyPrice),
-      sellPrice: round2(sellPrice),
-      buyTotal: round2(count * buyPrice),
-      sellTotal: round2(count * sellPrice),
+      buyPrice,
+      sellPrice,
+      buyTotal: round2(sign * count * buyPrice),
+      sellTotal: round2(sign * count * sellPrice),
     };
   });
 
@@ -192,11 +214,16 @@ export function valueVariantQuantity(
     unitLines.reduce((sum, line) => sum + line.sellTotal, 0),
   );
 
+  const parts = ordered
+    .map((unit) => ({
+      unit,
+      count: countByUnit.get(Number(unit.unitId)) ?? 0,
+    }))
+    .filter((part) => Math.abs(part.count) > 1e-9)
+    .map((part) => `${formatCount(part.count)} ${unitName(part.unit)}`);
   const quantityText =
     parts.length > 0
-      ? parts
-          .map((part) => `${part.quantity} ${unitName(part.unit as ValuationUnit)}`)
-          .join(' ')
+      ? `${sign < 0 ? '-' : ''}${parts.join(' ')}`
       : `0 ${unitName(
           ordered.find((unit) => unit.isBase) ?? ordered[ordered.length - 1],
         )}`;

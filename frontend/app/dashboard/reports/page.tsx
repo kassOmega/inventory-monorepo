@@ -460,6 +460,11 @@ export default function ReportsPage() {
               </div>
             </div>
           )}
+          {canViewCost && inventoryData.valuation && (
+            <p className="text-[11px] text-gray-400 mb-3">
+              {t("reports.valuationHint")}
+            </p>
+          )}
           <div className="bg-white rounded-xl shadow-sm border overflow-x-auto w-full">
           <table className="w-full text-left text-sm min-w-[1200px] whitespace-nowrap">
             <thead className="bg-gray-50 border-b">

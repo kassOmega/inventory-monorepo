@@ -4,7 +4,10 @@
 import { useTranslation } from "react-i18next";
 import type { ReactNode } from "react";
 import { fmtCurrency } from "@/lib/currency";
-import { pricePerUnitFromBase } from "@/lib/unit-stock";
+import {
+  resolveUnitBuyPrice,
+  resolveUnitSellPrice,
+} from "@/lib/unit-pricing";
 
 export interface ProductUnitPriceRow {
   unitId: number;
@@ -83,21 +86,16 @@ export default function ProductUnitPrices({
     >
       {list.map((unit) => {
         const name = unit.unit?.name ?? unit.name ?? "—";
-        const override = variantUnitPrices?.[String(unit.unitId)];
-        const sell =
-          override?.sellPrice != null
-            ? Number(override.sellPrice)
-            : unit.sellPrice != null
-              ? Number(unit.sellPrice)
-              : pricePerUnitFromBase(baseSellPrice, unit);
-        const buy =
-          override?.buyPrice != null
-            ? Number(override.buyPrice)
-            : unit.buyPrice != null
-              ? Number(unit.buyPrice)
-              : baseBuyPrice != null
-                ? pricePerUnitFromBase(baseBuyPrice, unit)
-                : null;
+        const sell = resolveUnitSellPrice(
+          baseSellPrice,
+          unit,
+          variantUnitPrices,
+        );
+        const buy = resolveUnitBuyPrice(
+          baseBuyPrice,
+          unit,
+          variantUnitPrices,
+        );
         const isBase = !!unit.isBase || unit.unitId === baseUnit?.unitId;
 
         return (

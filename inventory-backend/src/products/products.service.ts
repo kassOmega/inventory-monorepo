@@ -859,8 +859,13 @@ export class ProductsService {
 
     // Determine which location to filter inventory by. The product catalog is
     // visible to all users; the inventory include stays scoped to the user's own
-    // location unless an explicit location filter is given.
-    const invLocationId = locationId ?? user.locationId ?? undefined;
+    // location unless they hold inventory.shared-view or pass a location filter.
+    const sharedView =
+      user.locationId != null &&
+      (user.permissions?.includes('inventory.shared-view') ?? false);
+    const invLocationId = sharedView
+      ? locationId
+      : (locationId ?? user.locationId ?? undefined);
 
     const where: any = conditions.length > 0 ? { AND: conditions } : {};
 
@@ -948,6 +953,17 @@ export class ProductsService {
   }
 
   async findOne(id: number, user: JwtPayload) {
+    const sharedView =
+      user.locationId != null &&
+      (user.permissions?.includes('inventory.shared-view') ?? false);
+    const inventory = sharedView
+      ? { include: { location: true } }
+      : user.locationId
+        ? {
+            where: { locationId: user.locationId },
+            include: { location: true },
+          }
+        : { include: { location: true } };
     const include: any = {
       priceHistory: { orderBy: { updatedAt: 'desc' } },
       category: true,
@@ -960,12 +976,7 @@ export class ProductsService {
       historicalUnit: true,
       variants: { orderBy: { id: 'asc' } },
       batches: { orderBy: { id: 'desc' } },
-      inventory: user.locationId
-        ? {
-            where: { locationId: user.locationId },
-            include: { location: true },
-          }
-        : { include: { location: true } },
+      inventory,
     };
 
     const product = await this.prisma.product.findFirst({
@@ -981,7 +992,12 @@ export class ProductsService {
       product as any,
       (product.inventory ?? []) as any,
     );
-    return { ...product, valuation };
+    return {
+      ...product,
+      valuation,
+      inventoryScope:
+        sharedView || user.locationId == null ? 'ALL' : 'LOCATION',
+    };
   }
 
   async update(id: number, dto: UpdateProductDto, user: JwtPayload) {

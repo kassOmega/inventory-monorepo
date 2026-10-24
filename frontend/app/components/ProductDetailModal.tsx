@@ -229,6 +229,12 @@ export default function ProductDetailModal({
               <h4 className="font-medium text-gray-700 mb-2">
                 {t("pdm.valuationTitle")}
               </h4>
+              <p className="text-[11px] text-gray-400 mb-2">
+                {detail?.inventoryScope === "ALL"
+                  ? t("pdm.scopeAllLocations")
+                  : t("pdm.scopeYourLocation")}{" · "}
+                {t("pdm.valuationHint")}
+              </p>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm whitespace-nowrap">
                   <thead>

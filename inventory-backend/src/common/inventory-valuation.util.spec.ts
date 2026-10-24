@@ -98,4 +98,52 @@ describe('inventory valuation helper', () => {
     expect(result.sellTotal).toBe(45);
     expect(result.profit).toBe(15);
   });
+
+  it('handles negative stock with a signed breakdown and totals', () => {
+    const result = valueVariantQuantity(product, null, -150);
+
+    expect(result.quantityText).toBe('-1 Roll 50 Meter');
+    expect(result.buyTotal).toBe(-1800); // -(1×1200 + 50×12)
+    expect(result.sellTotal).toBe(-2250); // -(1×1500 + 50×15)
+    expect(result.profit).toBe(-450);
+  });
+
+  it('keeps a fractional remainder in the smallest unit', () => {
+    const result = valueVariantQuantity(product, null, 0.5);
+
+    expect(result.quantityText).toBe('0.5 Meter');
+    expect(result.buyTotal).toBe(6); // 0.5×12
+    expect(result.sellTotal).toBe(7.5); // 0.5×15
+    expect(result.profit).toBe(1.5);
+  });
+
+  it('rounds the unit price before multiplying so lines reconcile', () => {
+    const thirds = {
+      currentBuyPrice: 100,
+      currentSellPrice: 1000,
+      units: [
+        {
+          unitId: 1,
+          perBase: 1,
+          isBase: true,
+          unit: { name: 'Box' },
+        },
+        {
+          unitId: 2,
+          perBase: 3,
+          unit: { name: 'Piece' },
+        },
+      ],
+    };
+    const result = valueVariantQuantity(thirds, null, 2);
+
+    expect(result.unitLines.find((line) => line.unitId === 2)).toMatchObject({
+      buyPrice: 33.33,
+      sellPrice: 333.33,
+      buyTotal: 66.66,
+      sellTotal: 666.66,
+    });
+    expect(result.buyTotal).toBe(66.66);
+    expect(result.sellTotal).toBe(666.66);
+  });
 });
