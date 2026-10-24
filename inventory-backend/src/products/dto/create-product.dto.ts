@@ -130,9 +130,9 @@ export class CreateProductDto {
   @IsNumber()
   categoryId: number;
 
-  @IsOptional()
   @IsInt()
-  unitId?: number;
+  @Min(1)
+  unitId!: number;
 
   @IsOptional()
   @IsEnum(ProductKind)

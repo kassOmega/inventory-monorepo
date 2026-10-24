@@ -2631,6 +2631,7 @@
     "updateProduct": "Update Product",
     "saveProduct": "Save Product",
     "pricesRequired": "Buy Price and Sell Price are required.",
+    "unitRequired": "Choose a unit for this product.",
     "variantPricesRequired": "Variant {{n}}: buy and sell price are required.",
     "needVariant": "Add at least one variant with buy and sell prices.",
     "storeRequired": "Please select a target Store/Location to assign initial stock."

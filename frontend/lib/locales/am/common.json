@@ -2631,6 +2631,7 @@
     "updateProduct": "ምርት አዘምን",
     "saveProduct": "ምርት ያስቀምጡ",
     "pricesRequired": "የግዢ እና የሽያጭ ዋጋ ያስፈልጋል።",
+    "unitRequired": "ለዚህ ምርት አንድ አሃድ ይምረጡ።",
     "variantPricesRequired": "ተለዋጭ {{n}}: የግዢ እና የሽያጭ ዋጋ ያስፈልጋል።",
     "needVariant": "ቢያንስ አንድ የግዢ እና የሽያጭ ዋጋ ያለው ተለዋጭ ይጨምሩ።",
     "storeRequired": "የመጀመሪያ ክምችት ለማስመዝገብ መደብር/ቦታ ይምረጡ።"

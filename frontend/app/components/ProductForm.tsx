@@ -540,6 +540,11 @@ export default function ProductForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!form.unitId) {
+      toast.error(t("pf.unitRequired"));
+      return;
+    }
+
     // --- Client-side pricing + stock-target rules (custom i18n toasts, never
     // native HTML tooltips) ---------------------------------------------
     if (form.hasVariants) {
@@ -1103,12 +1108,15 @@ export default function ProductForm({
       <div className="min-w-0">
         <label className={LABEL} title={t("pf.baseUnit")}>
           {t("pf.baseUnit")}
+          <span className="ml-0.5 text-red-500">*</span>
         </label>
         <div className="flex gap-2">
           <select
             value={form.unitId}
             onChange={(e) => handleBaseUnitChange(e.target.value)}
             className="border p-2 rounded-lg flex-1 min-w-0 bg-white text-sm"
+            required
+            aria-required="true"
           >
             <option value="">{t("pf.select")}</option>
             {units.map((u: any) => (
