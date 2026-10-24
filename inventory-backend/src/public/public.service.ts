@@ -18,6 +18,28 @@ import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { variantAttributeLabel } from '../common/variant-label.util';
 import { hospitalityServiceLabel, itemKindsForEntry } from './public.constants';
 
+/** The shape of a ProductUnit row used to build public unit options. */
+interface PublicUnitRow {
+  unitId: number;
+  perBase: number;
+  isBase?: boolean | null;
+  isDefaultSale?: boolean | null;
+  sellPrice?: number | null;
+  unit?: { name?: string | null; symbol?: string | null } | null;
+}
+
+/** Public-safe per-unit price option (PRODUCT ladders only). */
+export interface PublicUnitOption {
+  unitId: number;
+  name: string;
+  symbol: string | null;
+  perBase: number;
+  isBase: boolean;
+  isDefaultSale: boolean;
+  /** Effective price for one of this unit (override or base ÷ perBase). */
+  price: number;
+}
+
 /** Public-safe catalog item. */
 export interface PublicItem {
   ref: string; // opaque per-entry item reference (itemKind:itemId)
@@ -25,10 +47,20 @@ export interface PublicItem {
   name: string;
   description: string | null;
   price: number;
+  /** Display category (product category, menu category, service category). */
+  category?: string | null;
   /** Public image URL (served from the catalog-images directory), if any. */
   image: string | null;
+  /** PRODUCT only: selectable units with their effective prices. */
+  units?: PublicUnitOption[];
   /** PRODUCT only: the selectable variants (expandable in the catalog). */
-  variants?: Array<{ ref: string; name: string; price: number; image: string | null }>;
+  variants?: Array<{
+    ref: string;
+    name: string;
+    price: number;
+    image: string | null;
+    units?: PublicUnitOption[];
+  }>;
   meta?: Record<string, unknown>;
 }
 
@@ -72,6 +104,55 @@ export class PublicService {
   /** A public image URL for a stored file name (null when none). */
   private imageUrl(fileName: string | null | undefined): string | null {
     return fileName ? `/api/public/image/${fileName}` : null;
+  }
+
+  private roundPublicPrice(value: number): number {
+    return Math.round((Number(value) || 0) * 100) / 100;
+  }
+
+  /**
+   * Build the public unit options for a product (or one variant).
+   *
+   * The effective price mirrors SalesService.deductSaleItem exactly:
+   *   variant unit override -> product unit override -> base price ÷ perBase.
+   * Per-unit prices are optional; when absent the converted default is shown.
+   */
+  private publicUnits(
+    product: { units?: PublicUnitRow[] | null } | null | undefined,
+    basePrice: number,
+    variantUnitPrices?: Record<
+      string,
+      { sellPrice?: number | null } | undefined
+    > | null,
+    priceOverride?: number | null,
+  ): PublicUnitOption[] {
+    const rows = product?.units ?? [];
+    if (rows.length === 0) return [];
+    const base = priceOverride ?? (Number(basePrice) || 0);
+    return rows.map((row) => {
+      const perBase = Number(row.perBase) || 1;
+      const variantOverride =
+        variantUnitPrices?.[String(row.unitId)]?.sellPrice;
+      const productOverride =
+        row.sellPrice === null || row.sellPrice === undefined
+          ? null
+          : Number(row.sellPrice);
+      const price =
+        variantOverride !== null && variantOverride !== undefined
+          ? Number(variantOverride)
+          : productOverride !== null
+            ? productOverride
+            : base / perBase;
+      return {
+        unitId: Number(row.unitId),
+        name: row.unit?.name ?? '',
+        symbol: row.unit?.symbol ?? null,
+        perBase,
+        isBase: !!row.isBase,
+        isDefaultSale: !!row.isDefaultSale,
+        price: this.roundPublicPrice(price),
+      };
+    });
   }
 
   /** The public-safe view for a token, or a state error when not live. */
@@ -158,7 +239,8 @@ export class PublicService {
     items: PublicItem[],
     enabled: string[],
   ): Array<{ key: string; label: string; items: PublicItem[] }> {
-    const groups: Array<{ key: string; label: string; items: PublicItem[] }> = [];
+    const groups: Array<{ key: string; label: string; items: PublicItem[] }> =
+      [];
     if (enabled.includes('FOOD_AND_BEVERAGE')) {
       const fb = items.filter((i) => i.kind === 'MENU_ITEM');
       if (fb.length)
@@ -178,13 +260,14 @@ export class PublicService {
         });
     }
     const svc = items.filter((i) => i.kind === 'SERVICE_ITEM');
-    if (svc.length) groups.push({ key: 'SERVICES', label: 'Services', items: svc });
+    if (svc.length)
+      groups.push({ key: 'SERVICES', label: 'Services', items: svc });
     return groups;
   }
 
-  private async resolveEntry(token: string): Promise<
-    PublicEntry & { table: { name: string } | null }
-  > {
+  private async resolveEntry(
+    token: string,
+  ): Promise<PublicEntry & { table: { name: string } | null }> {
     const entry = await this.prisma.publicEntry.findUnique({
       where: { token },
       include: { table: { select: { name: true } } },
@@ -217,7 +300,12 @@ export class PublicService {
     if (rows.length > 0) {
       const out: PublicItem[] = [];
       for (const row of rows) {
-        const item = await this.resolveItem(entry.tenantId, row.itemKind, row.itemId, row.priceOverride);
+        const item = await this.resolveItem(
+          entry.tenantId,
+          row.itemKind,
+          row.itemId,
+          row.priceOverride,
+        );
         if (item) out.push(item);
       }
       return out;
@@ -229,10 +317,14 @@ export class PublicService {
   private async autoCatalog(entry: PublicEntry): Promise<PublicItem[]> {
     const kinds = itemKindsForEntry(entry.kind, entry.serviceType);
     const out: PublicItem[] = [];
-    if (kinds.includes('ROOM_TYPE')) out.push(...(await this.availableRooms(entry)));
-    if (kinds.includes('MENU_ITEM')) out.push(...(await this.autoMenuItems(entry.tenantId)));
-    if (kinds.includes('SERVICE_ITEM')) out.push(...(await this.autoServiceItems(entry.tenantId)));
-    if (kinds.includes('PRODUCT')) out.push(...(await this.autoProducts(entry.tenantId)));
+    if (kinds.includes('ROOM_TYPE'))
+      out.push(...(await this.availableRooms(entry)));
+    if (kinds.includes('MENU_ITEM'))
+      out.push(...(await this.autoMenuItems(entry.tenantId)));
+    if (kinds.includes('SERVICE_ITEM'))
+      out.push(...(await this.autoServiceItems(entry.tenantId)));
+    if (kinds.includes('PRODUCT'))
+      out.push(...(await this.autoProducts(entry.tenantId)));
     return out;
   }
 
@@ -240,7 +332,8 @@ export class PublicService {
   private async availableRooms(entry: PublicEntry): Promise<PublicItem[]> {
     const now = new Date();
     const checkIn = entry.liveFrom ?? now;
-    const checkOut = entry.liveUntil ?? new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const checkOut =
+      entry.liveUntil ?? new Date(now.getTime() + 24 * 60 * 60 * 1000);
     return this.availableRoomTypes(entry.tenantId, checkIn, checkOut);
   }
 
@@ -268,7 +361,9 @@ export class PublicService {
     });
     const nights = Math.max(
       1,
-      Math.round((checkOut.getTime() - checkIn.getTime()) / (24 * 60 * 60 * 1000)),
+      Math.round(
+        (checkOut.getTime() - checkIn.getTime()) / (24 * 60 * 60 * 1000),
+      ),
     );
 
     const out: PublicItem[] = [];
@@ -282,7 +377,11 @@ export class PublicService {
         description: rt.description ?? null,
         price: rt.basePrice,
         image: this.imageUrl((rt as { imageUrl?: string | null }).imageUrl),
-        meta: { nights, totalForStay: rt.basePrice * nights, availableCount: free.length },
+        meta: {
+          nights,
+          totalForStay: rt.basePrice * nights,
+          availableCount: free.length,
+        },
       });
     }
     return out;
@@ -301,7 +400,9 @@ export class PublicService {
     const checkIn = this.parseDay(checkInStr);
     const checkOut = this.parseDay(checkOutStr);
     if (!checkIn || !checkOut) {
-      throw new BadRequestException('Please choose a check-in and check-out date');
+      throw new BadRequestException(
+        'Please choose a check-in and check-out date',
+      );
     }
     if (checkOut <= checkIn) {
       throw new BadRequestException('Check-out must be after check-in');
@@ -327,7 +428,14 @@ export class PublicService {
     const rows = await this.prisma.menuItem.findMany({
       where: { tenantId, isAvailable: true },
       orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-      select: { id: true, name: true, description: true, price: true, imageUrl: true },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        price: true,
+        imageUrl: true,
+        menuCategory: { select: { name: true } },
+      },
     });
     return rows.map((it) => ({
       ref: `MENU_ITEM:${it.id}`,
@@ -336,6 +444,7 @@ export class PublicService {
       description: it.description ?? null,
       price: it.price,
       image: this.imageUrl(it.imageUrl),
+      ...(it.menuCategory?.name ? { category: it.menuCategory.name } : {}),
     }));
   }
 
@@ -344,7 +453,14 @@ export class PublicService {
     const rows = await this.prisma.serviceItem.findMany({
       where: { tenantId, active: true },
       orderBy: [{ id: 'asc' }],
-      select: { id: true, name: true, description: true, price: true, imageUrl: true },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        price: true,
+        imageUrl: true,
+        category: { select: { name: true } },
+      },
     });
     return rows.map((it) => ({
       ref: `SERVICE_ITEM:${it.id}`,
@@ -353,6 +469,7 @@ export class PublicService {
       description: it.description ?? null,
       price: it.price,
       image: this.imageUrl(it.imageUrl),
+      ...(it.category?.name ? { category: it.category.name } : {}),
     }));
   }
 
@@ -367,20 +484,44 @@ export class PublicService {
         baseName: true,
         currentSellPrice: true,
         imageUrl: true,
-        variants: { select: { id: true, attributes: true, sellPrice: true, imageUrl: true } },
+        category: { select: { name: true } },
+        units: {
+          include: { unit: true },
+          orderBy: { sortOrder: 'asc' },
+        },
+        variants: {
+          select: {
+            id: true,
+            attributes: true,
+            sellPrice: true,
+            imageUrl: true,
+            unitPrices: true,
+          },
+        },
       },
     });
     return rows.map((it) => {
       const productImage = this.imageUrl(it.imageUrl);
+      const productUnits = this.publicUnits(it, it.currentSellPrice ?? 0);
       const variants = (it.variants ?? []).map((v) => ({
         ref: `PRODUCT:${it.id}:VARIANT:${v.id}`,
         name: variantAttributeLabel(v) || `#${v.id}`,
         price: v.sellPrice ?? it.currentSellPrice ?? 0,
         image: this.imageUrl(v.imageUrl) ?? productImage,
+        ...(productUnits.length
+          ? {
+              units: this.publicUnits(
+                it,
+                v.sellPrice ?? it.currentSellPrice ?? 0,
+                (v.unitPrices as Record<string, { sellPrice?: number }>) ??
+                  null,
+              ),
+            }
+          : {}),
       }));
       const basePrice = variants.length
         ? Math.min(...variants.map((v) => v.price))
-        : it.currentSellPrice ?? 0;
+        : (it.currentSellPrice ?? 0);
       return {
         ref: `PRODUCT:${it.id}`,
         kind: 'PRODUCT',
@@ -388,6 +529,8 @@ export class PublicService {
         description: null,
         price: basePrice,
         image: productImage,
+        ...(it.category?.name ? { category: it.category.name } : {}),
+        ...(productUnits.length ? { units: productUnits } : {}),
         ...(variants.length ? { variants } : {}),
       };
     });
@@ -405,7 +548,15 @@ export class PublicService {
       case 'MENU_ITEM': {
         const it = await this.prisma.menuItem.findFirst({
           where: { id: itemId, tenantId },
-          select: { id: true, name: true, description: true, price: true, isAvailable: true, imageUrl: true },
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            price: true,
+            isAvailable: true,
+            imageUrl: true,
+            menuCategory: { select: { name: true } },
+          },
         });
         if (!it || it.isAvailable === false) return null;
         return {
@@ -415,6 +566,7 @@ export class PublicService {
           description: it.description ?? null,
           price: price(it.price),
           image: this.imageUrl(it.imageUrl),
+          ...(it.menuCategory?.name ? { category: it.menuCategory.name } : {}),
         };
       }
       case 'PRODUCT': {
@@ -426,18 +578,46 @@ export class PublicService {
             baseName: true,
             currentSellPrice: true,
             imageUrl: true,
+            category: { select: { name: true } },
+            units: {
+              include: { unit: true },
+              orderBy: { sortOrder: 'asc' },
+            },
             variants: {
-              select: { id: true, attributes: true, sellPrice: true, imageUrl: true },
+              select: {
+                id: true,
+                attributes: true,
+                sellPrice: true,
+                imageUrl: true,
+                unitPrices: true,
+              },
             },
           },
         });
         if (!it) return null;
         const productImage = this.imageUrl(it.imageUrl);
+        const productUnits = this.publicUnits(
+          it,
+          it.currentSellPrice ?? 0,
+          null,
+          priceOverride,
+        );
         const variants = (it.variants ?? []).map((v) => ({
           ref: `PRODUCT:${it.id}:VARIANT:${v.id}`,
           name: variantAttributeLabel(v) || `#${v.id}`,
           price: price(v.sellPrice ?? it.currentSellPrice ?? 0),
           image: this.imageUrl(v.imageUrl) ?? productImage,
+          ...(productUnits.length
+            ? {
+                units: this.publicUnits(
+                  it,
+                  v.sellPrice ?? it.currentSellPrice ?? 0,
+                  (v.unitPrices as Record<string, { sellPrice?: number }>) ??
+                    null,
+                  priceOverride,
+                ),
+              }
+            : {}),
         }));
         const basePrice = variants.length
           ? Math.min(...variants.map((v) => v.price))
@@ -449,13 +629,23 @@ export class PublicService {
           description: null,
           price: basePrice,
           image: productImage,
+          ...(it.category?.name ? { category: it.category.name } : {}),
+          ...(productUnits.length ? { units: productUnits } : {}),
           ...(variants.length ? { variants } : {}),
         };
       }
       case 'SERVICE_ITEM': {
         const it = await this.prisma.serviceItem.findFirst({
           where: { id: itemId, tenantId },
-          select: { id: true, name: true, description: true, price: true, active: true, imageUrl: true },
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            price: true,
+            active: true,
+            imageUrl: true,
+            category: { select: { name: true } },
+          },
         });
         if (!it || it.active === false) return null;
         return {
@@ -465,12 +655,19 @@ export class PublicService {
           description: it.description ?? null,
           price: price(it.price),
           image: this.imageUrl(it.imageUrl),
+          ...(it.category?.name ? { category: it.category.name } : {}),
         };
       }
       case 'ROOM_TYPE': {
         const rt = await this.prisma.roomType.findFirst({
           where: { id: itemId, tenantId },
-          select: { id: true, name: true, description: true, basePrice: true, imageUrl: true },
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            basePrice: true,
+            imageUrl: true,
+          },
         });
         if (!rt) return null;
         return {
@@ -493,7 +690,10 @@ export class PublicService {
    * Autofill by phone: returns only the minimal name for THIS tenant when a
    * customer with that phone exists. Never reveals anything else.
    */
-  async lookupCustomer(token: string, phone: string): Promise<{ name: string | null }> {
+  async lookupCustomer(
+    token: string,
+    phone: string,
+  ): Promise<{ name: string | null }> {
     const entry = await this.resolveEntry(token);
     if (!phone) return { name: null };
     const customer = await this.prisma.customer.findFirst({
@@ -513,7 +713,12 @@ export class PublicService {
   async submit(
     token: string,
     body: {
-      items: Array<{ ref: string; quantity: number; notes?: string }>;
+      items: Array<{
+        ref: string;
+        quantity: number;
+        unitId?: number;
+        notes?: string;
+      }>;
       customerName?: string;
       customerPhone?: string;
       tableNumber?: string;
@@ -523,7 +728,9 @@ export class PublicService {
   ) {
     const entry = await this.resolveEntry(token);
     if (this.effectiveState(entry) !== 'LIVE') {
-      throw new ForbiddenException('This link is not accepting orders right now');
+      throw new ForbiddenException(
+        'This link is not accepting orders right now',
+      );
     }
     if (!body.items || body.items.length === 0) {
       throw new BadRequestException('No items');
@@ -535,7 +742,8 @@ export class PublicService {
         where: { tenantId: entry.tenantId, phone: body.customerPhone },
         select: { id: true },
       });
-      if (blocked) throw new ForbiddenException('Ordering is unavailable for this number');
+      if (blocked)
+        throw new ForbiddenException('Ordering is unavailable for this number');
     }
 
     const isFoodAndBeverage =
@@ -554,7 +762,9 @@ export class PublicService {
     } else {
       // Other entries identify the guest by name/phone; require at least one.
       if (!name && !phone) {
-        throw new BadRequestException('Please provide your name or phone number');
+        throw new BadRequestException(
+          'Please provide your name or phone number',
+        );
       }
     }
 
@@ -564,12 +774,43 @@ export class PublicService {
     const items = body.items.map((line) => {
       const item = catalog.get(line.ref);
       if (!item) throw new BadRequestException(`Unknown item ${line.ref}`);
+
+      // PRODUCT lines may offer a unit ladder. Resolve the guest's choice
+      // against that product's own ladder; fall back to the default-sale unit
+      // for older clients that do not send one.
+      const units = item.units ?? [];
+      let selectedUnit = units.find(
+        (unit) => unit.unitId === Number(line.unitId),
+      );
+      if (line.unitId != null && !selectedUnit) {
+        throw new BadRequestException(
+          `The selected unit is not available for this product.`,
+        );
+      }
+      if (!selectedUnit && units.length > 0) {
+        selectedUnit =
+          units.find((unit) => unit.isDefaultSale) ??
+          units.find((unit) => unit.isBase) ??
+          units[0];
+      }
+
+      // Variant refs look like PRODUCT:<id>:VARIANT:<variantId>.
+      const parts = item.ref.split(':');
+      const variantId =
+        parts[2] === 'VARIANT' && Number.isInteger(Number(parts[3]))
+          ? Number(parts[3])
+          : null;
+
       return {
         itemKind: item.kind,
-        itemId: Number(item.ref.split(':')[1]),
+        itemId: Number(parts[1]),
+        variantId,
         nameSnapshot: item.name,
         quantity: Math.max(1, Math.floor(Number(line.quantity) || 1)),
-        unitPrice: item.price,
+        // The unit's own price (explicit override or base ÷ perBase).
+        unitPrice: selectedUnit ? selectedUnit.price : item.price,
+        unitId: selectedUnit?.unitId ?? null,
+        unitNameSnapshot: selectedUnit?.name ?? null,
         notes: line.notes ?? null,
       };
     });
@@ -620,7 +861,9 @@ export class PublicService {
       .catch(() => {});
 
     // Owner may have enabled auto-approve for this entry (skip the manual gate).
-    await this.guestOrders.maybeAutoApprove(created.id, entry.tenantId).catch(() => {});
+    await this.guestOrders
+      .maybeAutoApprove(created.id, entry.tenantId)
+      .catch(() => {});
 
     return { token: created.token, status: created.status, totalAmount };
   }
@@ -669,7 +912,9 @@ export class PublicService {
     }
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return null;
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    return new Date(
+      Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
+    );
   }
 
   /**
@@ -689,7 +934,9 @@ export class PublicService {
   ) {
     const entry = await this.resolveEntry(token);
     if (this.effectiveState(entry) !== 'LIVE') {
-      throw new ForbiddenException('This link is not accepting bookings right now');
+      throw new ForbiddenException(
+        'This link is not accepting bookings right now',
+      );
     }
     const name = body.guestName?.trim() ?? '';
     const phone = body.phone?.trim() ?? '';
@@ -704,7 +951,9 @@ export class PublicService {
     const checkIn = this.parseDay(body.checkIn);
     const checkOut = this.parseDay(body.checkOut);
     if (!checkIn || !checkOut) {
-      throw new BadRequestException('Please choose a check-in and check-out date');
+      throw new BadRequestException(
+        'Please choose a check-in and check-out date',
+      );
     }
     if (checkOut <= checkIn) {
       throw new BadRequestException('Check-out must be after check-in');
@@ -727,7 +976,9 @@ export class PublicService {
 
     const nights = Math.max(
       1,
-      Math.round((checkOut.getTime() - checkIn.getTime()) / (24 * 60 * 60 * 1000)),
+      Math.round(
+        (checkOut.getTime() - checkIn.getTime()) / (24 * 60 * 60 * 1000),
+      ),
     );
     const totalAmount = item.price * nights;
 
@@ -790,7 +1041,9 @@ export class PublicService {
   ) {
     const entry = await this.resolveEntry(token);
     if (this.effectiveState(entry) !== 'LIVE') {
-      throw new ForbiddenException('This link is not accepting bookings right now');
+      throw new ForbiddenException(
+        'This link is not accepting bookings right now',
+      );
     }
     const name = body.guestName?.trim() ?? '';
     const phone = body.phone?.trim() ?? '';
@@ -860,7 +1113,11 @@ export class PublicService {
       '/dashboard/guest-orders',
     );
 
-    return { token: created.token, status: created.status, totalAmount: item.price };
+    return {
+      token: created.token,
+      status: created.status,
+      totalAmount: item.price,
+    };
   }
 
   /** The guest's own order status (by its opaque token). */
@@ -879,7 +1136,9 @@ export class PublicService {
   }
 
   /** Build a ref->publicItem map for the entry (the allowed order set). */
-  private async catalogMap(entry: PublicEntry): Promise<Map<string, PublicItem>> {
+  private async catalogMap(
+    entry: PublicEntry,
+  ): Promise<Map<string, PublicItem>> {
     // Resolve the catalog the same way `view()` does, then index every
     // selectable ref — including variant refs — so a guest can only order what
     // this entry actually offers.
@@ -905,6 +1164,7 @@ export class PublicService {
           name: `${item.name} — ${v.name}`,
           price: v.price,
           image: v.image,
+          units: v.units ?? item.units,
           variants: undefined,
         });
       }
@@ -963,10 +1223,7 @@ export class PublicService {
       where: {
         tenantId,
         status: { in: active },
-        OR: [
-          { washerId },
-          { items: { some: { washerId } } },
-        ],
+        OR: [{ washerId }, { items: { some: { washerId } } }],
       },
       include: {
         items: {
@@ -1062,7 +1319,12 @@ export class PublicService {
       }),
       this.prisma.carWashPrice.findMany({
         where: { tenantId: entry.tenantId },
-        select: { vehicleType: true, washTypeId: true, amount: true, durationMinutes: true },
+        select: {
+          vehicleType: true,
+          washTypeId: true,
+          amount: true,
+          durationMinutes: true,
+        },
       }),
       this.prisma.carWashWasher.findMany({
         where: { tenantId: entry.tenantId, isActive: true },
@@ -1145,7 +1407,9 @@ export class PublicService {
   ) {
     const entry = await this.carwashEntry(token);
     if (this.effectiveState(entry) !== 'LIVE') {
-      throw new ForbiddenException('This link is not accepting bookings right now');
+      throw new ForbiddenException(
+        'This link is not accepting bookings right now',
+      );
     }
     const name = body.name?.trim() ?? '';
     const phone = body.phone?.trim() ?? '';
@@ -1181,7 +1445,12 @@ export class PublicService {
 
     const prices = await this.prisma.carWashPrice.findMany({
       where: { tenantId: entry.tenantId },
-      select: { vehicleType: true, washTypeId: true, amount: true, durationMinutes: true },
+      select: {
+        vehicleType: true,
+        washTypeId: true,
+        amount: true,
+        durationMinutes: true,
+      },
     });
     const priceFor = (vehicleType: string, washTypeId: number | null) => {
       const p = prices.find(
@@ -1237,9 +1506,7 @@ export class PublicService {
 
       // Resolve this line's washer and verify availability over the wash's
       // actual duration (price-based, default 45 min).
-      const washerId = line.washerId
-        ? Number(line.washerId)
-        : defaultWasherId;
+      const washerId = line.washerId ? Number(line.washerId) : defaultWasherId;
       if (washerId) {
         const washer = await this.prisma.carWashWasher.findFirst({
           where: { id: washerId, tenantId: entry.tenantId, isActive: true },
@@ -1253,7 +1520,9 @@ export class PublicService {
           durationFor(vehicleType, washTypeId),
         );
         if (!available) {
-          throw new BadRequestException('This washer is not available at that time');
+          throw new BadRequestException(
+            'This washer is not available at that time',
+          );
         }
       }
 

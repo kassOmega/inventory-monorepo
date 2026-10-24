@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import Button from "@/app/components/Button";
+import { fmtCurrency } from "@/lib/currency";
 
 export interface ServiceBookingItem {
   ref: string;
@@ -76,7 +77,7 @@ export default function ServiceBookingForm({
           {items.map((it) => (
             <option key={it.ref} value={it.ref}>
               {it.name}
-              {it.price != null ? ` — ${it.price.toLocaleString()}` : ""}
+              {it.price != null ? ` — ${fmtCurrency(it.price)}` : ""}
             </option>
           ))}
         </select>

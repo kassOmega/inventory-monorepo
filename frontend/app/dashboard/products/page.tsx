@@ -8,6 +8,7 @@ import Pagination from "@/app/components/Pagination";
 import PriceListModal from "@/app/components/PriceListModal";
 import ProductDetailModal from "@/app/components/ProductDetailModal";
 import ProductForm from "@/app/components/ProductForm";
+import ProductUnitPrices from "@/app/components/ProductUnitPrices";
 import RowActionsMenu from "@/app/components/RowActionsMenu";
 import StockCountModal from "@/app/components/StockCountModal";
 import { useToast } from "@/app/components/ToastProvider";
@@ -404,6 +405,21 @@ export default function ProductsPage() {
                 <tbody>
                   {products.map((p: any) => {
                     const stock = getTotalStock(p);
+                    const lowStock =
+                      (p.reorderLevel ?? 0) > 0 &&
+                      stock <= (p.reorderLevel ?? 0);
+                    const baseUnitName =
+                      p.unit?.name ??
+                      p.units?.find((u: any) => u.isBase)?.unit?.name ??
+                      "";
+                    const variantSellPrices = (p.variants ?? [])
+                      .map((v: any) => Number(v.sellPrice))
+                      .filter((n: number) => n > 0);
+                    const minVariantSell = variantSellPrices.length
+                      ? Math.min(...variantSellPrices)
+                      : null;
+                    const displaySell =
+                      minVariantSell ?? p.currentSellPrice ?? null;
                     return (
                       <Fragment key={p.id}>
                         <tr
@@ -443,12 +459,43 @@ export default function ProductsPage() {
                             {p.brand || t("common.notAvailable")}
                           </td>
                           <td className="p-2 sm:p-3 md:p-4 font-medium">
-                            {p.baseName}
-                            {p.kind && p.kind !== "GOODS" && (
-                              <span className="ml-1 text-[10px] text-blue-600">
-                                {statusLabel(p.kind)}
-                              </span>
-                            )}
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span>{p.baseName}</span>
+                              {p.kind && p.kind !== "GOODS" && (
+                                <span className="text-[10px] text-blue-600">
+                                  {statusLabel(p.kind)}
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] font-normal text-gray-400">
+                              {p.unit?.name && (p.units?.length ?? 0) <= 1 && (
+                                <span>{p.unit.name}</span>
+                              )}
+                              {displaySell != null && (
+                                <span>
+                                  ·{" "}
+                                  {minVariantSell != null
+                                    ? `${t("public.from")} `
+                                    : ""}
+                                  {fmtCurrency(displaySell)}
+                                </span>
+                              )}
+                              {(p.units?.length ?? 0) > 1 && (
+                                <span
+                                  className="max-w-[16rem] truncate"
+                                  title={(p.units ?? [])
+                                    .map((u: any) => u.unit?.name)
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                                >
+                                  ·{" "}
+                                  {(p.units ?? [])
+                                    .map((u: any) => u.unit?.name)
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="p-2 sm:p-3 md:p-4">
                             <span className="bg-gray-100 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs">
@@ -457,7 +504,7 @@ export default function ProductsPage() {
                           </td>
                           <td className="p-2 sm:p-3 md:p-4">
                             <span
-                              className={`font-bold text-xs sm:text-sm ${stock < 10 ? "text-red-500" : "text-gray-800"}`}
+                              className={`font-bold text-xs sm:text-sm ${lowStock ? "text-red-500" : "text-gray-800"}`}
                             >
                               {stockLabel(p, stock)}
                             </span>
@@ -543,6 +590,7 @@ export default function ProductsPage() {
                                       )}
                                       <th className="text-right p-1 font-medium">
                                         {t("products.sellPrice")}
+                                        {baseUnitName ? ` / ${baseUnitName}` : ""}
                                       </th>
                                       <th className="text-right p-1 font-medium">
                                         {t("products.stock")}
@@ -633,6 +681,7 @@ export default function ProductsPage() {
                                       )}
                                       <th className="text-right p-1 font-medium">
                                         {t("products.sellPrice")}
+                                        {baseUnitName ? ` / ${baseUnitName}` : ""}
                                       </th>
                                       <th className="text-right p-1 font-medium">
                                         {t("products.quantityStock")}
@@ -644,10 +693,15 @@ export default function ProductsPage() {
                                   </thead>
                                   <tbody>
                                     {(p.variants ?? []).map((v: any) => {
-                                      const qty =
-                                        (p.inventory ?? []).find(
+                                      const qty = (p.inventory ?? [])
+                                        .filter(
                                           (i: any) => i.variantId === v.id,
-                                        )?.quantity ?? 0;
+                                        )
+                                        .reduce(
+                                          (sum: number, i: any) =>
+                                            sum + (i.quantity ?? 0),
+                                          0,
+                                        );
                                       return (
                                         <tr
                                           key={v.id}
@@ -676,7 +730,7 @@ export default function ProductsPage() {
                                               : "—"}
                                           </td>
                                           <td className="p-1 text-right font-semibold">
-                                            {qty}
+                                            {stockLabel(p, qty)}
                                           </td>
                                           <td className="p-1 text-right whitespace-nowrap">
                                             {canAdjust && (
@@ -726,6 +780,19 @@ export default function ProductsPage() {
                                     })}
                                   </tbody>
                                 </table>
+                              )}
+                              {(p.units?.length ?? 0) > 0 && (
+                                <div className="mt-3">
+                                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                    {t("pf.unitsTitle")}
+                                  </p>
+                                  <ProductUnitPrices
+                                    units={p.units}
+                                    baseSellPrice={p.currentSellPrice}
+                                    baseBuyPrice={p.currentBuyPrice}
+                                    canViewProfit={canViewProfit}
+                                  />
+                                </div>
                               )}
                             </td>
                           </tr>

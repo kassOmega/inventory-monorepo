@@ -3325,12 +3325,19 @@ model GuestOrderItem {
   /// MENU_ITEM | PRODUCT | SERVICE_ITEM | ROOM_TYPE
   itemKind     String
   itemId       Int?
+  /// PRODUCT only: the variant the guest picked (from the public ref).
+  variantId    Int?
   nameSnapshot String
   quantity     Int        @default(1)
   unitPrice    Float      @default(0)
+  /// PRODUCT only: the unit the guest picked, with its display snapshot.
+  unitId           Int?
+  unitNameSnapshot String?
   notes        String?
 
   @@index([guestOrderId])
+  @@index([unitId])
+  @@index([variantId])
 }
 
 /// The central-desk -> branch conversation for retail/manufacturing orders.

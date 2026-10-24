@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Button from "@/app/components/Button";
+import { fmtCurrency } from "@/lib/currency";
 
 export interface RoomTypeOption {
   ref: string;
@@ -228,7 +229,7 @@ export default function ReservationForm({
                       </p>
                       {showPrices && rt.price != null && (
                         <p className="text-xs text-gray-600">
-                          {rt.price.toLocaleString()}
+                          {fmtCurrency(rt.price)}
                           {t("hotel.perNight")}
                         </p>
                       )}

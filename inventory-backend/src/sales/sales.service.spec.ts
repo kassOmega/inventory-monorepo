@@ -20,16 +20,28 @@ const makePrisma = (overrides: Record<string, any> = {}) => {
       findFirst: jest.fn(async () => ({
         id: 9,
         quantity: 100,
-        product: { currentBuyPrice: 10, currentSellPrice: 20, isPerishable: false },
+        product: {
+          currentBuyPrice: 10,
+          currentSellPrice: 20,
+          isPerishable: false,
+        },
       })),
       update: jest.fn(async (args: any) => ({ id: args.where.id })),
     },
     productVariant: { findUnique: jest.fn(async () => null) },
+    product: { findUnique: jest.fn(async () => null) },
+    location: { findUnique: jest.fn(async () => ({ name: 'Shop' })) },
     organization: {
-      findUnique: jest.fn(async () => ({ taxEnabled: false, taxInclusive: true })),
+      findUnique: jest.fn(async () => ({
+        taxEnabled: false,
+        taxInclusive: true,
+      })),
     },
     taxRate: { findFirst: jest.fn(async () => null) },
-    productBatch: { findMany: jest.fn(async () => []), update: jest.fn(async (a: any) => a) },
+    productBatch: {
+      findMany: jest.fn(async () => []),
+      update: jest.fn(async (a: any) => a),
+    },
     creditSale: { create: jest.fn(async (args: any) => args.data) },
     auditLog: { create: jest.fn(async (args: any) => args.data) },
     ...overrides,
@@ -39,10 +51,18 @@ const makePrisma = (overrides: Record<string, any> = {}) => {
 
 const makeService = (prisma: any) => {
   const finance = { postSaleIncome: jest.fn(async () => 1) };
-  const notifications = { checkAndNotifyLowStock: jest.fn(async () => undefined) };
+  const notifications = {
+    checkAndNotifyLowStock: jest.fn(async () => undefined),
+  };
   // CRM: only exercised for sales with a customer; a stub keeps these specs
   // focused on the checkout/stock behaviour they cover.
-  const loyalty = { syncSaleLoyalty: jest.fn(async () => ({ earned: 0, reversed: 0, balance: null })) };
+  const loyalty = {
+    syncSaleLoyalty: jest.fn(async () => ({
+      earned: 0,
+      reversed: 0,
+      balance: null,
+    })),
+  };
   const service = new SalesService(
     prisma,
     notifications as any,
@@ -52,8 +72,18 @@ const makeService = (prisma: any) => {
   return { service, finance, notifications, loyalty, prisma };
 };
 
-const createUser = { sub: 1, isSuperuser: true, locationId: null, permissions: [] };
-const updateUser = { sub: 1, isSuperuser: true, locationId: 3, permissions: [] };
+const createUser = {
+  sub: 1,
+  isSuperuser: true,
+  locationId: null,
+  permissions: [],
+};
+const updateUser = {
+  sub: 1,
+  isSuperuser: true,
+  locationId: 3,
+  permissions: [],
+};
 
 describe('SalesService.createSale', () => {
   it('calls postSaleIncome synchronously inside the checkout transaction', async () => {
@@ -73,7 +103,76 @@ describe('SalesService.createSale', () => {
     // postSaleIncome fires within the same transaction that created the sale.
     expect(finance.postSaleIncome).toHaveBeenCalledTimes(1);
     // sale id 42 (from the create mock) + tenant 1 + the shared transaction.
-    expect(finance.postSaleIncome).toHaveBeenCalledWith(42, 1, expect.anything());
+    expect(finance.postSaleIncome).toHaveBeenCalledWith(
+      42,
+      1,
+      expect.anything(),
+    );
+  });
+
+  it('converts the selected unit to stock and prices it per unit', async () => {
+    const units = [
+      {
+        unitId: 1,
+        perBase: 1,
+        isBase: true,
+        isDefaultSale: true,
+        sellPrice: null,
+        buyPrice: null,
+        unit: { name: 'Box' },
+      },
+      {
+        unitId: 2,
+        perBase: 24,
+        isBase: false,
+        isDefaultSale: false,
+        sellPrice: null,
+        buyPrice: null,
+        unit: { name: 'Piece' },
+      },
+    ];
+    const prisma = makePrisma({
+      inventory: {
+        findFirst: jest.fn(async () => ({
+          id: 9,
+          quantity: 100,
+          product: {
+            currentBuyPrice: 480,
+            currentSellPrice: 1200,
+            isPerishable: false,
+            stockUnitId: 2,
+            units,
+          },
+        })),
+        update: jest.fn(async (args: any) => ({ id: args.where.id })),
+      },
+    });
+    const { service } = makeService(prisma);
+
+    await service.createSale(
+      {
+        shopId: 3,
+        items: [{ productId: 5, quantity: 2, unitId: 1 }],
+        saleType: 'FULLY_PAID',
+        paymentMethodId: 1,
+      } as any,
+      createUser as any,
+    );
+
+    // 2 Boxes × 24 Pieces = 48 stock units deducted.
+    expect(prisma.inventory.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { quantity: { decrement: 48 } } }),
+    );
+    const saleArg = (prisma.sale.create as jest.Mock).mock.calls[0][0];
+    expect(saleArg.data.totalAmount).toBe(2400);
+    expect(saleArg.data.items.create[0]).toMatchObject({
+      unitId: 1,
+      unitQuantity: 2,
+      unitPrice: 1200,
+      quantity: 48,
+      stockQuantity: 48,
+      stockFactor: 24,
+    });
   });
 });
 
@@ -105,6 +204,7 @@ describe('SalesService.updateSale', () => {
           brand: 'ACME',
           baseName: 'Widget',
         })),
+        findUnique: jest.fn(async () => null),
       },
     });
     const { service } = makeService(prisma);

@@ -35,6 +35,18 @@ const SALE_TYPE_STATUS_KEY: Record<string, string> = {
   CREDITED: "status.credited",
 };
 
+/** "2 Box × Product name" — the unit is a snapshot from the guest order. */
+const guestItemLabel = (item: any) =>
+  `${item.quantity}${item.unitNameSnapshot ? ` ${item.unitNameSnapshot}` : ""} × ${item.nameSnapshot}`;
+
+/** Compact unit-aware items summary for the table view. */
+const guestItemsSummary = (items: any[] | undefined) => {
+  const list = items ?? [];
+  if (list.length === 0) return "—";
+  const shown = list.slice(0, 2).map(guestItemLabel).join(", ");
+  return list.length > 2 ? `${shown} +${list.length - 2}` : shown;
+};
+
 export default function GuestOrdersPage() {
   const { t } = useTranslation();
   const toast = useToast();
@@ -238,7 +250,9 @@ export default function GuestOrdersPage() {
   /** Ordered items as price-list rows (unit price, like the products list). */
   const shareRowsFor = (d: any) =>
     (d?.items ?? []).map((it: any) => ({
-      item: it.nameSnapshot,
+      item: it.unitNameSnapshot
+        ? `${it.nameSnapshot} (${it.unitNameSnapshot})`
+        : it.nameSnapshot,
       price: fmtCurrency(it.unitPrice, 2, "en"),
     }));
 
@@ -434,9 +448,7 @@ export default function GuestOrdersPage() {
 
               <ul className="text-xs text-gray-500 space-y-0.5">
                 {(o.items ?? []).slice(0, 3).map((it: any) => (
-                  <li key={it.id}>
-                    · {it.quantity}× {it.nameSnapshot}
-                  </li>
+                  <li key={it.id}>· {guestItemLabel(it)}</li>
                 ))}
                 {(o.items ?? []).length > 3 && (
                   <li className="text-gray-400">
@@ -479,6 +491,7 @@ export default function GuestOrdersPage() {
               <th className="px-3 py-2">#</th>
               <th className="px-3 py-2">{t("guestOrders.source")}</th>
               <th className="px-3 py-2">{t("guestOrders.from")}</th>
+              <th className="px-3 py-2">{t("guestOrders.items")}</th>
               <th className="px-3 py-2 text-right">{t("common.total")}</th>
               <th className="px-3 py-2">{t("common.status")}</th>
               <th className="px-3 py-2"></th>
@@ -516,6 +529,9 @@ export default function GuestOrdersPage() {
                     <span className="block text-[11px] text-gray-400">{o.customerPhone}</span>
                   ) : null}
                 </td>
+                <td className="px-3 py-2 text-gray-600">
+                  {guestItemsSummary(o.items)}
+                </td>
                 <td className="px-3 py-2 text-right">{fmtCurrency(o.totalAmount)}</td>
                 <td className="px-3 py-2">
                   <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_CLASS[o.status]}`}>
@@ -531,7 +547,7 @@ export default function GuestOrdersPage() {
             ))}
             {orders.length === 0 && (
               <tr>
-                <td colSpan={canManage ? 7 : 6} className="px-3 py-6 text-center text-gray-400">
+                <td colSpan={canManage ? 8 : 7} className="px-3 py-6 text-center text-gray-400">
                   {t("guestOrders.empty")}
                 </td>
               </tr>
@@ -573,7 +589,7 @@ export default function GuestOrdersPage() {
               {detail.items?.map((it: any) => (
                 <li key={it.id} className="flex justify-between px-3 py-2 gap-3">
                   <span className="min-w-0">
-                    {it.quantity}× {it.nameSnapshot}
+                    {guestItemLabel(it)}
                     {it.itemKind === "CARWASH_ITEM" && it.washerName ? (
                       <span className="block text-[11px] text-gray-400">
                         {t("carwash.washer")}: {it.washerName}
@@ -581,7 +597,7 @@ export default function GuestOrdersPage() {
                     ) : null}
                   </span>
                   <span className="text-gray-500 whitespace-nowrap">
-                    {it.unitPrice * it.quantity}
+                    {fmtCurrency(it.unitPrice * it.quantity)}
                   </span>
                 </li>
               ))}
